@@ -53,10 +53,12 @@ Verify `git status --short` and record `git rev-parse HEAD` first:
 sources risks mixing incompatible binaries and code.
 
 `tools/vm-setup` checks Debian packages, OVMF, the selected VM
-accelerator and a pinned 9front bootstrap image. With usable KVM,
-run the following commands; `VM_ACCEL=tcg` is the script's documented
-alternative when KVM access is unavailable, but has **not** been
-validated in this audit.
+accelerator and a pinned 9front bootstrap image. The **full five-gate
+QEMU suite currently expects KVM**: `tools/targets/amd64` supplies
+`-accel kvm -cpu host` directly to those guest invocations.
+`VM_ACCEL=tcg` is supported by the bootstrap `tools/vm` path, but it
+does **not** automatically switch these standalone gate scripts to TCG.
+Use a host with accessible `/dev/kvm` for the commands below.
 
 ```bash
 set -euo pipefail
@@ -72,7 +74,7 @@ WHAT=all tools/build.sh 2>&1 | tee build/verification/build.log
 ORIGIN=https://github.com/pereuna/Plan2001-O.git \
   tools/selfroot build/selfroot 2>&1 | tee build/verification/selfroot.log
 
-test -x build/amd64/9pc64
+test -s build/amd64/9pc64
 test -s build/amd64/bootx64.efi
 test -x build/selfroot/amd64/bin/gefs
 test -x build/selfroot/amd64/bin/micropython
