@@ -1,0 +1,111 @@
+# MicroPython (docs/mpinit.md): /$objtype/bin/micropython, and in the
+# kernel's image /boot/mp, Plan2001's first user program (-B: boot.py).
+# 6c -p (ANSI cpp) -u (ANSI C's integer promotions); genhdr/ comes from
+# Linux (Makefile: make genhdr).
+</$objtype/mkfile
+
+TARG=micropython
+BIN=/$objtype/bin
+
+PYOFILES=\
+	argcheck.$O bc.$O binary.$O builtinevex.$O builtinhelp.$O\
+	builtinimport.$O compile.$O cstack.$O emitbc.$O emitcommon.$O\
+	emitglue.$O formatfloat.$O frozenmod.$O gc.$O lexer.$O\
+	malloc.$O map.$O modarray.$O modbuiltins.$O modcmath.$O\
+	modcollections.$O moderrno.$O modgc.$O modio.$O modmath.$O\
+	modmicropython.$O modstruct.$O modsys.$O modthread.$O\
+	mpprint.$O mpstate.$O mpz.$O nativeglue.$O objarray.$O\
+	objattrtuple.$O objbool.$O objboundmeth.$O obj.$O objcell.$O\
+	objclosure.$O objcode.$O objcomplex.$O objdeque.$O objdict.$O\
+	objenumerate.$O objexcept.$O objfilter.$O objfloat.$O objfun.$O\
+	objgenerator.$O objgetitemiter.$O objint.$O objint_longlong.$O\
+	objint_mpz.$O objlist.$O objmap.$O objmodule.$O\
+	objnamedtuple.$O objnone.$O objobject.$O objpolyiter.$O\
+	objproperty.$O objrange.$O objreversed.$O objringio.$O\
+	objset.$O objsingleton.$O objslice.$O objstr.$O objstringio.$O\
+	objstrunicode.$O objtuple.$O objtype.$O objzip.$O opmethods.$O\
+	pairheap.$O parse.$O parsenumbase.$O parsenum.$O\
+	persistentcode.$O profile.$O pystack.$O qstr.$O reader.$O\
+	repl.$O ringbuf.$O runtime.$O runtime_utils.$O scheduler.$O\
+	scope.$O sequence.$O showbc.$O smallint.$O stackctrl.$O\
+	stream.$O unicode.$O vm.$O vstr.$O warning.$O\
+	nlr.$O\
+	nlrsetjmp.$O\
+	modjson.$O\
+
+# musl's libm (lib/libm_dbl/README); sqrt is libc's SQRTSD, copysign
+# p9math.c's (copysign.c is for debugging builds)
+LIBMOFILES=\
+	acos.$O acosh.$O asin.$O asinh.$O atan2.$O atan.$O atanh.$O\
+	ceil.$O __cos.$O cos.$O cosh.$O erf.$O\
+	expm1.$O __expo2.$O floor.$O fmod.$O __fpclassify.$O frexp.$O\
+	ldexp.$O lgamma.$O log10.$O log1p.$O modf.$O\
+	nearbyint.$O __rem_pio2.$O __rem_pio2_large.$O rint.$O\
+	round.$O scalbn.$O __signbit.$O __sin.$O sin.$O sinh.$O\
+	__tan.$O tan.$O tanh.$O tgamma.$O trunc.$O\
+
+# exp, log and pow newer: lib/musl/README; musl_ in front, since
+# lib/libm_dbl has the same names
+MUSLOFILES=\
+	musl_exp.$O musl_exp_data.$O musl_log.$O musl_log_data.$O\
+	musl_pow.$O musl_pow_data.$O\
+	musl___math_oflow.$O musl___math_uflow.$O musl___math_xflow.$O\
+	musl___math_invalid.$O musl___math_divzero.$O\
+
+OFILES=\
+	main.$O\
+	modplan9.$O\
+	p9space.$O\
+	p9image.$O\
+	p9sha.$O\
+	p9file.$O\
+	p9builtin.$O\
+	p9math.$O\
+	p9console.$O\
+	p9hal.$O\
+	$PYOFILES\
+	readline.$O\
+	pyexec.$O\
+	stdout_helpers.$O\
+	gchelper_generic.$O\
+	$LIBMOFILES\
+	$MUSLOFILES\
+
+HFILES=mpconfigport.h mphalport.h genhdr/qstrdefs.generated.h
+CLEANFILES=boot.h
+
+</sys/src/cmd/mkone
+
+# the compiler of /$objtype/bin, not /bin's: in tools/build.rc's tree the
+# new 6c (with -u) is bound on /$objtype/bin, but /bin still has the old
+# one, which ignores -u
+CC=/$objtype/bin/$CC
+CFLAGS=-p -u -D__PLAN9__ -DNDEBUG -Iinclude -I.
+
+%.$O:	py/%.c
+	$CC $CFLAGS py/$stem.c
+
+%.$O:	extmod/%.c
+	$CC $CFLAGS extmod/$stem.c
+
+musl_%.$O:	lib/musl/%.c
+	$CC $CFLAGS -Ilib/musl -o $target lib/musl/$stem.c
+
+%.$O:	lib/libm_dbl/%.c
+	$CC $CFLAGS -Ilib/libm_dbl lib/libm_dbl/$stem.c
+
+%.$O:	shared/readline/%.c
+	$CC $CFLAGS shared/readline/$stem.c
+
+%.$O:	shared/runtime/%.c
+	$CC $CFLAGS shared/runtime/$stem.c
+
+main.$O:	boot.h
+
+# boot.py as a C string
+boot.h:D:	boot.py
+	{
+		echo 'static const char bootpy[] ='
+		sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/	"&\\n"/' boot.py
+		echo '	"";'
+	} >$target

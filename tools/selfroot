@@ -1,0 +1,46 @@
+#!/bin/bash
+# The self-hosting root (docs/selfhost.md): this repo as a Plan 9 root, a
+# git clone of HEAD whose origin is GitHub, plus the binaries tools/build.sh
+# built (build/$TARGET/root/$objtype/{bin,lib}), so that the root can
+# git/pull and build itself.  9front's git reads neither git's index nor
+# packed refs, and mounts git/fs on .git/fs: the clone gets .git/INDEX9,
+# loose refs and the directories git/init makes.  Only committed work
+# goes in, and only HEAD's branch (no other branches nor tags).
+#   tools/selfroot DIR             DIR made anew
+#   tools/selfroot -p DEV          onto the partition DEV as a gefs root
+#                                  (tools/gefsroot, the size DEV's; sudo dd:
+#                                  its contents replaced, its PARTUUID kept),
+#                                  e.g. /dev/nvme0n1p5
+#   ORIGIN=URL                     origin (default the GitHub repo)
+# The owner of the files is the user running this: etc/group names uid
+# 1000 glenda.
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+origin=${ORIGIN:-https://github.com/pereuna/Plan2001.git}
+dev=
+[ "$1" = -p ] && { dev=$2; shift 2; set -- "$root/build/selfroot"; }
+[ $# = 1 ] || { echo "usage: tools/selfroot DIR | -p DEV" >&2; exit 2; }
+out=$1
+bin=$tbuild/root/$objtype
+[ -x "$bin/bin/rc" ] || { echo "selfroot: no $bin/bin (tools/build.sh)" >&2; exit 1; }
+
+rm -rf "$out"
+# file://: a pack of what HEAD needs, not a copy of our packs
+git clone -q --single-branch --no-tags "file://$root" "$out"
+cd "$out"
+git remote set-url origin "$origin"
+"$here/git9" .
+cp -a "$bin/." "$objtype/"
+mkdir -p tmp usr/glenda
+echo "selfroot: $out: $(git log -1 --format='%h %s'), $(du -sm "$objtype" | cut -f1) MiB of binaries"
+
+if [ -n "$dev" ]; then
+	findmnt -S "$dev" >/dev/null && { echo "selfroot: $dev is mounted" >&2; exit 1; }
+	img=$tbuild/selfroot.gefs
+	rm -f "$img"
+	"$here/gefsroot" "$out" "$img" $(( $(sudo blockdev --getsize64 "$dev") / 1048576 ))
+	sudo dd if="$img" of="$dev" bs=4M oflag=direct conv=fsync status=none
+	rm -f "$img"
+	echo "selfroot: $dev: gefs root, PARTUUID $(lsblk -no PARTUUID "$dev")"
+fi
