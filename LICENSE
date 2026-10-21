@@ -24,20 +24,20 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ===================================================================
 
-Plan2001 is a from-scratch modernization of 9front's (a Plan 9 from Bell
-Labs fork, https://9front.org/) x86-64 UEFI boot path. It is built by
-taking 9front's own source tree as a base (fetched fresh from a live
-9front installation at build time, see README.md) and overlaying a small
-set of rewritten/new files (see sys/ in this repository).
+Plan2001-O is an experimental object-native operating-system project.
+Its source snapshot was imported without prior Git ancestry from the
+Plan2001 O-only proof-of-concept branch. It is derived through Plan2001
+from Plan 9 and the 9front source tree. Source provenance does not
+imply that inherited components were authored by this project.
 
-This software is derived from Plan 9, originally copyright Lucent
-Technologies and distributed under the Lucent Public License, Version
-1.02. Lucent was bought by Alcatel (Alcatel-Lucent), which was bought by
-Nokia. On March 23, 2021, Nokia announced the transfer of the Plan 9
-copyrights to the Plan 9 Foundation, which in turn relicensed Plan 9
-under the MIT license, reproduced above. 9front's own additions and
-changes on top of Plan 9 are likewise provided under the MIT license.
+Plan 9 originated at Bell Labs and was distributed under the Lucent
+Public License, Version 1.02. On March 23, 2021, Nokia announced the
+transfer of Plan 9 copyrights to the Plan 9 Foundation, which
+relicensed Plan 9 under the MIT license reproduced above. The 9front
+project's additions and modifications are likewise MIT-licensed.
 
-Plan2001's own additions and modifications (the files under sys/ in this
-repository, and everything under tools/ and docs/) are provided under
-the same MIT license, by Petteri Reunamo.
+Plan2001 and Plan2001-O additions and modifications by Petteri Reunamo
+are provided under the same MIT license. Preserve upstream copyright,
+license and attribution notices in derived files and distributions.
+The project architecture, repository layout and build method do not
+alter the rights or license obligations of inherited source code.

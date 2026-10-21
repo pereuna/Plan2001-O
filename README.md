@@ -1,12 +1,27 @@
-# Plan2001
+# Plan2001-O
 
-**An experimental object-native operating system. No filesystem hierarchy. Persistent objects, native relationships, and executable code in GE/O.**
+**An experimental object-native operating system: persistent object identity rather than a mandatory filesystem hierarchy. Native relationships and direct executable-object loading are research goals.**
 
-Plan2001 is a proof of concept for an operating system in which **objects, rather than files, are the fundamental persistent entities**. Objects have identities independent of names or locations. Their relationships form a graph stored natively by **GE/O**, a persistent storage engine operating directly on a block-device partition.
+Plan2001-O explores an operating system in which **objects, rather than files, are the fundamental persistent entities**. Objects have identities independent of names or locations. The target architecture stores objects and their relationships natively in **GE/O**, a storage engine operating directly on a block-device partition. **Today's PoC stores versioned native O objects, but its persistent Python graph is still serialized into one `OID_GRAPH` object.**
 
 The project is derived from Plan 9 / 9front, but it is **not an effort to reproduce Plan 9, Unix, POSIX, or their file-based interfaces**. Existing code is a starting point, not an architectural constraint. The goal is to discover a smaller, coherent object-native system through working experiments.
 
 > **Core principle:** GE/O owns the persistent object and relationship model. Python is a client and a demonstration of that model—not the definition of it.
+
+## Current implementation versus target
+
+This README describes the **architectural hypothesis**. The following table distinguishes it from the imported, working O-only proof of concept. A feature present in source is not automatically a test result from this repository.
+
+| Concern | Imported O-only PoC | Target / open experiment |
+| --- | --- | --- |
+| Persistent identity | Versioned GE/O records addressed by `(SpaceID, OID)` | Keep identity independent of location |
+| Relationships | Python graph serialized as one `OID_GRAPH` object | Native, indexed GE/O bindings and relations |
+| Namespaces | Seeded `init` Space and flat catalog | Persistent, shareable, non-hierarchical namespaces |
+| Python | Kernel-embedded user-space MicroPython; code and state from O | Ordinary executable object loaded from O |
+| Native executables | Inherited loader and embedded `/boot/mp` bootstrap | Native object-ID-based loader |
+| Process/remote interfaces | Inherited Plan 9 mechanisms for the PoC | Object handles, IPC and remote protocol to be explored |
+
+**Document roles:** [README](README.md) explains the hypothesis; [POC](docs/POC.md) records what the source-branch experiments demonstrated; [STATUS](docs/STATUS.md) reports current verification and test instructions; [O-FORMAT](docs/O-FORMAT.md) specifies the *implemented* format. [AGENTS](AGENTS.md) is the coding-agent contract. Neither this README nor its diagrams establish an implemented API.
 
 ## 1. Objects are the native storage model
 
@@ -33,7 +48,7 @@ The native GE/O interface may therefore expose both content access and structure
 
 ## 2. The relationship graph belongs to GE/O
 
-Relationships are **native persistent data**, indexed by GE/O and accessible independently of Python. They are not merely pointers hidden in a serialized MicroPython heap.
+**Target architecture:** relationships are native persistent data, indexed by GE/O and accessible independently of Python. They must not remain merely pointers hidden in a serialized MicroPython heap. **This is not yet implemented:** the current Python graph is written to one `OID_GRAPH` record.
 
 A minimal useful model is a named binding:
 
@@ -109,7 +124,7 @@ Not every Python value needs a separately allocated GE/O record, and not every r
 
 ## 4. GE/O stores programs—not just Python data
 
-A persistent object may contain text, a module definition, a native executable, or any other byte-addressable or structured content. The system must be able to load architecture-specific programs **directly from GE/O**.
+A persistent object may contain text, a module definition, a native executable, or any other byte-addressable or structured content. The target system must be able to load architecture-specific programs **directly from GE/O**.
 
 One possible organization is:
 
@@ -220,7 +235,7 @@ This repository descends from a much larger 9front/Plan 9 tree. That history exp
 | MicroPython entry point | `sys/src/cmd/micropython/main.c` |
 | Python persistence and Space integration | `sys/src/cmd/micropython/p9space.c` |
 | Existing embedded-boot implementation | `sys/src/9/port/devroot.c` |
-| O volume specification (implemented format) | `docs/o-volume-format.md` |
+| O volume specification (implemented format) | `docs/O-FORMAT.md` |
 | O volume preparation | `tools/mkovol` |
 | Native O tests | `tools/test-o-volume.sh`, `tools/test-o-objects.sh` |
 | Python/O tests | `tools/test-o-space.sh`, `tools/test-o-boot.sh` |
@@ -236,19 +251,12 @@ This repository descends from a much larger 9front/Plan 9 tree. That history exp
 
 Tests and experiments may invalidate details of the design. Preserve the guiding principles while allowing implementation choices to change.
 
-## 9. Instructions for AI coding agents
+## 9. Development approach
 
-This README is the **current project direction**, not a claim that all features above exist. Use the smallest relevant code and tests as context. The old Plan 9 tree and historical documents are **reference material, not requirements**.
+Treat architecture as a hypothesis, the source as the implementation, and test logs as evidence. Keep these distinct. Prefer small reversible experiments to a prematurely fixed universal object model. Retain inherited Plan 9 mechanisms only when the current PoC needs them; they are not native design requirements.
 
-1. **Work on the native O-only path.** Do not restore 9front's filesystem-centric system design, mount hierarchy, or shell boot infrastructure as a shortcut.
-2. **GE/O is the owner of persistence and relationships.** Do not implement the final graph as an exclusively Python-managed serialization format or a hidden directory hierarchy.
-3. **Keep identity, content, bindings, and behavior separate.** OIDs identify objects; names and tags resolve references; byte offsets access content; Python attributes and imports keep their language semantics; FIFO channels express communication.
-4. **Do not invent 9P compatibility infrastructure.** No automatic 9P adapter, pseudo-filesystem, file-shaped object boundary, or inherited `fid`/`qid` identity in the native design.
-5. **Preserve useful byte operations.** `read`, `write`, and offset access are not inherently legacy; forcing every resource into a hierarchical file API is.
-6. **Separate current implementation from proposals.** Inspect code before claiming native graph edges, arbitrary native object execution, package installation, or granular Python persistence work.
-7. **Preserve vertical-slice boot tests.** Reduce inherited code only as dependencies become understood; report the exact tests run, results, failures, and untested assumptions.
-8. **Prefer small experiments to a frozen grand specification.** Document open questions and trade-offs. Do not solve them by silently reintroducing the architecture this project is meant to replace.
+Coding agents must follow [AGENTS.md](AGENTS.md). Verification and regression commands are maintained in [STATUS.md](docs/STATUS.md), not duplicated here.
 
 ---
 
-**Plan2001 asks what an operating system becomes when persistent identity and graph relationships are native, programs are objects, and the filesystem hierarchy is no longer the foundation.**
+**Plan2001-O asks what an operating system becomes when persistent identity and graph relationships are native, programs are objects, and the filesystem hierarchy is no longer the foundation.**

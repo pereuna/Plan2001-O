@@ -1,52 +1,73 @@
-# Implementation status — imported O-only PoC
+# Implementation status — Plan2001-O
 
-Source snapshot: `pereuna/Plan2001`, branch `poc-o-only`,
-commit `436ed30c894c4060638341ecebe82004d457f496`
-(20 October 2026). Imported as a fresh source tree, **without
-upstream Git ancestry**.
+**Recorded baseline:** 21 October 2026, `main` at
+`f27adb071043a33ffd1efd0a6833503c710ebb15`.
+Imported source: `pereuna/Plan2001` / `poc-o-only` /
+`436ed30c894c4060638341ecebe82004d457f496`
+(20 October 2026). The import has **no upstream Git ancestry**.
 
-## Demonstrated by source-branch test logs
+## Evidence and verification
 
-- Native GE/O partition access without an FS root.
-- Stable SpaceID-scoped OIDs, GE-backed versioned objects, commits.
-- MicroPython Environment and verified `.mpy` code loaded from O.
-- Embedded MicroPython boots persistent `init` Space from O.
-- QEMU test `tools/test-o-boot.sh` ran three sequential boots
-  from the same ESP + O disk: counter 1, 2, 3, with the same OID
-  and alias preserved; no filesystem root was mounted.
+| Category | Assessment |
+| --- | --- |
+| **Implemented in imported source** | Native GE/O O-profile volume, stable SpaceID/OID object records, versioned commits, O-resident Environment and `.mpy`, and persistent MicroPython `init` Space |
+| **Demonstrated on source branch** | Five QEMU/GE tests, including three sequential boots of one ESP + O disk with `run()` counter `1 -> 2 -> 3` and a stable Counter OID/alias; see [POC.md](POC.md) |
+| **Verified in Plan2001-O after import** | **Not yet recorded.** Do not claim these tests passed here until their logs are collected. |
+| **Proposed / not implemented** | Native GE/O relationship edges and indexes, per-Python-object O persistence, native O executable loader, general namespaces, object IPC and remote protocol |
 
-These are test results documented in the **source repository**,
-not a claim that the imported repository has been rebuilt and
-re-tested after migration.
+Source-branch evidence is not a substitute for an execution result from
+this repository. Do not change a claim to **verified** until the tested
+commit, command, run date, outcome and log location are recorded.
 
-## Still experimental / not implemented
+## Reproducible amd64 build and regression sequence
 
-- GE/O-native relationship graph and persistent namespace bindings.
-- Per-Python-object native O records; currently an entire persistent
-  Python graph is committed as one `OID_GRAPH` object.
-- General OID-based native executable loader (current interpreter
-  is kernel-embedded via legacy `devroot`).
-- General-purpose O-resident Python package management.
-- Fully designed process-local object handle lifecycle, access
-  control, object IPC, or remote object protocol.
-- Production-grade corruption recovery, hardware validation,
-  performance or concurrency guarantees.
-
-## Regression commands
+On a Debian-compatible host with QEMU/OVMF, a 9front bootstrap VM and
+the prerequisites checked by `tools/vm-setup`:
 
 ```sh
-WHAT=kernel tools/build.sh
+# Initial host/VM preparation (idempotent when already installed).
+tools/vm-setup
+
+# WHAT=all populates build/amd64/root/amd64/{bin,lib};
+# WHAT=kernel alone does NOT provide the tools needed by O tests.
+WHAT=all tools/build.sh
+
+# Build a disposable self-hosting directory (NOT a disk partition).
+tools/selfroot build/selfroot
+
+# GE baseline, O format/objects, Python/O, and persistent init.
+tools/test-ge.sh
 tools/test-o-volume.sh
 tools/test-o-objects.sh
 tools/test-o-space.sh
 tools/test-o-boot.sh
 ```
 
-These commands require the repository's existing 9front/QEMU host
-build environment. Their presence is not evidence they have
-passed in this new repository. The first task after migration is
-to run these gates before structural source pruning.
+The regression scripts require `build/selfroot/amd64/bin/gefs`;
+the Python/O tests additionally require
+`build/selfroot/amd64/bin/micropython`. The `WHAT=all` build plus
+`tools/selfroot build/selfroot` provides the expected preparation path.
+This **dependency sequence has been inspected in source, not executed
+as part of the documentation update**. The tests create or replace
+disposable images under `build/`. Never substitute a real block device.
 
-See [README.md](../README.md) for active architecture and
-[o-volume-format.md](o-volume-format.md) for the implemented
-on-disk format.
+## Record each run
+
+For each gate, record: UTC date/time, commit SHA, exact command, exit status,
+a short PASS/FAIL/NOT RUN result and relevant log path. The QEMU
+three-boot test writes `build/amd64/obootvm/three-boots.log`; the
+build stores `build/amd64/session.log` and VM serial output under
+`build/vm/`. Logs need not be checked into Git.
+
+## Known limitations and next questions
+
+- O catalog is currently seeded with an `init` Space; no general persistent relation or tag index.
+- MicroPython commits the full graph as one `OID_GRAPH` object, despite stable logical Python OIDs.
+- No OID-based user-executable loader; the interpreter is embedded using inherited `devroot`.
+- O handle bookkeeping is PoC-global; process-scoped lifetime, access control and multi-volume behavior require design.
+- Recovery and failure injection, corrupt/missing-object diagnostics, concurrency and hardware validation remain incomplete.
+- Build scripts still include inherited 9front/Monolith components. Those dependencies will be assessed separately; their presence does not define the target architecture.
+
+See [README.md](../README.md) for the hypothesis,
+[POC.md](POC.md) for source-branch test evidence and
+[O-FORMAT.md](O-FORMAT.md) for the implemented format.
