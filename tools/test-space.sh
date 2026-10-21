@@ -1,11 +1,14 @@
 #!/bin/bash
-# The persistent object environment (docs/object-model.md) in QEMU: the
+# LEGACY FILE/DMOBJ Space regression, not the native O-only test suite.
+# Historical V0-V7 cases are enumerated below; for native O results use
+# docs/POC.md and docs/STATUS.md. This tests the inherited GEFS-root path
+# in QEMU: the
 # gefs root (tools/gefsdisk, root=-w PARTUUID=) with plan9.ini
 # init=/boot/mp -B, console=0, booted again and again on the same disk.
 # Each boot is driven over the serial console in Python's raw REPL (as
 # tools/test-mpinit.sh); a crash is QEMU killed (no fshalt, no sync).
 # At the end tools/gefsck checks the partition in the build VM (ONLY too).
-#   PHASE=0     the phases' tests up to this one (docs/object-model.md 7)
+#   PHASE=0     the phases' tests up to this one (the historical V0-V4 test inventory below)
 #   CRASH=3     crashes in the crash tests
 #   ONLY=n      only phase n's tests (while developing it)
 #   HW=1        instead: /sys/lib/python/test/space/hw.py (spacehw, the
@@ -48,8 +51,8 @@
 #   T3.4  (V2-V4: a version file's byte changed; the store has none)
 #   T3.5  (the disk full: in V5 with T5.9)
 # V4 (graph: relations, the identifier, #tags; sys/lib/python/graph.py):
-#   T4.1-T4.11 as docs/object-model.md 7; T4.4 and T4.6 over a boot
-# V5 (the store, docs/gefs-obj.md 5; $spacecheck on in all phases'
+#   T4.1-T4.11 as the historical V0-V4 test inventory below; T4.4 and T4.6 over a boot
+# V5 (the store, the V5 cases below; $spacecheck on in all phases'
 # boots, SPACECHECK=0 off):
 #   T5.1  one change of 10 000 objects: a few records written
 #   T5.2  space.oid: kept over versions and the boot
@@ -68,13 +71,13 @@
 #   T3.5, T5.9 the root filled (dd, ~4 GiB, ~9 min): gefs read-write;
 #         CommitError (full) at a rest and the end, the version before
 #         kept; the fill removed: commits again, and after the boot
-# V6 (space.view: another Space read, docs/object-model.md V6):
+# V6 (space.view: another Space read, the V6 cases below):
 #   T6.1  views amid 100 atomic commits: la[0] == lb[0] in each
 #   T6.2  none (its own mount): a view; the store 0660: refused
 #   T6.3  a foreign object in a commit: CommitError; an int of it kept
 #   T6.4  graph.py's Space as a view: search, links, its own classes
 #   T6.5  version=v; one not kept refused; the writer's lock no matter
-# V7 (the code and the state to a new Environment, docs/v7-upgrade.md):
+# V7 (the code and the state to a new Environment, the V7 cases below):
 #   T7.1  calc v1->v2: the state, the OIDs and the saved aliases kept;
 #         the new code runs, through the graph and after a boot
 #   T7.2  aliases in a list, a dict and an attribute; the definitions'
@@ -589,7 +592,7 @@ def v5():
         r"^status ''\noid (\d+) (\d+) None None\nstatus ''\noid \1 \2\nstatus ''$", secs=60, name='T5.2 OIDs kept over versions')
     oids = re.search(r'oid (\d+) (\d+)', out or '')
     # T5.4: a removed store's keys freed (the usage back; gefsck at the
-    # end); 40 MiB: a commit is at most 64 MiB (docs/gefs-obj.md 1)
+    # end); 40 MiB: a commit is at most 64 MiB (the 64 MiB object transaction limit in sys/src/9/gefs/obj.c)
     raw("def ms():\n    f = p.open('#c/bintime')\n    b = p.read(f, 8)\n    p.close(f)\n    return int.from_bytes(b, 'big') // 1000000\n"
         "def sh(c):\n    pid = p.spawn(['/bin/rc', '-c', c])\n    while p.wait()[0] != pid:\n        pass\n"
         "def df():\n    sh('mount -c /srv/gefs.root /usr/glenda/adm adm >[2]/dev/null; echo sync >/usr/glenda/adm/ctl; sleep 1; "
@@ -768,7 +771,7 @@ def vhw():
         crash()
 
 def v7():
-    # V7 (docs/v7-upgrade.md): the code and the state to a new
+    # V7 (the V7 cases below): the code and the state to a new
     # Environment, in one version, the one before it pinned.  calc and
     # shapes change their bodies and their children's order; aliases of
     # theirs are saved in a list, a dict and an attribute; sch changes

@@ -1,7 +1,9 @@
 #!/bin/bash
-# NOTE 16.10.2026: boots a cwfs root through bootrc (bootargs=local!...),
-# which this kernel no longer has (no bootfs.paq, docs/init.md): broken
-# until the VM's root is gefs and plan9.ini has root= (Monolith).
+# LEGACY --usb/bootrc installation path, not native O boot. Historical
+# note (16.10.2026): the inherited cwfs root and bootrc path are not
+# provided by this kernel; that mode needs separate FS-root work.
+# Default ISO installation of the 9front build VM remains a separate
+# bootstrap workflow for tools/vm-setup.
 # Install 9front onto the qcow2 DISK through the serial console,
 # unattended (answers: tools/inst.dialog), then set DISK up to boot
 # straight to an rc prompt on COM1 and check that it does.

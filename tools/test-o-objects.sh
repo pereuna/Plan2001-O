@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001 stage 3 (docs/PoC-experimental-demo.md 3): the native O object
+# Plan2001 stage 3 (docs/POC.md 3): the native O object
 # API.  tools/mkovol formats a fresh O image; the kernel opens it with no
 # root= and puts two objects with stable OIDs in the init Space, then
 # commits and syncs them.  A second boot fetches both by OID.  No FS, 9P,

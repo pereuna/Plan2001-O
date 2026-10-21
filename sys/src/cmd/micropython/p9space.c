@@ -1,28 +1,19 @@
 /*
- * The persistent object environment (docs/object-model.md): the space
- * module.  V1: a module's definition is its source's SHA-256, the
- * source and its .mpy (compiled once, never again); an Environment is
- * a runtime and import names bound to definitions, itself named by its
- * text's SHA-256.  mp -E ENV imports from the Environment alone: the
- * builtin modules, then the Environment's, no sys.path, no packages.
- *   /usr/$user/lib/mod/<sha256>.py    the source
- *   /usr/$user/lib/mod/<sha256>.mpy   its bytecode
- *   /usr/$user/lib/env/<sha256>       runtime <id>\n<name> <sha256>\n...
- * V2: a Space, mp -S NAME: its modules' instances (__main__ too) and
- * what they reach, a whole image (p9image.c) committed at the end of a
- * REPL statement and of the program; opened without running the
- * modules' top levels again.  One writer: the lock, DMEXCL.
- *   /usr/$user/space/<name>/lock      held open by the writer
- *   /usr/$user/space/<name>/v<N>      version N, N in 16 digits
- * V3: a commit at a rest too (plan9.read, wait, sleep) when
- * space.interval seconds have passed; space.atomic defers them.
- * V5: the Space's objects in a gefs object store (docs/gefs-obj.md),
- * each its own key by OID: a commit writes what changed, the store's
- * versions are the Space's (V2-V4's v<N> taken in at the first open).
- *   /usr/$user/space/<name>/obj       DMOBJ: the objects, OID 1 the roots;
- *                                     the header's user part env[64] next[8]
- * V6: space.view: another Space's version read into a world of its
- * own, its objects foreign (docs/object-model.md V6).
+ * MicroPython persistent Space implementation (p9image.c).
+ *
+ * LEGACY FILE/DMOBJ PATH (V1-V7): Environment definitions compiled to
+ * .mpy, file-based module lookup, versioned Space images, DMOBJ Kobj
+ * object records, view and upgrade/epoch metadata. Those inherited
+ * code paths remain for compatibility experiments; they are not the
+ * architectural native GE/O namespace/graph model.
+ *
+ * NATIVE O-ONLY PATH (-O VOLUME -S init): directly calls the GE/O syscalls
+ * to load the Environment, immutable code objects and OID_GRAPH from a
+ * flat init Space (docs/O-FORMAT.md). The Python object graph currently
+ * remains a SINGLE serialized OID_GRAPH object on commit. Logical
+ * Python OIDs and aliases are NOT independently indexed GE/O edges.
+ *
+ * See docs/POC.md for demonstrated source-branch boot behavior.
  */
 #include <string.h>
 #include "py/runtime.h"
@@ -754,7 +745,7 @@ static uint64_t get64(const byte *p) {
 }
 
 /*
- * The store's header user part (docs/v7-upgrade.md 4.1):
+ * The legacy V5-V7 store's header user part:
  *   V5/V6  72: env[64] next[8]
  *   V7     88: env[64] next[8] fmt[1] pad[7] pin[8]
  * fmt 2 says the pin is there (0: none).  A V5/V6 store keeps its 72
@@ -837,7 +828,7 @@ static const byte *streamobj(const byte *p, size_t len, uint64_t oid, size_t *ol
 }
 
 /*
- * The Environment's epochs (docs/v7-upgrade.md 4.1): the Environment
+ * The Environment's epochs (V7 metadata): the Environment
  * each range of versions has, as (start version, Environment) pairs,
  * sorted, the first saying the oldest one.  It is an internal object of
  * the store (OID_UPGRADE_META), not a MicroPython object:
@@ -1074,7 +1065,7 @@ static int readcat(int fd, vstr_t *v) {
 }
 
 /*
- * V7's Environment for version VER (docs/v7-upgrade.md 4.1, I6): a
+ * V7's Environment for version VER (V7 Environment epoch rules): a
  * valid, ordered catalog whose last epoch is the header's current
  * Environment and whose rows cover VER.  A V7 store without it is not
  * trusted: there is no falling back to the latest Environment.
@@ -1509,7 +1500,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
     }
     if (fd >= 0) {
         /* the header (a version chosen: its Environment, from the
-           epochs: V7, docs/v7-upgrade.md 4.1) */
+           epochs: V7, the V7 Environment-epoch metadata) */
         if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
             mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("space %s: %s"), name, why);
         }
@@ -1868,7 +1859,7 @@ static MP_DEFINE_CONST_OBJ_TYPE(
     attr, view_attr
     );
 
-/* ---- V7: space.upgrade (docs/v7-upgrade.md) ---- */
+/* ---- V7: space.upgrade (the legacy V7 upgrade implementation) ---- */
 
 // the world's modules are the Space's: the roots the commit writes,
 // and the names its records are written by
@@ -2103,7 +2094,7 @@ int p9_space_isopen(void) {
     return sp.isopen;
 }
 
-// commit points 3 (a rest) and space.atomic (docs/object-model.md 5.3)
+// commit points 3 (a rest) and space.atomic (the legacy Space commit-point semantics)
 static mp_float_t interval = 1.0;
 static int atomicdepth, atomicpending;
 
@@ -2134,7 +2125,7 @@ static void rmversions(void) {
 
 /*
  * Stage 4: a commit to O.  p9_image_commit's changed-object records are
- * turned into the V7 store's read stream (docs/gefs-obj.md 3.2) and
+ * turned into the V7 store's read stream (the DMOBJ stream format in sys/src/9/gefs/obj.c) and
  * written as one O object, OID_GRAPH; the Environment manifest and the
  * immutable code objects are rewritten in the same transaction so that
  * the O engine's history sweep can never drop them.  This is a PoC

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001 stage 1 (docs/PoC-experimental-demo.md 1): GE volume opening
+# Plan2001 stage 1 (docs/POC.md 1): GE volume opening
 # without FS.  A disposable GE image is booted with no root=; getest=
 # opens it with geopen/gestart, reads and writes a raw GE key/value
 # record in the snapshot tree, syncs, and halts it.  No FS mount, user

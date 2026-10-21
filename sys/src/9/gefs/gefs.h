@@ -1,6 +1,8 @@
 /*
- * Plan2001: gefs (9front's /sys/src/cmd/gefs) in the kernel, as kprocs
- * that serve 9P on a pipe the kernel mounts (docs/gefs.md).  This is
+ * GE engine kernel glue, adapted from 9front's /sys/src/cmd/gefs.
+ * LEGACY FS/9P mode serves a mountable filesystem from kprocs; native
+ * GE/O uses the same engine without a 9P service (see o.c, obj.c).
+ * This is
  * what its sources include instead of libc's headers: the kernel's,
  * then the names gefs takes from libc, made the kernel's.  kern.c has
  * the functions.
@@ -138,7 +140,7 @@ void	gsleep(long);
  * File descriptors: gefs's device and its connections are small
  * numbers in a table of kernel Chans (kern.c); 2 is the kernel's
  * console (print).  Each GE volume has its own table (Gefs.k,
- * docs/ge-fs-o.md), so these take the volume; the macros bind the one
+ * sys/src/9/gefs/kern.c), so these take the volume; the macros bind the one
  * in scope -- always the volume of the calling object.
  */
 #define	open(f, m)		gopen(fs, (f), (m))

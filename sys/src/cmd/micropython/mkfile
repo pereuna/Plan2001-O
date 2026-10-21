@@ -1,4 +1,4 @@
-# MicroPython (docs/mpinit.md): /$objtype/bin/micropython, and in the
+# MicroPython (docs/POC.md): /$objtype/bin/micropython, and in the
 # kernel's image /boot/mp, Plan2001's first user program (-B: boot.py).
 # 6c -p (ANSI cpp) -u (ANSI C's integer promotions); genhdr/ comes from
 # Linux (Makefile: make genhdr).

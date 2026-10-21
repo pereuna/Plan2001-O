@@ -1,5 +1,5 @@
 /*
- * Plan2001: the native O volume (docs/o-volume-format.md).  Stage 2 is
+ * Native GE/O volume profile (docs/O-FORMAT.md).  The initial PoC is
  * only the profile, the flat catalog and plain GE records: no object
  * transactions, FS mounts, 9P or path resolution.  O records are Ko
  * keys in the volume's snapshot tree; opening an existing volume only
@@ -124,7 +124,7 @@ oprobe(void *v)
 }
 
 /*
- * Plan2001 Stage 3's gate (docs/PoC-experimental-demo.md 3): the native
+ * Plan2001 Stage 3's gate (docs/POC.md 3): the native
  * object API on the init Space.  The first boot puts two objects with
  * stable OIDs and commits them; the next boot fetches both by OID after
  * a commit and reboot.  No FS, 9P, Fid, qid or path is involved.

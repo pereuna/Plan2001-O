@@ -1,5 +1,5 @@
 /*
- * MicroPython on Plan2001 (amd64; docs/mpinit.md): 6c -p -u and Plan 9's
+ * MicroPython on Plan2001 (amd64; docs/POC.md): 6c -p -u and Plan 9's
  * libc.  The same file preprocesses the qstrs on Linux (gcc -E, Makefile:
  * make genhdr after a change here).
  */
@@ -42,7 +42,7 @@
 #define MICROPY_LEXER_TAB_CHECK (1)
 #define MICROPY_ENABLE_EXTERNAL_IMPORT (1)
 /*
- * the persistent object environment (p9space.c, docs/object-model.md):
+ * the persistent object environment (p9space.c, p9space.c and p9image.c):
  * a module's .mpy made once and loaded from memory; import through
  * p9_import (an Environment's modules, or MicroPython's own)
  */
@@ -51,7 +51,7 @@
 #define mp_builtin___import__ p9_import
 /* a Space's commit point: a REPL statement's end (mp -S) */
 int p9_space_commit(int force);
-// the Space's object store (p9image.c, docs/gefs-obj.md): an object
+// the Space's object store (p9image.c, sys/src/9/gefs/obj.c): an object
 // with an OID changed in place, one freed; on only when there are OIDs
 extern size_t p9_space_noid;
 void p9_space_dirty(const void *p);
@@ -59,7 +59,7 @@ void p9_space_freed(const void *p);
 #define P9_DIRTY(p) do { if (p9_space_noid) p9_space_dirty(p); } while (0)
 #define P9_FREED(p) do { if (p9_space_noid) p9_space_freed(p); } while (0)
 #define MICROPY_BOARD_AFTER_PYTHON_EXEC(kind, flags, val, ret) p9_space_commit(0)
-/* the types a Space keeps (docs/object-model.md 5.5); graph's links
+/* the types a Space keeps (p9space.c and p9image.c 5.5); graph's links
    are descriptors (5.7) */
 #define MICROPY_PY_BUILTINS_FROZENSET (1)
 #define MICROPY_PY_DESCRIPTORS (1)
@@ -115,7 +115,7 @@ void p9_space_freed(const void *p);
 #define MP_ROM_TUPLE_NITEMS 5	/* sys.implementation with _mpy */
 #define MP_QSTR_POOL_SIZED (1)
 #define MP_NO_NONCONSTEXPR_ASSERT
-/* 6c: NaN compares as equal, -x of +0.0 is +0.0 (docs/bugs_to_9front.md) */
+/* 6c: NaN compares as equal, -x of +0.0 is +0.0 (a legacy 6c compatibility constraint) */
 #define MICROPY_FLOAT_CC_FIXES (1)
 /* repr: EXACT needs a long double wider than double, which 6c has not */
 #define MICROPY_FLOAT_FORMAT_IMPL (MICROPY_FLOAT_FORMAT_IMPL_APPROX)

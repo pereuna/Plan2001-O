@@ -3,9 +3,10 @@
  * The entire text image must fit on one page
  * (and there's no data segment, so any read/write data must be on the stack).
  *
- * Plan2001: runs argv[1], which init0 chose: the root's init (the kernel
- * mounted the root: rootmount, plan9.ini root=; docs/init.md).  argv[0]
- * is argv0's slot, which init9.c's _main fills from a register.
+ * Runs argv[1], the initial userspace program selected by init0.
+ * LEGACY FS boot may first mount plan9.ini root= via rootmount;
+ * native O-only PoC boots /boot/mp without an FS root (docs/POC.md).
+ * argv[0] is argv0's slot, filled from a register by init9.c's _main.
  */
 
 #include <u.h>

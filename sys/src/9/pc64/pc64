@@ -78,10 +78,12 @@ ip
 port
 	int cpuserver = 0;
 
-# no boot file system (bootfs.paq, paqfs, bootrc); the kernel mounts the
-# root (plan9.ini root=, port/devgefs.c) and runs its init (docs/init.md).
-# In the image (/boot): MicroPython, the first user program with
-# init=/boot/mp -B, root or not, and its console (docs/mpinit.md)
+# No bootfs.paq/paqfs/bootrc. O-only boot requires no filesystem root;
+# legacy plan9.ini root= mounting remains optional (port/devgefs.c).
+# Bootstrap userspace executable /boot/mp and /boot/kbdfs are embedded via
+# inherited devroot. With -O PARTUUID=... -S init -B, MicroPython loads
+# its persistent Environment/code/graph from O (docs/POC.md).
+# This bootdir embedding is NOT the proposed native O executable loader.
 bootdir
 	/$objtype/bin/micropython	mp
 	/$objtype/bin/aux/kbdfs	kbdfs

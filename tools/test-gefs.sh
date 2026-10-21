@@ -1,5 +1,5 @@
 #!/bin/bash
-# gefs as the root in the kernel (devgefs, docs/gefs.md) in QEMU, over
+# LEGACY GEFS root/9P regression (not an O-only PoC gate) in QEMU, over
 # the serial console (tools/9run's relay): tools/gefsroot makes the root
 # image in the build VM, tools/gefsdisk the disk (ESP and gefs, root=-w
 # PARTUUID=), then the root is booted: files written, a program built,

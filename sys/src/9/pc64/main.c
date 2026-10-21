@@ -165,7 +165,7 @@ init0(void)
 		/*
 		 * The root from plan9.ini root= (devgefs): its init= or
 		 * /amd64/init.  An init= in the kernel's image (/boot/mp:
-		 * devroot's /boot, docs/mpinit.md) runs without a root too.
+		 * devroot's /boot; see docs/POC.md) runs without a root too.
 		 */
 		s = getconf("init");
 		if(rootmount() || s != nil && strncmp(s, "/boot/", 6) == 0){
@@ -182,7 +182,7 @@ init0(void)
 		poperror();
 	}
 	if(ac == 0)
-		panic("no root file system: plan9.ini root=[-w ]UUID=... (docs/init.md)");
+		panic("no root file system: specify plan9.ini root= or init=/boot/mp");
 	kproc("alarm", alarmkproc, 0);
 
 	/*
@@ -316,7 +316,7 @@ reboot(void *entry, void *code, ulong size)
 	 * 32-bit protected mode, with paging and EFER.LME off.  This
 	 * kernel's only entry, _efi64 (pc64/l.s), needs long mode with the
 	 * firmware's page tables still active - a mismatch since the 32-bit
-	 * entry path was removed (see docs/status.md).  Refuse here, before
+	 * entry path was removed; this legacy kexec route remains unsupported.  Refuse here, before
 	 * the shutdown below starts undoing device and CPU state that
 	 * cannot be undone, rather than run it all and then jump into a
 	 * state that is certain to crash or hang with no way back.  Once

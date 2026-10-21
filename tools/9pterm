@@ -1,6 +1,7 @@
 #!/bin/bash
-# 9pterm for these tools: Monolith's native drawterm as a text terminal
-# (its docs/9pterm.md), the way to a Plan2001 CPU server from Linux.
+# OPTIONAL LEGACY CPU-SERVER TOOL: external Monolith 9pterm/drawterm
+# connects from Linux to inherited Plan 9 CPU servers. This is neither
+# required for the O-only QEMU gates nor a native GE/O remote protocol.
 # Monolith is its own repo: $MONOLITH, default ~/Src/monolith; its
 # monolith/tools/build makes 9pterm when there is none.  NINEPTERM names
 # another binary.

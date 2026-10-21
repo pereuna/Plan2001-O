@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001 Stage 5 (docs/PoC-experimental-demo.md 5): boot the O-only
+# Plan2001 Stage 5 (docs/POC.md 5): boot the O-only
 # init Space three times from one disk image.  tools/mkovol seeds a fresh
 # O image with the demo Environment and its immutable .mpy; plan9.ini has
 # only init=/boot/mp -O PARTUUID=... -S init -B (no root=, no -c, no

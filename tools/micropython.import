@@ -2,8 +2,8 @@
 # tag v1.27.0, commit 78ff170de9e32c79db6e64d3e33d2bd60002bdcd), for
 # tools/importmp, into sys/src/cmd/micropython: the interpreter's core, the
 # REPL's line editor and runner, json, two headers the core includes, the
-# double-precision libm (musl's: Plan 9's libm is less exact than CPython's).  The port
-# around them is Plan2001's own (docs/mpinit.md).
+# double-precision libm (musl's: Plan 9's libm is less exact than CPython's).  The glue/port code is maintained in this repository
+# (sys/src/cmd/micropython); O boot integration: docs/O-FORMAT.md.
 #   PATH        a file or a whole directory, from MicroPython's root
 #   !PATH       not that (inside a directory above)
 # A file this repo already has is Plan2001's own and is never overwritten.

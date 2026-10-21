@@ -1,10 +1,10 @@
 /*
  * Plan2001: what gefs has from libc and from its main.c, in the kernel
- * (gefs.h).  gefsserve starts it on a device as kprocs (main.c's
+ * (gefs.h).  LEGACY FS/9P: gefsserve starts it on a device as kprocs (main.c's
  * procs: the mutator, the readers, the sweeper, the syncers, the
  * tasks and the console) and gives the kernel the other end of the
  * pipe it serves 9P on, for mntattach.  Each call makes a GE instance
- * of its own (docs/ge-fs-o.md): volumes share the engine's code, not
+ * of its own (GE volume instance isolation): volumes share the engine's code, not
  * its state, so two of them run at the same time on different
  * partitions.
  */
@@ -852,7 +852,7 @@ gefspost(Kchan *c, char *srv)
 
 /*
  * Plan2001: the cache budget is the kernel's, not a volume's
- * (docs/ge-fs-o.md 3): the instances' caches together must fit in it.
+ * (GE volume instance isolation 3): the instances' caches together must fit in it.
  * The first volume gets the whole budget, as before (plan9.ini's
  * gefscache=, or an eighth of memory); a later one gets what is left,
  * and is refused if that is less than Cachemin, instead of taking the
@@ -904,7 +904,7 @@ cachemb(void)
 }
 
 /*
- * Plan2001: open a GE volume (docs/PoC-experimental-demo.md 1).  This
+ * Plan2001: open a GE volume (docs/POC.md 1).  This
  * is the storage engine's context: its device, cache, superblock,
  * arenas, logs and recovery.  It loads no FS mount or user metadata and
  * starts no 9P server; gefsserve adds those for the legacy root.
@@ -923,7 +923,7 @@ geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
 	assert(Treesz < Inlmax);
 
 	/*
-	 * Plan2001: this call's GE instance (docs/ge-fs-o.md).  Nothing
+	 * Plan2001: this call's GE instance (GE volume instance isolation).  Nothing
 	 * below is one volume's alone any more: the engine's state is in
 	 * fs, and the objects it makes carry it.
 	 */
@@ -968,7 +968,7 @@ geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
 /*
  * Plan2001: the engine's kprocs (mutator, sweeper, tasks, readers,
  * syncers), without FS's console and 9P server.  A native O volume
- * needs these and nothing from FS (docs/PoC-experimental-demo.md 1).
+ * needs these and nothing from FS (docs/POC.md 1).
  */
 void
 gestart(void *v)

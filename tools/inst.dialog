@@ -1,8 +1,8 @@
 # tools/9run --dialog rules for 9front's installer (inst/start): its
 # defaults (cwfs64x, GPT, 9fat, US_Eastern, ...) except where it has none.
-# DEV is the target disk (sdE0 when installing the VM's own disk, sdE3 for
-# Monolith's tools/subset/trace); callers substitute it.  Rules added in front of these
-# take precedence (Monolith's tools/subset/trace uses that to take its snapshots).
+# DEV is the target disk (sdE0 when installing the build VM's disk);
+# callers substitute it. Older external Monolith tracing tools used
+# sdE3 and prepended snapshot rules; this remains an installer fixture.
 Task to do \[finish\]: *	finish
 !now done halting	!done
 Disk to partition .*\[no default\]: *	DEV

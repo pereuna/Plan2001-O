@@ -34,7 +34,8 @@ fn fail {
 	exit $1
 }
 
-# hjfs: 9front's with this repo's auth.c, for Monolith's installer
+# LEGACY BUILD DEPENDENCY: hjfs from 9front plus inherited auth.c,
+# retained for existing build paths; it is not an O runtime service.
 # (build/$TARGET/hjfs); from the VM's own source, before the repo's
 # replaces it
 fn buildhjfs {
@@ -129,7 +130,7 @@ if not if(~ $what kernel){
 	bindtree
 	mklog /sys/src/cmd/cc cc install
 	mklog /sys/src/cmd/6c 6c install
-	# Plan2001: sys.h's O calls (docs/o-volume-format.md, Stage 4)
+	# Plan2001: sys.h's O calls (docs/O-FORMAT.md)
 	mklog /sys/src/libc/9syscall 9syscall install
 	for(c in aux/kbdfs micropython)
 		mklog /sys/src/cmd/$c `{basename $c} install

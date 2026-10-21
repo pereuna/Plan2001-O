@@ -1,6 +1,7 @@
-# Plan2001's first user program (docs/mpinit.md): the kernel runs
+# Inherited bootstrap for Plan2001-O MicroPython (docs/POC.md): the kernel runs
 # /boot/mp -B (plan9.ini init=), whose built-in source this is.  The
-# kernel's initcode has bound #c #d #e #p #s #σ and opened fds 0-2 on
+# This is bootstrap device setup, NOT a filesystem-based native O runtime.
+# The kernel's initcode has bound #c #d #e #p #s #σ and opened fds 0-2 on
 # #c/cons, which only prints.  This makes the rest of the name space and
 # the console (kbdfs, from the kernel's image too); the REPL comes after
 # it, and again after each Ctrl-D.  A root is optional: plan9.ini root=.

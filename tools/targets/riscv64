@@ -1,5 +1,5 @@
 # Plan2001 target: RISC-V 64, UEFI only - future: 9front has no riscv64
-# kernel or compiler yet (see docs/boot-abi.md).  Names reserved.
+# kernel or compiler yet; this target and its boot ABI are unimplemented.
 status=future
 objtype=riscv64
 kdir=riscv64

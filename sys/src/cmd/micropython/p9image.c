@@ -1,5 +1,6 @@
 /*
- * A Space's image (docs/object-model.md 5.5, 6.1): the instances of its
+ * LEGACY V1-V7 Python Space serialization (used inside native O's
+ * monolithic OID_GRAPH payload; docs/O-FORMAT.md): the instances of its
  * modules (__main__ and the Environment's) and every object they
  * reach, with shared references and cycles; restored without running
  * the modules' top levels, class bodies, __init__ or decorators.
@@ -154,7 +155,7 @@ static builtin_t *builtin(const void *p) {
     return NULL;
 }
 
-/* ---- V7: the names of the definitions (docs/v7-upgrade.md 5.1) ---- */
+/* ---- V7: the names of the definitions (the legacy V7 definition-name identity rules) ---- */
 
 /*
  * A Space's functions and classes are rebound by (module, qualified
@@ -2071,7 +2072,7 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
 }
 
 
-/* ---- V7: the upgrade (docs/v7-upgrade.md 5.3) ---- */
+/* ---- V7: the upgrade (the legacy V7 in-memory upgrade path) ---- */
 
 /*
  * The objects an upgrade makes (and the ones it replaces): a list the
@@ -2213,8 +2214,7 @@ void p9_image_symtab(qstr mod, const char *source, qstr source_file) {
     /*
      * The .py compiled here, as space.define compiled it: the check
      * compares these bytes with the definition's .mpy, so that the
-     * source really is the code that would be bound (docs/v7-upgrade.md
-     * 5.1 and I8).  The compiler is deterministic for one source and
+     * source really is the code that would be bound (the V7 source/bytecode identity check).  The compiler is deterministic for one source and
      * runtime, and MPY_VERSION is part of the Environment's runtime.
      */
     vstr_init_print(&ms->mpy, 1024, &pr);
@@ -3195,8 +3195,7 @@ static mp_int_t schemaof(const mp_obj_type_t *t) {
  * What __migrate__'s old argument may hold: values that cannot be
  * mutated through it.  A shallow copy would share a list, dict, set or
  * instance with the graph, so those refuse the upgrade instead: I5's
- * read-only snapshot cannot be promised for them (docs/v7-upgrade.md
- * 3 I5; narrowed here, not silently called immutable).
+ * read-only snapshot cannot be promised for them (the V7 migration invariants; narrowed here, not silently called immutable).
  */
 static int immutable(mp_obj_t o, int depth) {
     const mp_obj_type_t *t;

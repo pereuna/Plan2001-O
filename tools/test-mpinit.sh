@@ -1,5 +1,6 @@
 #!/bin/bash
-# MicroPython as the first user program (docs/mpinit.md) in QEMU: the
+# Legacy MicroPython REPL/bootstrap regression (not native O execution)
+# in QEMU: the
 # kernel (tools/build.sh; /boot/mp and /boot/kbdfs in its image) with
 # plan9.ini init=/boot/mp -B, console=0.  Over the serial console
 # (tools/9run's relay) Python's raw REPL, an agent's protocol (Ctrl-A;

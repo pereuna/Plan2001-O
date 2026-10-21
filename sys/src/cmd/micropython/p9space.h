@@ -17,11 +17,11 @@ p9_space_mod_t *p9_space_loadmod(qstr name);
 enum {
     OID_ROOTS = 1,
     OID_FIRST = 2,
-    // V7 (docs/v7-upgrade.md 4.1): the Environment epochs, an internal
+    // V7 (the V7 Environment-epoch metadata): the Environment epochs, an internal
     // record of p9image.c's (not a MicroPython object).  UINT64_MAX is
     // obj.c's "no object selected" sentinel, so the one below it.
     OID_UPGRADE_META = 0xfffffffffffffffeULL,
-    // Stage 4 (docs/o-volume-format.md): a native O Space's graph and
+    // Stage 4 (docs/O-FORMAT.md): a native O Space's graph and
     // its Environment manifest.  The definitions' code objects start at
     // OID_CODE; the host preparation tool assigns them explicitly.
     OID_GRAPH = 0xfffffffffffffffdULL,
@@ -31,7 +31,7 @@ enum {
 
 // V2-V4's image (v<N>): restored once, its objects then given OIDs
 void p9_image_restore(const byte *p, size_t n);
-// the store (V5): its stream read (gefs-obj.md 3.2), the objects of
+// the store (V5): its stream read (DMOBJ stream format, sys/src/9/gefs/obj.c), the objects of
 // version *n restored and given their OIDs; the header's user part out.
 // VIEW (space.view): restored into the view's modules and __main__,
 // the objects foreign (no OIDs, a commit refuses them)

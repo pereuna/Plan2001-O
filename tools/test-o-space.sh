@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001 Stage 4 (docs/PoC-experimental-demo.md 4): boot MicroPython
+# Plan2001 Stage 4 (docs/POC.md 4): boot MicroPython
 # from an ESP + native O disk, with no FS root.  tools/mkovol seeds a
 # fresh O image with one Environment manifest and the demo module's
 # immutable .mpy.  Boot 1 loads them from O, creates the module's graph

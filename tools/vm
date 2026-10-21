@@ -14,7 +14,7 @@
 #                                   (567 is privileged on the host)
 #                                   PLAN2001_LAN=IP: https (17443) on IP too,
 #                                   for the machines of the local network
-#                                   (Monolith's tools/vm-cpu names APP.IP.nip.io)
+#                                   (inherited external Monolith vm-cpu convention)
 #   tools/vm start ... --oci        the hardware of an Oracle Cloud
 #                                   VM.Standard.E2.1.Micro instead: 1 GB,
 #                                   the disk on virtio-scsi, legacy

@@ -1,5 +1,6 @@
 #!/bin/bash
-# The self-hosting root (docs/selfhost.md): this repo as a Plan 9 root, a
+# LEGACY self-hosting GEFS root (not the O-only runtime): this repo as a
+# Plan 9 root, a
 # git clone of HEAD whose origin is GitHub, plus the binaries tools/build.sh
 # built (build/$TARGET/root/$objtype/{bin,lib}), so that the root can
 # git/pull and build itself.  9front's git reads neither git's index nor
@@ -11,7 +12,10 @@
 #                                  (tools/gefsroot, the size DEV's; sudo dd:
 #                                  its contents replaced, its PARTUUID kept),
 #                                  e.g. /dev/nvme0n1p5
-#   ORIGIN=URL                     origin (default the GitHub repo)
+#   ORIGIN=URL                     origin in the generated clone
+# NOTE: inherited default below still points to pereuna/Plan2001.git.
+# Until that functional default is corrected separately, set ORIGIN to
+# https://github.com/pereuna/Plan2001-O.git when preparing O repository clones.
 # The owner of the files is the user running this: etc/group names uid
 # 1000 glenda.
 set -e

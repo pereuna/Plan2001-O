@@ -600,7 +600,7 @@ oseed(Blk *tb)
 }
 
 /*
- * Plan2001: format a native O volume (docs/o-volume-format.md).  Reuse
+ * Plan2001: format a native O volume (docs/O-FORMAT.md).  Reuse
  * GE's arenas, logs and an ordinary leaf for the flat catalog: there is
  * no FS root, adm tree or user table.  The superblock flag carries the
  * profile and PoC version; opening never calls this.

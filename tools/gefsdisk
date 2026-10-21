@@ -1,11 +1,11 @@
 #!/bin/bash
-# A disk for booting Plan2001 with its root in the kernel's gefs
-# (devgefs, docs/gefs.md): GPT, an ESP (the loader as EFI/BOOT, the
-# kernel, plan9.ini) and the gefs root (tools/gefsroot's image), found by
-# its partition's PARTUUID.  plan9.ini has root=-w PARTUUID=... and
-# user=glenda: the kernel mounts the root and runs its init
-# (docs/init.md).  dd it to a USB stick for real hardware; the tests boot
-# it in QEMU.
+# Build a GPT boot disk: an ESP (EFI loader, kernel, plan9.ini) and a
+# GE/GEFS partition identified by PARTUUID. LEGACY FS mode mounts a
+# GEFS root via plan9.ini root=. NATIVE O-ONLY TESTS set NOROOTFS=1
+# and INIT=/boot/mp -O ... -S init -B, using the partition as a native
+# O volume without mounting an FS root (docs/POC.md, docs/O-FORMAT.md).
+# Tests use disposable QEMU disk images; writing such images to a real
+# disk is an explicit destructive operator action, never a test default.
 #   tools/gefsdisk [OUT]      default build/$TARGET/gefsdisk.img
 #   ROOTIMG=FILE              the gefs image (default build/$TARGET/root.gefs;
 #                             made by tools/gefsroot from build/selfroot

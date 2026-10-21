@@ -249,7 +249,7 @@ def test_crash_tail_is_counted():
 
 
 def test_tail_reaches_the_documented_200_mib():
-    """the ~200 MiB per crash in docs/gefs-obj.md is a tail of this shape.
+    """a historical ~200 MiB Plan2001 crash tail has this shape.
 
     A full log block holds (Blksz-Loghdsz)/8 one-wide entries, so 200 MiB
     of 16 KiB blocks spans several log blocks, as it would on a disk.

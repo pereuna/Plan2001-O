@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001: make a new native O volume image (docs/o-volume-format.md).
+# Plan2001: make a new native O volume image (docs/O-FORMAT.md).
 # This is a host-side preparation tool: it formats a disposable raw
 # image with the tree's userspace gefs in the build VM, using GE's own
 # arena/tree/sync code.  The result has the O profile, no FS root, adm

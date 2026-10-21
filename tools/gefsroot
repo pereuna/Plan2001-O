@@ -1,5 +1,6 @@
 #!/bin/bash
-# A gefs root image (docs/gefs.md): the tree DIR (tools/selfroot's) in a
+# LEGACY GEFS filesystem root image (not the native O runtime): the tree
+# DIR (tools/selfroot's) in a
 # fresh gefs, made in the build VM (tools/vm) with the tree's own gefs
 # (DIR/amd64/bin/gefs), as Linux has none.  The image is a partition's
 # contents (tools/gefsdisk puts it on a disk; dd it to a partition).

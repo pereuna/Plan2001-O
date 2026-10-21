@@ -2,7 +2,8 @@
 # Boot a target's kernel through its UEFI loader (build/$TARGET, from
 # tools/build.sh) in QEMU with UEFI firmware, with no root= (and no
 # disk): the kernel comes up to init0 and stops there, there being no boot
-# file system (docs/init.md).  PASS when its "no root file system" comes
+# file system. This is the inherited kernel/UEFI smoke gate, NOT the
+# native O-init test (tools/test-o-boot.sh). PASS when "no root file system" comes
 # with exactly one Plan 9 banner.  tools/test-gefs.sh boots a root.  The ESP is a FAT
 # image made with mtools (build/$TARGET/esp.img), ready to be dd'd to a USB
 # stick for real-hardware testing.

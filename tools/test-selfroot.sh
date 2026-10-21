@@ -1,5 +1,6 @@
 #!/bin/bash
-# The self-hosting root (tools/selfroot, docs/selfhost.md) in QEMU: its
+# LEGACY GEFS self-hosting regression (not an O-only gate). The
+# self-hosting root (tools/selfroot) in QEMU: its
 # gefs disk (tools/gefsroot, tools/gefsdisk: root=-w PARTUUID=), QEMU's
 # user network (DHCP, DNS), and over
 # the serial console (tools/9run's relay): the network (ip/ipconfig, dns,

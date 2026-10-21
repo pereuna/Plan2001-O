@@ -1,5 +1,5 @@
 #!/bin/bash
-# Plan2001 stage 2 (docs/PoC-experimental-demo.md 2): a native O volume.
+# Plan2001 stage 2 (docs/POC.md 2): a native O volume.
 # tools/mkovol formats a fresh image; a disk with no root= boots it with
 # otest=, checks its profile, version and init catalog entry, writes a
 # plain O record, syncs and halts.  A second boot reads it back.  Then

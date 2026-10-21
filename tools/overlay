@@ -4,10 +4,10 @@
 # LICENSE, AGENTS.md): what tools/build.sh hands the build VM.  The files git has or
 # would add (new ones too, not the ignored).
 #   tools/overlay DIR          DIR made anew
-#   tools/overlay -k DIR       only the kernel's tree and what Monolith
-#                              lays over 9front with it: sys/src/9,
-#                              sys/src/boot, sys/include/bootinfo.h,
-#                              kbdfs (the line editor), hjfs's auth.c
+#   tools/overlay -k DIR       legacy kernel-only overlay subset:
+#                              sys/src/9, sys/src/boot,
+#                              sys/include/bootinfo.h, kbdfs and hjfs auth.
+# This is a build-source selector, not a runtime filesystem requirement.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 k=; [ "$1" = -k ] && { k=1; shift; }

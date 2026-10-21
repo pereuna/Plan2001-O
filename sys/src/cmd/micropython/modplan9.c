@@ -1,5 +1,7 @@
 /*
- * The plan9 module: Plan 9's system calls for Python (docs/mpinit.md).
+ * LEGACY Plan 9 compatibility module: exposes inherited system calls
+ * to MicroPython, including bootstrap device and console operations.
+ * It does not define the native GE/O object interface (docs/O-FORMAT.md).
  * Names, modes and flags as in libc; a failure raises OSError with the
  * error string.  Files are file descriptors (ints), as in libc.
  */
@@ -210,7 +212,7 @@ static mp_obj_t p9_wstat(size_t n, const mp_obj_t *a) {
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(p9_wstat_obj, 2, 4, p9_wstat);
 
 // sync(name or fd): a wstat of nothing (nulldir), Plan 9's fsync: gefs
-// returns when what was written is on the disk (docs/object-model.md)
+// returns when what was written is on the disk (p9space.c)
 static mp_obj_t p9_sync(mp_obj_t f) {
     Dir d;
 

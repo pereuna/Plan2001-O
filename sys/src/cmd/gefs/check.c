@@ -8,7 +8,7 @@
 
 /*
  * Plan2001: the reachability census the kernel's check has and this one
- * lacked (docs/gefs-crashleak.md, chapter 7).  Reachable blocks are
+ * lacked (historical crash-leak investigation).  Reachable blocks are
  * marked by address and the ones neither free nor reached are counted:
  * that is the only way `gefs -c` can speak about a crash's lost space.
  * Reported, not failed: a disk at rest still shows in-flight frees as

@@ -1,5 +1,7 @@
 /*
- * MicroPython on Plan2001 (docs/mpinit.md).
+ * MicroPython: inherited file/REPL entry points and native GE/O mode.
+ * In O-only boot, -O PARTUUID=... -S init -B restores the persistent
+ * init Space and calls run(), without an FS root (docs/POC.md).
  *	micropython			the REPL
  *	micropython -c source		run source
  *	micropython file [arg...]	run file (sys.argv: file, args)
@@ -13,7 +15,7 @@
  *	micropython -S space ...	in the Space space: its image restored,
  *					committed after each REPL statement
  *					and at the program's end
- *					(docs/object-model.md)
+ *					(see p9space.c; O mode: docs/O-FORMAT.md)
  * A failure exits with status micropython (usage: usage); sys.exit(n)
  * with n.
  */

@@ -120,10 +120,10 @@ enum {
 	/* configuration */
 	Kconf,	/* name[] => value[] */
 
-	/* Plan2001: object stores (the kernel's obj.c, docs/gefs-obj.md) */
+	/* Plan2001: object stores (the kernel's obj.c, sys/src/9/gefs/obj.c) */
 	Kobj,	/* store[8] [oid[8] ~ver[8] idx[4]] => header or chunk */
 
-	/* Plan2001: native O volume records (docs/o-volume-format.md) */
+	/* Plan2001: native O volume records (docs/O-FORMAT.md) */
 	Ko,	/* name[] => value[]: catalog and volume records */
 };
 
@@ -144,7 +144,7 @@ enum {
 };
 
 /*
- * Plan2001: the native O volume profile (docs/o-volume-format.md).  The
+ * Plan2001: the native O volume profile (docs/O-FORMAT.md).  The
  * low byte of fs->flag is the PoC format version; the high bit tells O
  * from a legacy FS volume (whose flag is 0).  O records live in the GE
  * snapshot tree under the Ko key type.

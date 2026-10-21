@@ -3,7 +3,7 @@
 # three targets' toolchains, the libraries they and the kernel link, and
 # the few programs a self-hosting root needs to fetch its source (git over
 # https: webfs, ip/ipconfig, ndb) and build it.  Everything else is
-# Monolith's (docs/selfhost.md).
+# historical self-hosting/Monolith build dependencies, not O runtime requirements.
 #   PATH        a file or a whole directory, from the 9front root
 #   !PATH       not that (inside a directory above)
 # A file this repo already has is Plan2001's own and is never overwritten.
@@ -367,7 +367,9 @@ rc/bin/kill
 rc/bin/lc
 rc/bin/reboot
 
-# gefs, the format of the kernel's #G (sys/src/9/gefs, docs/gefs.md):
+# Inherited GEFS command-line tools: format/check the legacy FS profile
+# and the native O profile (docs/O-FORMAT.md). The kernel uses the GE
+# engine in sys/src/9/gefs; #G/9P is a separate legacy adapter.
 # reaming, checking and the reference the tests check the kernel against
 sys/src/cmd/gefs
 

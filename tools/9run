@@ -20,13 +20,13 @@ DIR (default build/vm) is where tools/vm keeps the VM.  The relay is the
 only client of QEMU's serial socket, for the VM's whole life: it appends
 everything the guest prints to DIR/serial.log (the whole session) and
 types what is written to the FIFO DIR/serial.in.  Everything else reads
-the log and writes the FIFO.  Found by trial (see docs/status.md):
+the log and writes the FIFO.  Found by serial-console testing:
   - input goes in small paced chunks, or the guest's UART drops characters
   - clients that come and go on QEMU's socket lose input right after
     connecting, stall the guest's output while connected and not reading,
     and see characters doubled in QEMU's own logfile - hence one relay
 If DIR/target says 'tcp HOST PORT KEY', the relay talks to a real machine
-instead: the Plan2001 medium's remote (Monolith's plan2001/usr/glenda/lib/profile), a shell on
+instead: the inherited external Monolith CPU-server helper (not a native O protocol), a shell on
 a TCP connection that wants KEY first.  No line discipline there, so the
 relay turns typed returns into newlines, and no UART to pace for.
 

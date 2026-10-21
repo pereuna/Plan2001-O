@@ -119,10 +119,10 @@ enum {
 	/* configuration */
 	Kconf,	/* name[] => value[] */
 
-	/* Plan2001: object stores (obj.c, docs/gefs-obj.md) */
+	/* Plan2001: object stores (obj.c, sys/src/9/gefs/obj.c (legacy DMOBJ and native O)) */
 	Kobj,	/* store[8] [oid[8] ~ver[8] idx[4]] => header or chunk */
 
-	/* Plan2001: native O volume records (docs/o-volume-format.md) */
+	/* Plan2001: native O volume records (docs/O-FORMAT.md) */
 	Ko,	/* name[] => value[]: catalog and volume records */
 };
 
@@ -143,7 +143,7 @@ enum {
 };
 
 /*
- * Plan2001: the native O volume profile (docs/o-volume-format.md).  The
+ * Plan2001: the native O volume profile (docs/O-FORMAT.md).  The
  * low byte of fs->flag is the PoC format version; the high bit tells O
  * from a legacy FS volume (whose flag is 0).  O records live in the GE
  * snapshot tree under the Ko key type.
@@ -395,7 +395,7 @@ struct Limbo {
 };
 
 /*
- * Plan2001: a volume's kernel glue (docs/ge-fs-o.md).  It was kern.c's
+ * Plan2001: a volume's kernel glue (sys/src/9/gefs/kern.c).  It was kern.c's
  * one global `g': the device, connection and console file descriptors,
  * the disk's raw file for cache flushes, and the halt state.  A GE
  * instance (Gefs) has its own, so that two volumes do not share fds,

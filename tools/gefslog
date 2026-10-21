@@ -11,7 +11,7 @@
                                bytes) or bufhash (the log's own bytes);
                                auto (default) tries both
 
-Why: docs/gefs-obj.md (space-v6) records that `check`'s leak counter
+Historical Plan2001 space-v6 crash experiments found that `check`'s leak counter
 grows ~200 MiB per QEMU kill, about the amount written since the last
 sync, and leaves the cause open.
 
@@ -22,7 +22,7 @@ is still current (gen >= fs->qgen) and then returns, so the rest of the
 chain is never read and its entries stay unapplied.
 
 What that tail means is NOT a loss of space, and this tool does not call
-it one (measured 19.10.2026, docs/status.md: 9924 of the 9937 tail
+it one (measured in the source-branch crash image on 19.10.2026: 9924 of 9937 tail
 allocations of a real crash image were already inside the reconstructed
 free set).  loadarena starts a->free EMPTY with a->used = a->size
 (load.c), and the replay is what fills the free set in, from the

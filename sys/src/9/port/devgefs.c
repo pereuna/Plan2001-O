@@ -1,6 +1,8 @@
 /*
- * #G: gefs in the kernel (../gefs, docs/gefs.md), the root's file
- * system.  gefs runs as kprocs and serves 9P on a pipe; rootmount mounts
+ * LEGACY FS/9P IMPLEMENTATION (#G): inherited GEFS root filesystem.
+ * This path remains for compatibility and bootstrap tests; it is not the
+ * native GE/O object interface (sysovolopen/sysospace* below).
+ * gefs runs as kprocs and serves 9P on a pipe; rootmount mounts
  * the other end before / for plan9.ini's root=:
  *
  *	root=-w PARTUUID=guid		its tree main
@@ -22,7 +24,7 @@
 #include "../port/error.h"
 
 /*
- * Plan2001: a GE instance (../gefs, docs/ge-fs-o.md) is opaque here:
+ * Plan2001: a GE instance (../gefs, GE engine per-volume instance model (sys/src/9/gefs/kern.c)) is opaque here:
  * its type is gefs.h's, and 6c's cross-module signatures differ for an
  * incomplete struct, so the handle is a void*.
  */
@@ -46,7 +48,7 @@ void	onativeclose(void*);
 /*
  * Plan2001: the volumes this device has started, for the shutdown at
  * reboot.  Each is an independent GE instance with its own device,
- * console and allocation state (docs/ge-fs-o.md); the root's is the
+ * console and allocation state (GE engine per-volume instance model (sys/src/9/gefs/kern.c)); the root's is the
  * first.
  */
 enum {
@@ -310,7 +312,7 @@ gevolume(char *spec, int rw, char *dev, int ndev, vlong *off, vlong *size)
 }
 
 /*
- * Plan2001 stage 1's gate (docs/PoC-experimental-demo.md 1): getest=
+ * Plan2001 stage 1's gate (docs/POC.md 1): getest=
  * PARTUUID=guid|DEVICE opens an existing GE volume, starts the storage
  * engine and reads and writes a raw key/value record.  No root, FS
  * mount, user metadata or 9P server is involved.
@@ -338,7 +340,7 @@ geprobevol(char *spec)
 }
 
 /*
- * Plan2001 stage 2's gate (docs/PoC-experimental-demo.md 2): otest=
+ * Plan2001 stage 2's gate (docs/POC.md 2): otest=
  * PARTUUID=guid|DEVICE opens an O-profile GE volume by name, checks its
  * version and init catalog entry, and writes a plain O record.  No FS.
  */
@@ -370,7 +372,7 @@ oprobevol(char *spec)
 }
 
 /*
- * Plan2001 stage 3's gate (docs/PoC-experimental-demo.md 3): oobj=
+ * Plan2001 stage 3's gate (docs/POC.md 3): oobj=
  * PARTUUID=guid|DEVICE opens the same native O volume and uses the
  * object API directly: two objects with stable OIDs, one commit, then
  * a reboot fetches both.  No FS, 9P or fid is involved.
@@ -403,12 +405,13 @@ oobjprobevol(char *spec)
 }
 
 /*
- * Plan2001 Stage 4: the native O interface to userspace.  These are
+ * NATIVE GE/O OBJECT IMPLEMENTATION: direct syscalls, not filesystem
+ * operations. These are
  * system calls, not files: no #G, 9P, Fid, qid or /dev entry carries an
  * object.  OVOLOPEN opens the one native O volume (a PARTUUID or a
  * device, as root= takes it) and starts its GE instance; OSPACEOPEN
  * gives a Space handle from the flat catalog, and the rest are the
- * native object calls of docs/o-volume-format.md.  The handles are
+ * native object calls of docs/O-FORMAT.md.  The handles are
  * kernel-side: a process never sees an Ospace pointer.
  */
 enum {
@@ -587,7 +590,7 @@ sysospaceclose(va_list list)
 /*
  * plan9.ini's root= ([-w] PARTUUID=guid|DEVICE [!tree]): the kernel's
  * gefs mounted before / in the first process, before it runs init
- * (init0, docs/init.md).  The host owner is user= (as factotum -u would
+ * (init0; legacy filesystem boot path). The host owner is user= (as factotum -u would
  * make it).  1 if done.
  */
 int

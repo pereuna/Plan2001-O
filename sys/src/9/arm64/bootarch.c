@@ -6,7 +6,8 @@
 
 /*
  * The ARM64 side of port/bootinfo.c and port/bootfb.c.  Plan2001 Boot ABI
- * v1, ARM64 entry: docs/boot-abi-arm64.md; _start (l.s) stores X0 here.
+ * v1, ARM64 entry: _start (l.s) stores X0 here; this target remains
+ * experimental (see tools/targets/arm64).
  */
 uintptr bootinfopa;
 

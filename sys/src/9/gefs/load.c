@@ -56,7 +56,7 @@ loadarena(Arena *a, Bptr hd)
  * Plan2001: open and load a GE volume only: its superblock, arenas and
  * allocation logs.  This is the storage engine's part of what loadfs
  * used to do; FS adds its mount and user metadata below, and O will use
- * this without either (docs/PoC-experimental-demo.md 1).
+ * this without either (docs/POC.md 1).
  */
 void
 loadge(Gefs *fs, char *dev)
@@ -127,7 +127,7 @@ loadge(Gefs *fs, char *dev)
 /*
  * Plan2001: the FS profile's part of the old loadfs: its dump mount and
  * the user metadata from the adm snapshot.  GE is already loaded
- * (loadge); nothing here is on O's path (docs/PoC-experimental-demo.md 1).
+ * (loadge); nothing here is on O's path (docs/POC.md 1).
  */
 void
 loadfs(Gefs *fs)

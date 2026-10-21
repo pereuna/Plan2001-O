@@ -1,8 +1,10 @@
 #include "gefs.h"
 
 /*
- * Plan2001: object stores (docs/gefs-obj.md).  A store is a file made
- * with DMOBJ; its objects are versioned keys of the file's tree:
+ * GE versioned object engine, shared by the inherited DMOBJ filesystem
+ * adapter and the native O profile (docs/O-FORMAT.md).
+ * LEGACY FS/9P uses a DMOBJ file as a store; native GE/O instead uses a
+ * SpaceID directly, with no fid, qid or pathname. Both use Kobj keys:
  *
  *	Kobj store[8]				=> N[8] K[8] W[8] user[]
  *	Kobj store[8] oid[8] ~ver[8] idx[4]	=> chunk (idx 0: len[4] first)
@@ -15,12 +17,12 @@
  * or abandoned transaction's keys are taken out (versions > N); after a
  * crash, W > N says some may be left, and the next begin sweeps them.
  *
- * Writes are a stream of records (the fid's transaction):
+ * LEGACY DMOBJ/9P adapter: writes use a fid transaction stream:
  *	'p' oid[8] len[8] data	put		'd' oid[8]	delete
  *	'h' len[4] data		header's user part
  *	'c' flags[1]		commit (flags&1: sync)	'a'	abort
  *	'v' ver[8]		the next read's version	's' oid[8]	its object
- * Reads are a stream from offset 0 (a cursor in the fid, as readdir's):
+ * LEGACY DMOBJ/9P reads use a fid cursor from offset 0:
  *	'H' N[8] K[8] len[4] user, then 'o' oid[8] ver[8] len[8] data
  */
 
@@ -365,7 +367,7 @@ dropold(char *k, int nk, void *a)
 int	objfail;	/* the next commit's history sweep fails */
 
 /*
- * Plan2001 V7 (docs/v7-upgrade.md 4.2): the user part's recovery pin.
+ * Plan2001 V7 (the V7 store-header format (see objpin below)): the user part's recovery pin.
  * The header's user part is the file's, and only its writer knows it:
  * env[64] next[8] (V5, V6), or env[64] next[8] fmt[1] pad[7] pin[8]
  * (V7, fmt 2).  The pin is a published version that must stay readable
@@ -1076,7 +1078,7 @@ objabortfid(Fid *f, int id)
 }
 
 /*
- * Plan2001 Stage 3: the native O object API (docs/o-volume-format.md).
+ * NATIVE GE/O object API (docs/O-FORMAT.md), separate from DMOBJ/9P.
  * A Space is the catalog's stable SpaceID; its objects are the same
  * Kobj records the DMOBJ adapter uses, in the O volume's snapshot tree.
  * There is no Fid, qid, mount, file or path: these calls enter the
