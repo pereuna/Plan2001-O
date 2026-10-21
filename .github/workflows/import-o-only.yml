@@ -36,11 +36,11 @@ jobs:
           mkdir -p "$snapshot"
           git -C "$src" archive "$SOURCE_COMMIT" | tar -xf - -C "$snapshot"
           rsync -a \
-            --exclude='README.md' \
-            --exclude='AGENTS.md' \
-            --exclude='.claude/' \
-            --exclude='docs/' \
-            --exclude='init' \
+            --exclude='/README.md' \
+            --exclude='/AGENTS.md' \
+            --exclude='/.claude/' \
+            --exclude='/docs/' \
+            --exclude='/init' \
             "$snapshot/" ./
 
           # Keep only the relevant O format specification, not contradictory
@@ -205,7 +205,7 @@ jobs:
           # the new repository or rerun it on future README changes.
           rm -f .github/workflows/import-o-only.yml
           rmdir .github/workflows .github 2>/dev/null || true
-          git add -A
+          git add -A -f
           if git diff --cached --quiet; then
             echo "::error::Unexpected empty migration"
             exit 1
