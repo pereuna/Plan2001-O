@@ -277,7 +277,8 @@ dupseg(Segment **seg, int segno, int share)
 		n->image = s->image;
 		n->fstart = s->fstart;
 		n->flen = s->flen;
-		incref(s->image);
+		if(s->image != nil)	/* native O exec: no file image */
+			incref(s->image);
 		break;
 	}
 	for(i = 0; i < s->mapsize; i++){

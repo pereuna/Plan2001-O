@@ -11,8 +11,10 @@
 #                             its compiled .mpy as O objects in the fresh
 #                             image (Stage 4, tools/oseed.py).
 #   NATIVEEXEC=FILE           also seed FILE as the native executable test
-#                             object (requires SOURCE and the current
-#                             seed layout; see docs/O-FORMAT.md).
+#                             object (requires SOURCE; see docs/O-FORMAT.md).
+#   MPEXEC=FILE               also seed the real MicroPython executable
+#                             byte for byte at the experimental OID
+#                             0x4f45584543000003 (requires SOURCE).
 #   GEFS=FILE                 userspace gefs (default
 #                             build/selfroot/amd64/bin/gefs)
 set -e
@@ -23,9 +25,12 @@ out=$(realpath -m "$1")
 mb=${2:-512}
 src=$3
 native=${NATIVEEXEC:-}
+mpexec=${MPEXEC:-}
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
 [ -z "$native" ] || [ -r "$native" ] || { echo "mkovol: NATIVEEXEC: no $native" >&2; exit 1; }
+[ -z "$mpexec" ] || [ -r "$mpexec" ] || { echo "mkovol: MPEXEC: no $mpexec" >&2; exit 1; }
 [ -z "$native" ] || [ -n "$src" ] || { echo "mkovol: NATIVEEXEC requires SOURCE" >&2; exit 2; }
+[ -z "$mpexec" ] || [ -n "$src" ] || { echo "mkovol: MPEXEC requires SOURCE" >&2; exit 2; }
 dir=$root/build/selfroot
 gefs=${GEFS:-$dir/amd64/bin/gefs}
 [ -x "$gefs" ] || { echo "mkovol: no $gefs (tools/selfroot)" >&2; exit 1; }
@@ -40,6 +45,10 @@ if [ -n "$src" ]; then
 	if [ -n "$native" ]; then
 		cp "$native" "$b/nativeexec"
 		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./nativeexec
+	fi
+	if [ -n "$mpexec" ]; then
+		cp "$mpexec" "$b/mpexec"
+		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./mpexec
 	fi
 fi
 truncate -s $(( $(stat -c %s "$b/in.img") / 1048576 + 16 ))M "$b/in.img"
@@ -74,7 +83,7 @@ fi
 mv "$b/out.img" "$out"
 rm -f "$b/in.img"
 if [ -n "$src" ]; then
-	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src${native:+, native executable $native}"
+	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src${native:+, native executable $native}${mpexec:+, MicroPython executable $mpexec}"
 else
 	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1"
 fi

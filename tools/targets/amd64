@@ -7,6 +7,9 @@ objtype=amd64
 kdir=pc64
 kconf=pc64
 kernel=9pc64
+# dedicated regression kernel: the same machine without embedded MicroPython
+testkconf=pc64omp
+testkernel=9pc64omp
 # kernel source directories selected for this repository's build overlay
 ksrc=(port pc pc64 ip gefs)
 # the UEFI loader: mk target in /sys/src/boot/efi, where an installed

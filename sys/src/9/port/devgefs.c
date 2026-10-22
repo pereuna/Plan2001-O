@@ -709,12 +709,19 @@ sysoexecute(va_list list)
 {
 	Ohand *oh;
 	uchar *buf;
+	char **argv;
 	long n;
 	uvlong oid, ver;
-	int h;
+	int h, argc;
 
 	h = va_arg(list, int);
 	oid = va_arg(list, uvlong);
+	argv = va_arg(list, char**);
+	argc = va_arg(list, int);
+	if(argc < 0 || argc > 32)
+		error(Ebadarg);
+	if(argc > 0 && argv == nil)
+		error(Ebadarg);
 	oh = ogetspace(h);
 	if((buf = malloc(Objexecmax)) == nil){
 		ohandput(oh);
@@ -730,7 +737,7 @@ sysoexecute(va_list list)
 		error("oexec: no such object");
 	ohandput(oh);
 	poperror();
-	return execo(oid, buf, n);
+	return execo(oid, buf, n, argv, argc);
 }
 
 /*

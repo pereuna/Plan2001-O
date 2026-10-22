@@ -22,7 +22,7 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 out=$tbuild; b=$root/build
-mkdir -p "$out"; rm -rf "$out/$kernel" "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$b"/in.img "$b"/out.img
+mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$b"/in.img "$b"/out.img
 
 cp "$here/targets/$TARGET" "$b/target"; printf 'what=%s\npasses=%s\n' "${WHAT:-all}" "${PASSES:-1}" >> "$b/target"
 # the repo's Plan 9 tree
@@ -41,7 +41,7 @@ set -e
 "$here/vm" stop; trap - EXIT
 
 tar xmf "$b/out.img" -C "$out" 2>/dev/null || true
-[ "${WHAT:-all}" = loader ] || results="$kernel hjfs kbdfs ktest"
+[ "${WHAT:-all}" = loader ] || results="$kernel hjfs kbdfs ktest${testkernel:+ $testkernel}"
 results="$results $loader"
 [ "$st" = 0 ] && grep -q BUILD-DONE "$out/session.log" || { echo "build failed"; exit 1; }
 for f in $results; do [ -s "$out/$f" ] || { echo "build failed: no $f"; exit 1; }; done

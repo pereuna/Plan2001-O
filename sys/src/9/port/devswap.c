@@ -273,6 +273,10 @@ pageout(Proc *p, Segment *s)
 	if(!canqlock(s))	/* We cannot afford to wait, we will surely deadlock */
 		return;
 
+	if((s->type & SG_NOSWAP) != 0){	/* no image to fault a page back from */
+		qunlock(s);
+		return;
+	}
 	if(!canflush(p, s)	/* Able to invalidate all tlbs with references */
 	|| waserror()) {
 		qunlock(s);

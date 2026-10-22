@@ -385,6 +385,7 @@ enum
 	SG_CACHED	= 0400,		/* Normal cached memory */
 	SG_DEVICE	= 01000,	/* Memory mapped device */
 	SG_NOEXEC	= 02000,	/* No execute */
+	SG_NOSWAP	= 04000,	/* No backing image: keep pages */
 };
 
 #define PG_ONSWAP	1

@@ -449,22 +449,29 @@ segload(Segment *s, uchar *src, ulong len, ulong off)
 	}
 }
 
+enum {
+	Oargmax	= 32,
+};
+
 uintptr
-execo(uvlong oid, void *vbuf, long n)
+execo(uvlong oid, void *vbuf, long n, char **uargv, int argc)
 {
 	uchar *buf;
 	Exec *e;
 	Segment *ts, *ds, *bs, *stk, *s;
-	ulong magic, text, data, ssize, nbytes;
+	ulong magic, text, data, ssize, nbytes, total;
 	uintptr abss, ebss;
 	uintptr entry, adata, tstk;
-	char *elem, *args, name[64], *charp, **argv;
+	char *elem, *args, name[64], *charp, *p, *a, *endp;
+	char **argv, **kargv, *kargs;
 	Tos *tos;
-	int nargs, nlen;
+	int i, argn, nargs, nlen;
 
 	buf = vbuf;
 	ts = ds = bs = stk = nil;
 	elem = args = nil;
+	kargv = nil;
+	kargs = nil;
 	if(waserror()){
 		free(buf);
 		if(ts != nil)
@@ -477,6 +484,8 @@ execo(uvlong oid, void *vbuf, long n)
 			free(args);
 		if(elem != nil)
 			free(elem);
+		free(kargv);
+		free(kargs);
 		if(stk != nil){
 			qlock(&up->seglock);
 			if(up->seg[ESEG] == stk){
@@ -490,6 +499,51 @@ execo(uvlong oid, void *vbuf, long n)
 		nexterror();
 	}
 
+	if(argc < 0 || argc > Oargmax)
+		error(Ebadarg);
+	if(argc > 0){
+		if(uargv == nil)
+			error(Ebadarg);
+		evenaddr((uintptr)uargv);
+		validaddr((uintptr)uargv, argc*BY2WD, 0);
+		total = 0;
+		for(i = 0; i < argc; i++){
+			a = uargv[i];
+			validaddr((uintptr)a, 1, 0);
+			if((endp = vmemchr(a, 0, USTKSIZE-total)) == nil)
+				error(Ebadarg);
+			total += (endp-a)+1;
+			if(total >= USTKSIZE)
+				error(Enovmem);
+		}
+		if(total == 0)
+			error(Ebadarg);
+		kargs = malloc(total);
+		if(kargs == nil)
+			error(Enomem);
+		kargv = malloc((argc+1)*sizeof(char*));
+		if(kargv == nil)
+			error(Enomem);
+		p = kargs;
+		for(i = 0; i < argc; i++){
+			nlen = strlen(uargv[i])+1;
+			memmove(p, uargv[i], nlen);
+			kargv[i] = p;
+			p += nlen;
+		}
+		kargv[argc] = nil;
+		argn = argc;
+	}else{
+		snprint(name, sizeof name, "oexec %016llux", oid);
+		kstrdup(&kargs, name);
+		kargv = malloc(2*sizeof(char*));
+		if(kargv == nil)
+			error(Enomem);
+		kargv[0] = kargs;
+		kargv[1] = nil;
+		argn = 1;
+	}
+
 	if(n < sizeof(Exec))
 		error(Ebadexec);
 	e = (Exec*)buf;
@@ -498,15 +552,15 @@ execo(uvlong oid, void *vbuf, long n)
 	if((uvlong)n < (uvlong)text+data)
 		error(Ebadexec);
 
-	snprint(name, sizeof name, "oexec %016llux", oid);
+	snprint(name, sizeof name, "%.63s", kargv[0]);
 	kstrdup(&elem, name);
 
-	ts = newseg(SG_TEXT|SG_RONLY, UTZERO, PGROUND(text)>>PGSHIFT);
+	ts = newseg(SG_TEXT|SG_RONLY|SG_NOSWAP, UTZERO, PGROUND(text)>>PGSHIFT);
 	ts->flushme = 1;
 	segload(ts, buf, text, 0);
-	ds = newseg(SG_DATA, adata, PGROUND(data)>>PGSHIFT);
+	ds = newseg(SG_DATA|SG_NOSWAP, adata, PGROUND(data)>>PGSHIFT);
 	segload(ds, buf, data, text);
-	bs = newseg(SG_BSS, abss, (ebss-abss)>>PGSHIFT);
+	bs = newseg(SG_BSS|SG_NOSWAP, abss, (ebss-abss)>>PGSHIFT);
 	free(buf);
 	buf = nil;
 
@@ -521,7 +575,7 @@ execo(uvlong oid, void *vbuf, long n)
 		if(tstk <= USTKSIZE)
 			error(Enovmem);
 	} while((s = isoverlap(tstk-USTKSIZE, USTKSIZE)) != nil);
-	stk = newseg(SG_STACK|SG_NOEXEC, tstk-USTKSIZE, USTKSIZE/BY2PG);
+	stk = newseg(SG_STACK|SG_NOEXEC|SG_NOSWAP, tstk-USTKSIZE, USTKSIZE/BY2PG);
 	up->seg[ESEG] = stk;
 	qunlock(&up->seglock);
 	poperror();
@@ -530,30 +584,50 @@ execo(uvlong oid, void *vbuf, long n)
 	memset(tos, 0, sizeof(Tos));
 	tos->cyclefreq = m->cyclefreq;
 
-	nlen = strlen(name)+1;
-	charp = (char*)(tstk-sizeof(Tos))-nlen;
+	total = 0;
+	for(i = 0; i < argn; i++)
+		total += strlen(kargv[i])+1;
+	charp = (char*)tos - total;
 	if(charp < (char*)tstk-USTKSIZE)
 		error(Enovmem);
-	memmove(charp, name, nlen);
-	nbytes = (char*)tstk-charp;
-	ssize = BY2WD*2 + ((nbytes+(BY2WD-1)) & ~(BY2WD-1));
-	if(PGROUND(ssize) >= USTKSIZE)
+	nbytes = (char*)tstk - charp;
+	ssize = BY2WD*(argn+1) + ((nbytes+(BY2WD-1)) & ~(BY2WD-1));
+	if(PGROUND(ssize+BY2WD) >= USTKSIZE)
 		error(Enovmem);
 	argv = (char**)(tstk-ssize);
-	argv[0] = charp+(USTKTOP-tstk);
-	argv[1] = nil;
-	args = malloc(nlen);
+	p = charp;
+	for(i = 0; i < argn; i++){
+		nlen = strlen(kargv[i])+1;
+		memmove(p, kargv[i], nlen);
+		argv[i] = p+(USTKTOP-tstk);
+		p += nlen;
+	}
+	argv[argn] = nil;
+
+	args = malloc(total < 128 ? total : 128);
 	if(args == nil)
 		error(Enomem);
-	memmove(args, name, nlen);
-	nargs = nlen;
+	nargs = total < 128 ? total : 128;
+	memmove(args, charp, nargs);
+	if(nargs > 0 && args[nargs-1] != '\0'){
+		for(i = nargs-1; i > 0; --i)
+			if(fullrune(args+i, nargs-i))
+				break;
+		args[i] = '\0';
+		nargs = i+1;
+	}
+
+	free(kargv);
+	free(kargs);
+	kargv = nil;
+	kargs = nil;
 
 	execcommit(ts, ds, bs, tstk, args, nargs, elem);
 	poperror();
 
 	tos = (Tos*)(USTKTOP-sizeof(Tos));
 	argv = (char**)(USTKTOP-ssize);
-	return execregs(entry, 1, argv, tos);
+	return execregs(entry, argn, argv, tos);
 }
 
 uintptr

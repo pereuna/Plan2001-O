@@ -1,0 +1,88 @@
+# pc64omp - the pc64 test configuration that does not embed MicroPython.
+# Same devices as pc64; the only bootdir programs are the native O bootstrap
+# harness and its console helper.  Ordinary boots keep embedded /boot/mp.
+dev
+	root
+	cons
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	etheri225	pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# No bootfs.paq/paqfs/bootrc.  This test configuration deliberately embeds
+# no MicroPython: /boot/oinit loads the interpreter as a native O object by
+# OID, and kbdfs is the console helper required by boot.py.
+bootdir
+	/$objtype/bin/aux/kbdfs	kbdfs
+	/$objtype/bin/oinit	oinit

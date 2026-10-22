@@ -81,11 +81,12 @@ fn mklog {
 
 fn kernel {
 	echo '### kernel '^$kconf
-	mklog /sys/src/9/$kdir kernel 'CONF='^$kconf
+	mklog /sys/src/9/$kdir kernel-$kconf 'CONF='^$kconf
 	test -f /sys/src/9/$kdir/$kernel || fail kernel
 	size /sys/src/9/$kdir/$kernel
 	md5sum /sys/src/9/$kdir/$kernel
 	cp /sys/src/9/$kdir/$kernel $out/$kernel
+	cp /sys/src/9/$kdir/$kconf.rootc.c $out/$kconf.rootc.c
 }
 
 fn loader {
@@ -116,7 +117,7 @@ fn tree {
 	walk -f -e mp $r/$objtype | awk '$1 < '^$t^' {print $2}' | xargs rm
 	for(x in `{walk -d $r/$objtype | sort -r})
 		rm $x >[2]/dev/null
-	for(f in mk rc 6c 6l 7c git/fs ip/ipconfig ndb/dns webfs aux/kbdfs ktest micropython)
+	for(f in mk rc 6c 6l 7c git/fs ip/ipconfig ndb/dns webfs aux/kbdfs ktest micropython oinit)
 		test -x $r/$objtype/bin/$f || fail tree:$f
 	echo tree: `{du -s $r/$objtype | awk '{print $1}'} KiB, `{walk -f $r/$objtype/bin | wc -l} programs in $r/$objtype
 }
@@ -132,11 +133,16 @@ if not if(~ $what kernel){
 	mklog /sys/src/cmd/6c 6c install
 	# Plan2001: sys.h's O calls (docs/O-FORMAT.md)
 	mklog /sys/src/libc/9syscall 9syscall install
-	for(c in aux/kbdfs micropython)
+	for(c in aux/kbdfs micropython oinit)
 		mklog /sys/src/cmd/$c `{basename $c} install
 	cp /$objtype/bin/aux/kbdfs $out
 	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out
 	kernel
+	if(! ~ $testkconf ''){
+		kconf=$testkconf
+		kernel=$testkernel
+		kernel
+	}
 	loader
 }
 if not {
@@ -144,6 +150,11 @@ if not {
 	bindtree
 	tree $out/root
 	kernel
+	if(! ~ $testkconf ''){
+		kconf=$testkconf
+		kernel=$testkernel
+		kernel
+	}
 	loader
 	cp $out/root/$objtype/bin/aux/kbdfs $out/root/$objtype/bin/ktest $out
 	if(~ $passes 2){

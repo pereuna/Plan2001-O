@@ -130,7 +130,7 @@ ospaceget(space, oid, buf, len, &ver)      -> bytes or -1
 ospaceput(space, oid, buf, len)
 ospacecommit(space, &ver)                  -> publish and sync
 ospaceclose(space)
-oexecute(space, oid)                       -> execute object (no return on success)
+oexecute(space, oid, argv, argc)            -> execute object (no return on success)
 ```
 
 `spec` may denote `PARTUUID=...` or a device specification.
@@ -174,18 +174,20 @@ security.
 
 ### 5.2 Native executable-object loading (bounded experiment)
 
-`oexecute(space, oid)` resolves `space` only in the calling process,
-reads one published object value, and follows `exec` semantics: on
-success the calling process is replaced and does not return; on failure
-the original image and its handles remain. The on-disk format is
-unchanged.
+`oexecute(space, oid, argv, argc)` resolves `space` only in the calling
+process, reads one published object value, and follows `exec` semantics:
+on success the calling process is replaced and does not return; on
+failure the original image and its handles remain. The on-disk format is
+unchanged. `argc` is bounded (32); `argc == 0` keeps the original
+synthetic `oexec <oid>` argv[0].
 
 The read is a **bounded whole-object read**. The kernel allocates
 `8 MiB` (`Objexecmax`) for the object, so this temporary memory cost is
 paid even for a small executable, and an object larger than the limit is
 rejected. There is no size-then-read pair: `ospaceget` selects one
 published version and copies that version's bytes in a single call, so
-the header and payload cannot come from different versions.
+the header and payload cannot come from different versions. The real
+MicroPython executable is 2,191,593 bytes, so the limit is unchanged.
 
 The loader reuses the existing `Exec`/a.out validation and segment
 machinery. Before committing it checks the architecture magic, header
@@ -194,42 +196,70 @@ against `text+data`, the entry point's membership in the text segment,
 and the user-address bounds. Segment addresses (`adata`, `abss`, `ebss`)
 remain `uintptr`; only sizes are narrower. It then builds ordinary text,
 data and BSS segments and the exec stack, and enters the shared
-process-transition path. The exec stack reserves `sizeof(Tos)` first and
-places the argument vector and strings below that reservation. No
-pathname, synthetic file, `Chan`, `Fid`, Qid, mount or 9P operation is
-involved. Successful transition applies the current close-on-exec O
-handle rule.
+process-transition path.
 
-Test objects are seeded only for the regression:
+The `argv` interface is Plan 9's bounded pointer-and-count form. The
+kernel checks the array alignment and mapping, every string pointer and
+NUL termination, the argument count and total byte length, and the
+resulting stack bounds. It copies the strings into kernel-owned memory
+before the process image is replaced, then builds the new stack with
+`sizeof(Tos)` reserved first and argv and its strings below that
+reservation. The strings and argv array do not overlap. No pathname,
+synthetic file, `Chan`, `Fid`, Qid, mount or 9P operation is involved.
+Successful transition applies the current close-on-exec O handle rule.
+
+Native segments carry no file image, so the shared loader sets an
+internal `SG_NOSWAP` flag on its text, data, BSS and stack segments and
+`dupseg()` tolerates a data segment whose `image` is `nil`. This keeps
+`rfork` and the page reclaimer from treating the loaded bytes as
+file-backed or swappable pages. Those pages stay resident instead of
+being reclaimed; the bounded image, BSS and stack are the memory cost.
+It does not change the on-disk format.
+
+Test and bootstrap objects are seeded through the existing `gefs -O -i`
+seed layout:
 
 ```text
-OID_EXEC_TEST    = 0x4f45584543000001   small amd64 executable
+OID_EXEC_TEST    = 0x4f45584543000001   small amd64 executable (BSS test)
 OID_BADEXEC_TEST = 0x4f45584543000002   truncated executable header
+OID_MP_EXEC      = 0x4f45584543000003   real MicroPython amd64 executable
 ```
 
-`tools/mkovol ... SOURCE` accepts `NATIVEEXEC=FILE` and stores the file
-under `OID_EXEC_TEST` (plus the malformed test record) through the
-existing `gefs -O -i` seed layout. The current seed catalog leaf is
-small; the test executable is built as a tiny no-frills program. For the
-BSS boundary regression, the host seeding path patches the target's BSS
-header field to `0xffffffff`, so the BSS extent crosses 4 GiB and the
-program probes a high BSS page. The target executable exists only in O
-for the test. `/boot/oexec` is an embedded test harness, not the loader
-and not a production bootstrap.
+`tools/mkovol ... SOURCE` accepts `NATIVEEXEC=FILE`, which is stored
+under `OID_EXEC_TEST` (plus the malformed test record), and
+`MPEXEC=FILE`, which is stored byte for byte under `OID_MP_EXEC`.
+For the BSS boundary regression only, the host seeding path patches the
+`NATIVEEXEC` target's BSS header field to `0xffffffff`, so the BSS extent
+crosses 4 GiB and the program probes a high BSS page. The MicroPython
+seed is never patched; `tools/oseed.py` reads the copy back and the
+`/boot/oinit` harness prints the SHA-256 of the object read from O, which
+the regression compares with the host binary.
+
+The seed builder in `sys/src/cmd/gefs/ream.c` builds a sorted GE tree
+bottom-up from the seed records. Small seeds are still one leaf; a large
+executable is split into many leaf blocks with pivot blocks above them.
+The seed is therefore not limited to one catalog leaf, and the on-disk
+record representation is unchanged. `/boot/oinit` is the small embedded
+bootstrap harness; `/boot/oexec` remains the native-exec regression
+harness. Neither is the loader and neither is a production bootstrap.
 
 Limits of this experiment: no program catalog, architecture selection,
 permissions, dynamic linking, or general executable-object format
-support. It does not remove `devroot`, embedded MicroPython or `kbdfs`,
-and it does not change the on-disk format.
+support. It does not remove `devroot` or `kbdfs` from the ordinary boot
+configuration, and it does not change the on-disk format.
+
+References: `sys/src/9/port/devgefs.c`, `sys/src/9/port/sysproc.c`,
+`sys/src/cmd/oinit/oinit.c`, `tools/test-o-boot-omp.sh`.
 
 ## 6. Reserved OIDs and MicroPython payloads
 
 The current seeded `init` Space reserves:
 
 ```text
-OID_ENV   = 0xfffffffffffffffc   Environment manifest
-OID_GRAPH = 0xfffffffffffffffd   serialized Python graph stream
-OID_CODE  = 0xffffffff00000000   base of host-assigned code OIDs
+OID_ENV     = 0xfffffffffffffffc   Environment manifest
+OID_GRAPH   = 0xfffffffffffffffd   serialized Python graph stream
+OID_CODE    = 0xffffffff00000000   base of host-assigned code OIDs
+OID_MP_EXEC = 0x4f45584543000003   experimental MicroPython executable
 ```
 
 The Environment manifest is an object containing text:
@@ -281,7 +311,7 @@ one demo Environment and its `.mpy` code through
 `tools/oseed.py` and `gefs -O -i`. The PoC seeds a small, fixed
 catalog/Environment. This is not general package management.
 
-In the tested O-only boot configuration:
+The ordinary O-only boot configuration still embeds MicroPython:
 
 ```text
 UEFI -> kernel -> inherited /boot/mp user-space executable
@@ -293,6 +323,25 @@ UEFI -> kernel -> inherited /boot/mp user-space executable
 The embedded `/boot/mp` executable and `/boot/kbdfs` helper are
 made visible through inherited read-only `devroot` machinery; they
 are **not** an initramfs, the O volume or a native executable loader.
+
+The bounded O-loaded test configuration `pc64omp` embeds no
+MicroPython. Its generated boot directory contains only `oinit` and
+the `kbdfs` console helper:
+
+```text
+UEFI -> kernel (9pc64omp) -> /boot/oinit -vol PARTUUID=...
+             -> ovolopen + ospaceopen("init")
+             -> oexecute(space, OID_MP_EXEC, argv, argc)
+             -> argv: micropython -O PARTUUID=... -S init -B
+             -> boot.py + kbdfs; Environment, code and init Space from O
+             -> commit; persistent run()
+```
+
+The same harness with `-repl` passes `-O PARTUUID=... -B` (no `-S`),
+so `boot.py` sets up the console and the O-loaded interpreter reaches
+its REPL. The harness contains no MicroPython copy and opens no
+executable file. The ordinary `pc64` configuration and its embedded
+`/boot/mp` path are unchanged.
 
 On the **first** O boot, missing `OID_GRAPH` causes import of the
 seeded demo module `odemo`. Its top level and `init()` initialize

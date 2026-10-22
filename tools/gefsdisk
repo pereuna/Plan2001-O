@@ -28,13 +28,16 @@
 #                             directory, not the ESP's root (the loader
 #                             looks there first: as in another system's
 #                             ESP, \EFI\plan2001 chainloaded by GRUB)
+#   KERNEL=FILE               kernel binary name in build/$TARGET (default
+#                             the target's $kernel), for a test config
 # Writes OUT.partuuid and OUT.ini (plan9.ini) next to OUT.
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 b=$tbuild
 out=${1:-$b/gefsdisk.img}
-for f in "$b/$kernel" "$b/$loader"; do
+kern=${KERNEL:-$kernel}
+for f in "$b/$kern" "$b/$loader"; do
 	[ -s "$f" ] || { echo "gefsdisk: no $f (tools/build.sh)" >&2; exit 1; }
 done
 rootimg=${ROOTIMG:-$b/root.gefs}
@@ -44,7 +47,7 @@ puuid=$(python3 -I -c 'import uuid; print(uuid.uuid4())')
 esp=$b/gefsesp.img
 rm -f "$esp"
 {
-	printf 'bootfile=/%s\n' "${ESPDIR:+$ESPDIR/}$kernel"
+	printf 'bootfile=/%s\n' "${ESPDIR:+$ESPDIR/}$kern"
 	[ -n "$CONSOLE" ] && printf 'console=%s\n' "$CONSOLE"
 	printf 'user=glenda\n'
 	[ "${NOROOTFS:-0}" = 1 ] || printf 'root=-w PARTUUID=%s\n' "$puuid"
@@ -75,7 +78,7 @@ rm -f "$esp"
 mformat -C -i "$esp" -T 131072 -h 64 -s 32 ::
 mmd -i "$esp" ::/EFI ::/EFI/BOOT
 mcopy -i "$esp" "$b/$loader" "::/EFI/BOOT/$espname"
-mcopy -i "$esp" "$b/$kernel" ::/${ESPDIR:+$ESPDIR/}
+mcopy -i "$esp" "$b/$kern" ::/${ESPDIR:+$ESPDIR/}
 mcopy -i "$esp" "$out.ini" ::/${ESPDIR:+$ESPDIR/}plan9.ini
 
 # 1 MiB, the ESP (64 MiB), the root, 1 MiB for the backup GPT

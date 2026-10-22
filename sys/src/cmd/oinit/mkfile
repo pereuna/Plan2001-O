@@ -1,0 +1,9 @@
+</$objtype/mkfile
+
+TARG=oinit
+OFILES=oinit.$O
+
+BIN=/$objtype/bin
+LIB=/$objtype/lib/libsec.a
+
+</sys/src/cmd/mkone

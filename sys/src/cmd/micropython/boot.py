@@ -72,5 +72,5 @@ if km and exists('/sys/lib/kbmap/' + km):
 home = '/usr/' + (env('user') or 'none')
 if exists(home):
     p.chdir(home)
-print('boot: MicroPython from the kernel,', 'root' if root else 'no root')
+print('boot: MicroPython,', 'root' if root else 'no root')
 del p, argv, c, e, fd, i, d, root, km, home, env, exists, run

@@ -32,7 +32,7 @@ long	ospaceget(int, uvlong, void*, long, uvlong*);
 long	ospaceput(int, uvlong, void*, long);
 long	ospacecommit(int, uvlong*);
 long	ospaceclose(int);
-long	oexecute(int, uvlong);
+long	oexecute(int, uvlong, char**, int);
 
 struct Call{
 	char	*name;

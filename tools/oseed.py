@@ -9,8 +9,10 @@ SRC = "/tmp/odemo.py"
 SEED = "/tmp/seed"
 CODE_OID = 0xffffffff00000000
 NATIVEEXEC = "/tmp/nativeexec"
+MPEXEC = "/tmp/mpexec"
 EXEC_OID = 0x4f45584543000001
 BADEXEC_OID = 0x4f45584543000002
+MP_OID = 0x4f45584543000003
 
 h = space.define(SRC)
 mpy = "/usr/glenda/lib/mod/" + h + ".mpy"
@@ -26,6 +28,21 @@ try:
     x = open(NATIVEEXEC, "rb").read()
 except OSError:
     x = None
+try:
+    m = open(MPEXEC, "rb").read()
+except OSError:
+    m = None
+
+# The interpreter must be stored byte for byte: no header patching.  Write
+# the copy the seeder reads and read it back before gefs -i stores it.
+if m is not None:
+    open(SEED + "/mp", "wb").write(m)
+    y = open(SEED + "/mp", "rb").read()
+    if y != m:
+        raise OSError("seed: mpexec changed while copying")
+    open(SEED + "/mpoid", "w").write("%016x" % MP_OID)
+    print("seed: mpexec", len(m), "%016x" % MP_OID, space.hash(m), "unchanged")
+
 if x is not None:
     orig = x
     x = x[:12] + b"\xff\xff\xff\xff" + x[16:]
@@ -34,3 +51,9 @@ if x is not None:
     open(SEED + "/bad", "wb").write(orig[:72])
     open(SEED + "/badoid", "w").write("%016x" % BADEXEC_OID)
     print("seed: nativeexec", len(x), "%016x" % EXEC_OID, "bss 0xffffffff")
+elif m is not None:
+    # The malformed-object check uses a truncated valid header.  The
+    # interpreter bytes above are never modified.
+    open(SEED + "/bad", "wb").write(m[:72])
+    open(SEED + "/badoid", "w").write("%016x" % BADEXEC_OID)
+    print("seed: badexec", 72, "%016x" % BADEXEC_OID)

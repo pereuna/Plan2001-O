@@ -466,6 +466,107 @@ seedobj(Seedrec **r, int *n, int *a, uvlong oid, uchar *data, long len)
 	}while(off < len);
 }
 
+/*
+ * The seeded records need not fit one GE leaf: a realistically sized
+ * executable uses many chunk records.  Build an ordinary sorted GE tree
+ * bottom-up, with a separator key and a child pointer per block, and write
+ * every block directly.  Small seeds still become a single leaf.
+ */
+typedef struct Seedblk Seedblk;
+struct Seedblk {
+	Bptr	bp;
+	int	fill;
+	char	k[Keymax];
+	int	nk;
+};
+
+static void
+seedptr(Blk *b, Seedblk *s)
+{
+	char buf[Ptrsz+2], *p;
+	Kvp kv;
+
+	kv.k = s->k;
+	kv.nk = s->nk;
+	kv.v = buf;
+	kv.nv = sizeof buf;
+	p = packbp(buf, sizeof buf, &s->bp);
+	PACK16(p, s->fill);
+	setval(b, &kv);
+}
+
+static Bptr
+seedtree(Seedrec *r, int nr, int *htp)
+{
+	Seedblk *cur, *next;
+	Bptr bp;
+	Blk *b;
+	Kvp kv;
+	int i, j, ncur, nnext, ht, sz, esz;
+
+	cur = emalloc(nr*sizeof(Seedblk), 1);
+	ncur = 0;
+	for(i = 0; i < nr;){
+		if((b = newblk(&fs->snap, Tleaf)) == nil)
+			sysfatal("seed: allocate leaf: %r");
+		for(j = i; j < nr; j++){
+			sz = 2 + r[j].nk + 2 + r[j].nv;
+			if(b->nval > 0 && 2*(b->nval+1) + b->valsz + sz > Leafspc)
+				break;
+			kv.k = r[j].k;
+			kv.nk = r[j].nk;
+			kv.v = r[j].v;
+			kv.nv = r[j].nv;
+			setval(b, &kv);
+		}
+		if(j == i)
+			sysfatal("seed: a record does not fit a leaf");
+		finalize(b);
+		cur[ncur].bp = b->bp;
+		cur[ncur].fill = blkfill(b);
+		memmove(cur[ncur].k, r[i].k, r[i].nk);
+		cur[ncur].nk = r[i].nk;
+		ncur++;
+		syncblk(b);
+		dropblk(b);
+		i = j;
+	}
+	ht = 1;
+	while(ncur > 1){
+		next = emalloc(ncur*sizeof(Seedblk), 1);
+		nnext = 0;
+		for(i = 0; i < ncur;){
+			if((b = newblk(&fs->snap, Tpivot)) == nil)
+				sysfatal("seed: allocate pivot: %r");
+			for(j = i; j < ncur; j++){
+				esz = 2 + cur[j].nk + 2 + Ptrsz + 2;
+				if(b->nval > 0 && 2*(b->nval+1) + b->valsz + esz > Pivspc)
+					break;
+				seedptr(b, &cur[j]);
+			}
+			if(j == i)
+				sysfatal("seed: a child does not fit a pivot");
+			finalize(b);
+			next[nnext].bp = b->bp;
+			next[nnext].fill = blkfill(b);
+			memmove(next[nnext].k, cur[i].k, cur[i].nk);
+			next[nnext].nk = cur[i].nk;
+			nnext++;
+			syncblk(b);
+			dropblk(b);
+			i = j;
+		}
+		free(cur);
+		cur = next;
+		ncur = nnext;
+		ht++;
+	}
+	bp = cur[0].bp;
+	free(cur);
+	*htp = ht;
+	return bp;
+}
+
 static int
 seedread(char *path, uchar **bp, long *np)
 {
@@ -530,7 +631,7 @@ seedfile(Seedrec **r, int *n, int *a, char *name, char *oidname)
 }
 
 static void
-oseed(Blk *tb)
+oseed(Bptr *rootp, int *htp)
 {
 	char *env, *p, *e, *q, path[512];
 	char name[128], def[65], mpy[65], oidhex[17], k[Keymax], v[Inlmax], hex[65];
@@ -593,6 +694,7 @@ oseed(Blk *tb)
 		p = *e ? e+1 : e;
 	}
 	seedfile(&r, &nr, &ar, "exe", "exeoid");
+	seedfile(&r, &nr, &ar, "mp", "mpoid");
 	seedfile(&r, &nr, &ar, "bad", "badoid");
 
 	/* the header: version 1, then Environment and next OID */
@@ -613,17 +715,7 @@ oseed(Blk *tb)
 	tot = 0;
 	for(i = 0; i < nr; i++)
 		tot += 2 + r[i].nk + 2 + r[i].nv;
-	if(tot > Leafspc)
-		sysfatal("seed: %ld bytes do not fit one catalog leaf (%ld)", tot, (long)Leafspc);
-	for(i = 0; i < nr; i++){
-		Kvp kv;
-
-		kv.k = r[i].k;
-		kv.nk = r[i].nk;
-		kv.v = r[i].v;
-		kv.nv = r[i].nv;
-		setval(tb, &kv);
-	}
+	*rootp = seedtree(r, nr, htp);
 	free(r);
 	print("seed: %d records, %ld bytes, Environment %s\n", nr, tot, hex);
 }
@@ -638,12 +730,15 @@ void
 reamo(char *dev)
 {
 	Blk *sb0, *sb1, *tb;
+	Bptr root;
 	vlong sz, asz, off;
 	Arena *a;
 	char kbuf[Keymax], vbuf[Inlmax];
 	Kvp kv;
 	Dir *d;
-	int i;
+	int i, ht;
+
+	tb = nil;
 
 	if(waserror())
 		sysfatal("ream O %s: %s", dev, errmsg());
@@ -689,16 +784,20 @@ reamo(char *dev)
 	}
 
 	/*
-	 * The catalog is one GE leaf in the snapshot tree: Ko "init" =>
-	 * an 8-byte SpaceID.  It is flat: no parent, slash or directory.
-	 * Stage 4's -i adds the Environment and code objects to it.
+	 * The catalog is the snapshot tree: Ko "init" => an 8-byte
+	 * SpaceID.  It is flat: no parent, slash or directory.  Stage 4's
+	 * -i adds the Environment and code objects; a large object is many
+	 * chunk records, so the seed builder makes an ordinary multi-level
+	 * GE tree rather than one bounded leaf.
 	 */
-	if((tb = newblk(&fs->snap, Tleaf)) == nil)
-		sysfatal("ream O: allocate catalog: %r");
-	holdblk(tb);
-	if(seeddir != nil)
-		oseed(tb);
-	else{
+	if(seeddir != nil){
+		oseed(&root, &ht);
+		fs->snap.bp = root;
+		fs->snap.ht = ht;
+	}else{
+		if((tb = newblk(&fs->snap, Tleaf)) == nil)
+			sysfatal("ream O: allocate catalog: %r");
+		holdblk(tb);
 		kbuf[0] = Ko;
 		strecpy(kbuf+1, kbuf+sizeof(kbuf), "init");
 		PACK64(vbuf, OspaceInit);
@@ -707,12 +806,11 @@ reamo(char *dev)
 		kv.v = vbuf;
 		kv.nv = 8;
 		setval(tb, &kv);
+		finalize(tb);
+		syncblk(tb);
+		fs->snap.ht = 1;
+		fs->snap.bp = tb->bp;
 	}
-	finalize(tb);
-	syncblk(tb);
-
-	fs->snap.ht = 1;
-	fs->snap.bp = tb->bp;
 	fs->snapdl.hd.addr = -1;
 	fs->snapdl.hd.hash = -1;
 	fs->snapdl.tl.addr = -1;

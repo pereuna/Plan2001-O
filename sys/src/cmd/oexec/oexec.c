@@ -5,7 +5,7 @@ extern long ovolopen(char*, int);
 extern long ospaceopen(int, char*, int);
 extern long ospaceget(int, uvlong, void*, long, uvlong*);
 extern long ospaceclose(int);
-extern long oexecute(int, uvlong);
+extern long oexecute(int, uvlong, char**, int);
 
 enum {
 	ExecOid		= 0x4f45584543000001ULL,
@@ -87,7 +87,7 @@ tryfail(uvlong oid, char *what)
 	}
 	if(pid == 0){
 		h = childopen();
-		r = oexecute(h, oid);
+		r = oexecute(h, oid, nil, 0);
 		if(r != -1)
 			childfail("%s: oexecute returned %ld, want an error", what, r);
 		stillusable(h, what);
@@ -129,7 +129,7 @@ main(int argc, char *argv[])
 		long ch;
 
 		ch = childopen();
-		oexecute(ch, ExecOid);
+		oexecute(ch, ExecOid, nil, 0);
 		childfail("oexecute success returned: %r");
 	}else{
 		reap();
