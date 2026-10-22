@@ -135,13 +135,41 @@ ospaceclose(space)
 `spec` may denote `PARTUUID=...` or a device specification.
 A `nil` buffer and length zero request the object's size.
 The kernel owns `Gefs` and `Ospace` pointers; callers see integer
-handles. The current implementation uses one active native O volume,
-a small **global** Space-handle table (eight entries) and no complete
-per-process handle-lifetime or permission model. These integers are
-not persistent object identities.
+handles. This boundary does not use `#G`, a device file, pathname
+lookup, 9P or a synthetic filesystem for object operations.
 
-This boundary does not use `#G`, a device file, pathname lookup,
-9P or a synthetic filesystem for object operations.
+### 5.1 Process-local runtime handles
+
+The on-disk format is **unchanged**. The following is runtime state
+only; no handle record is stored in GE/O.
+
+- Each process has its own eight-entry O Space handle table. Resolving
+  an integer handle uses only the calling process. The same integer in
+  two processes can name different sessions.
+- `(SpaceID, OID)` remains the persistent object identity. A handle is
+  a process-local runtime session, not an object identity and not a
+  durable capability.
+- Opening allocates a session and one ownership reference. Lookup
+  takes a temporary reference under the table lock; the reference is
+  released on success and error. The table lock is not held during
+  storage operations.
+- Explicit close removes the table entry and drops its ownership
+  reference. The last reference closes the native `Ospace`; an
+  unfinished transaction is aborted by the existing engine path.
+  Cleanup never commits implicitly.
+- Process exit releases all remaining handles. The exiting process's
+  table is detached before the sessions are released, so one failing
+  close cannot hide the others. A reused `Proc` starts with no table.
+- A child starts with an empty table, including `RFMEM` children.
+  Successful `exec` closes all handles; failed `exec` preserves them.
+  Handle inheritance and cross-process transfer are deferred.
+- Closing an already closed or invalid handle fails; it does not
+  affect another process's table.
+
+The volume instance (`Gefs *ovol`) is still global to this
+experiment. Volume acquisition and authorization remain separate work;
+these process-local handles do **not** constitute complete capability
+security.
 
 ## 6. Reserved OIDs and MicroPython payloads
 
@@ -236,7 +264,7 @@ References: `sys/src/cmd/micropython/main.c`,
   object-record layout and must not be generalized into the native
   graph specification.
 - The PoC relies on a fixed module seed, one native O volume, a small
-  Space-handle table and whole-value object reads.
+  per-process Space-handle table and whole-value object reads.
 - Object deletion/tombstones and engine-level version retention do
   not constitute a complete object lifecycle, GC or capability model.
 - Missing/corrupt-volume diagnostics, arbitrary interruption recovery,

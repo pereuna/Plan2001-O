@@ -702,6 +702,7 @@ struct Proc
 	Pgrp	*pgrp;		/* Process group for namespace */
 	Egrp 	*egrp;		/* Environment group */
 	Fgrp	*fgrp;		/* File descriptor group */
+	void	*ohandles;	/* Process-local native O Space handles */
 	Rgrp	*rgrp;		/* Rendez group */
 
 	Fgrp	*closingfgrp;	/* used during teardown */

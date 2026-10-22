@@ -1,0 +1,8 @@
+</$objtype/mkfile
+
+TARG=ohandle
+OFILES=ohandle.$O\
+
+BIN=/$objtype/bin
+
+</sys/src/cmd/mkone

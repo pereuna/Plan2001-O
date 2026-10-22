@@ -38,6 +38,8 @@ void		closeegrp(Egrp*);
 void		closefgrp(Fgrp*);
 void		closepgrp(Pgrp*);
 void		closergrp(Rgrp*);
+void		oprocexec(Proc*);
+void		oprocexit(Proc*);
 long		clrfpintr(void);
 _Noreturn void	cmderror(Cmdbuf*, char*);
 int		cmount(Chan*, Chan*, int, char*);

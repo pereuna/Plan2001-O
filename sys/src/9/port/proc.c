@@ -685,6 +685,7 @@ newproc(void)
 {
 	char *b;
 	Proc *p;
+	int fresh;
 
 	lock(&procalloc);
 	p = procalloc.free;
@@ -701,12 +702,17 @@ newproc(void)
 		p = (Proc*)(b + KSTACK);
 		p->index = procalloc.nextindex++;
 		procalloc.tab[p->index] = p;
-	}
+		fresh = 1;
+	}else
+		fresh = 0;
 	assert(p->state == Dead);
 	procalloc.free = p->qnext;
 	p->qnext = nil;
 	unlock(&procalloc);
 
+	if(!fresh)
+		oprocexit(p);
+	p->ohandles = nil;
 	p->psstate = nil;
 	p->state = New;
 	p->fpstate = FPinit;
@@ -1279,6 +1285,7 @@ pexit(char *exitstr, int freemem)
 	up->dot = nil;
 	qunlock(&up->debug);
 
+	oprocexit(up);
 	if(fgrp != nil)
 		closefgrp(fgrp);
 	if(egrp != nil)

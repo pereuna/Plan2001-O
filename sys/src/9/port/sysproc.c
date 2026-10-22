@@ -702,6 +702,7 @@ sysexec(va_list list)
 	tos = (Tos*)(USTKTOP - sizeof(Tos));
 	argv = (char**)(USTKTOP - ssize);
 
+	oprocexec(up);
 	return execregs(entry, argc, argv, tos);
 }
 

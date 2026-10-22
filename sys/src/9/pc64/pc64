@@ -87,3 +87,4 @@ port
 bootdir
 	/$objtype/bin/micropython	mp
 	/$objtype/bin/aux/kbdfs	kbdfs
+	/$objtype/bin/ohandle	ohandle

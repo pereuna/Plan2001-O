@@ -418,8 +418,20 @@ enum {
 	Ospmax	= 8,
 };
 
+typedef struct Ohand Ohand;
+typedef struct Ohtab Ohtab;
+struct Ohand
+{
+	Ref;
+	Ospace	*sp;
+};
+struct Ohtab
+{
+	Lock;
+	Ohand	*h[Ospmax];
+};
+
 static Gefs *ovol;
-static Ospace *ospaces[Ospmax];
 
 uintptr
 sysovolopen(va_list list)
@@ -464,12 +476,78 @@ sysovolopen(va_list list)
 	return 1;
 }
 
-static Ospace*
+static void
+ohandput(Ohand *oh)
+{
+	if(oh == nil)
+		return;
+	if(decref((Ref*)oh) != 0)
+		return;
+	onativeclose(oh->sp);
+	free(oh);
+}
+
+static Ohtab*
+ogettab(void)
+{
+	Ohtab *ht;
+
+	if((ht = up->ohandles) != nil)
+		return ht;
+	ht = smalloc(sizeof *ht);
+	up->ohandles = ht;
+	return ht;
+}
+
+static Ohand*
 ogetspace(int h)
 {
-	if(h <= 0 || h > Ospmax || ospaces[h-1] == nil)
+	Ohtab *ht;
+	Ohand *oh;
+
+	if((ht = up->ohandles) == nil || h <= 0 || h > Ospmax)
 		error(Ebadarg);
-	return ospaces[h-1];
+	lock(&ht->Lock);
+	oh = ht->h[h-1];
+	if(oh != nil)
+		incref((Ref*)oh);
+	unlock(&ht->Lock);
+	if(oh == nil)
+		error(Ebadarg);
+	return oh;
+}
+
+static void
+odropall(Proc *p)
+{
+	Ohtab *ht;
+	Ohand *h[Ospmax];
+	int i;
+
+	if((ht = p->ohandles) == nil)
+		return;
+	p->ohandles = nil;
+	lock(&ht->Lock);
+	for(i = 0; i < Ospmax; i++){
+		h[i] = ht->h[i];
+		ht->h[i] = nil;
+	}
+	unlock(&ht->Lock);
+	for(i = 0; i < Ospmax; i++)
+		ohandput(h[i]);
+	free(ht);
+}
+
+void
+oprocexit(Proc *p)
+{
+	odropall(p);
+}
+
+void
+oprocexec(Proc *p)
+{
+	odropall(p);
 }
 
 uintptr
@@ -477,6 +555,8 @@ sysospaceopen(va_list list)
 {
 	char *p, *name;
 	Ospace *sp;
+	Ohand *oh;
+	Ohtab *ht;
 	int h, n, i;
 
 	h = va_arg(list, int);
@@ -497,19 +577,26 @@ sysospaceopen(va_list list)
 	sp = onativeopen(ovol, name);
 	free(name);
 	poperror();
+	oh = smalloc(sizeof *oh);
+	oh->sp = sp;
+	oh->ref = 1;
+	ht = ogettab();
+	lock(&ht->Lock);
 	for(i = 0; i < Ospmax; i++)
-		if(ospaces[i] == nil){
-			ospaces[i] = sp;
+		if(ht->h[i] == nil){
+			ht->h[i] = oh;
+			unlock(&ht->Lock);
 			return i+1;
 		}
-	onativeclose(sp);
+	unlock(&ht->Lock);
+	ohandput(oh);
 	error("too many O Spaces");
 }
 
 uintptr
 sysospaceget(va_list list)
 {
-	Ospace *sp;
+	Ohand *oh;
 	char *buf;
 	uvlong oid, v, *ver;
 	long n, r;
@@ -520,7 +607,11 @@ sysospaceget(va_list list)
 	buf = va_arg(list, char*);
 	n = va_arg(list, long);
 	ver = va_arg(list, uvlong*);
-	sp = ogetspace(h);
+	oh = ogetspace(h);
+	if(waserror()){
+		ohandput(oh);
+		nexterror();
+	}
 	if(n < 0 || n > 64*MiB)
 		error(Ebadarg);
 	if(n > 0)
@@ -528,16 +619,18 @@ sysospaceget(va_list list)
 	if(ver != nil)
 		validaddr((uintptr)ver, sizeof *ver, 1);
 	v = 0;
-	r = onativeget(sp, oid, buf, n, &v);
+	r = onativeget(oh->sp, oid, buf, n, &v);
 	if(ver != nil)
 		memmove(ver, &v, sizeof v);
+	poperror();
+	ohandput(oh);
 	return r;
 }
 
 uintptr
 sysospaceput(va_list list)
 {
-	Ospace *sp;
+	Ohand *oh;
 	char *buf;
 	uvlong oid;
 	long n;
@@ -547,43 +640,63 @@ sysospaceput(va_list list)
 	oid = va_arg(list, uvlong);
 	buf = va_arg(list, char*);
 	n = va_arg(list, long);
-	sp = ogetspace(h);
+	oh = ogetspace(h);
+	if(waserror()){
+		ohandput(oh);
+		nexterror();
+	}
 	if(n < 0 || n > 64*MiB)
 		error(Ebadarg);
 	if(n > 0)
 		validaddr((uintptr)buf, n, 0);	/* read */
-	onativeput(sp, oid, buf, n);
+	onativeput(oh->sp, oid, buf, n);
+	poperror();
+	ohandput(oh);
 	return 0;
 }
 
 uintptr
 sysospacecommit(va_list list)
 {
-	Ospace *sp;
+	Ohand *oh;
 	uvlong v, *ver;
 	int h;
 
 	h = va_arg(list, int);
 	ver = va_arg(list, uvlong*);
-	sp = ogetspace(h);
+	oh = ogetspace(h);
+	if(waserror()){
+		ohandput(oh);
+		nexterror();
+	}
 	if(ver != nil)
 		validaddr((uintptr)ver, sizeof *ver, 1);
-	v = onativecommit(sp);
+	v = onativecommit(oh->sp);
 	if(ver != nil)
 		memmove(ver, &v, sizeof v);
+	poperror();
+	ohandput(oh);
 	return 0;
 }
 
 uintptr
 sysospaceclose(va_list list)
 {
+	Ohtab *ht;
+	Ohand *oh;
 	int h;
 
 	h = va_arg(list, int);
-	if(h <= 0 || h > Ospmax || ospaces[h-1] == nil)
+	if((ht = up->ohandles) == nil || h <= 0 || h > Ospmax)
 		error(Ebadarg);
-	onativeclose(ospaces[h-1]);
-	ospaces[h-1] = nil;
+	lock(&ht->Lock);
+	oh = ht->h[h-1];
+	if(oh != nil)
+		ht->h[h-1] = nil;
+	unlock(&ht->Lock);
+	if(oh == nil)
+		error(Ebadarg);
+	ohandput(oh);
 	return 0;
 }
 
