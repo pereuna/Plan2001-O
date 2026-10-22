@@ -191,11 +191,14 @@ The loader reuses the existing `Exec`/a.out validation and segment
 machinery. Before committing it checks the architecture magic, header
 length, text/data/bss sizes, segment bounds and rounding, object length
 against `text+data`, the entry point's membership in the text segment,
-and the user-address bounds. It then builds ordinary text, data and BSS
-segments and the exec stack, and enters the shared process-transition
-path. No pathname, synthetic file, `Chan`, `Fid`, Qid, mount or 9P
-operation is involved. Successful transition applies the current
-close-on-exec O handle rule.
+and the user-address bounds. Segment addresses (`adata`, `abss`, `ebss`)
+remain `uintptr`; only sizes are narrower. It then builds ordinary text,
+data and BSS segments and the exec stack, and enters the shared
+process-transition path. The exec stack reserves `sizeof(Tos)` first and
+places the argument vector and strings below that reservation. No
+pathname, synthetic file, `Chan`, `Fid`, Qid, mount or 9P operation is
+involved. Successful transition applies the current close-on-exec O
+handle rule.
 
 Test objects are seeded only for the regression:
 
@@ -207,9 +210,12 @@ OID_BADEXEC_TEST = 0x4f45584543000002   truncated executable header
 `tools/mkovol ... SOURCE` accepts `NATIVEEXEC=FILE` and stores the file
 under `OID_EXEC_TEST` (plus the malformed test record) through the
 existing `gefs -O -i` seed layout. The current seed catalog leaf is
-small; the test executable is built as a tiny no-frills program. The
-target executable exists only in O for the test. `/boot/oexec` is an
-embedded test harness, not the loader and not a production bootstrap.
+small; the test executable is built as a tiny no-frills program. For the
+BSS boundary regression, the host seeding path patches the target's BSS
+header field to `0xffe00000`, so `abss`/`ebss` cross 4 GiB and the
+program probes a high BSS page. The target executable exists only in O
+for the test. `/boot/oexec` is an embedded test harness, not the loader
+and not a production bootstrap.
 
 Limits of this experiment: no program catalog, architecture selection,
 permissions, dynamic linking, or general executable-object format

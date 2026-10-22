@@ -52,6 +52,7 @@ clean | grep -a '^oexec:\|^ohello:\|^PASS:\|^FAIL:\|^panic' || true
 
 for m in \
 	'ohello: native executable from O marker' \
+	'ohello: argv, Tos and BSS boundary PASS' \
 	'oexec: parent observed native child completion PASS' \
 	'missing OID returned an error and preserved the handle PASS' \
 	'malformed executable returned an error and preserved the handle PASS' \
@@ -61,6 +62,8 @@ do
 done
 [ "$(clean | grep -c 'ohello: native executable from O marker')" = 1 ] ||
 	fail "target marker count is not one"
+[ "$(clean | grep -c 'ohello: argv, Tos and BSS boundary PASS')" = 1 ] ||
+	fail "argv/Tos/BSS marker count is not one"
 if clean | grep -q '^FAIL:'; then fail "program reported FAIL"; fi
 if clean | grep -q '^panic'; then fail "kernel panic"; fi
 stop

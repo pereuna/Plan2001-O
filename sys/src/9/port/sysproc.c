@@ -294,7 +294,7 @@ beswav(uvlong v)
 
 static void
 execparse(Exec *e, int n, ulong magic, uintptr *entryp, ulong *textp,
-	ulong *datap, uintptr *adap, ulong *abssp, ulong *ebssp)
+	ulong *datap, uintptr *adap, uintptr *abssp, uintptr *ebssp)
 {
 	uintptr entry, text;
 	ulong data, bss, align;
@@ -348,9 +348,9 @@ execparse(Exec *e, int n, ulong magic, uintptr *entryp, ulong *textp,
 	*entryp = entry;
 	*textp = text-UTZERO;
 	*datap = data;
-	*adap = a;
-	*abssp = ab;
-	*ebssp = eb;
+	*adap = (uintptr)a;
+	*abssp = (uintptr)ab;
+	*ebssp = (uintptr)eb;
 }
 
 static void
@@ -455,7 +455,8 @@ execo(uvlong oid, void *vbuf, long n)
 	uchar *buf;
 	Exec *e;
 	Segment *ts, *ds, *bs, *stk, *s;
-	ulong magic, text, data, abss, ebss, ssize;
+	ulong magic, text, data, ssize, nbytes;
+	uintptr abss, ebss;
 	uintptr entry, adata, tstk;
 	char *elem, *args, name[64], *charp, **argv;
 	Tos *tos;
@@ -530,12 +531,15 @@ execo(uvlong oid, void *vbuf, long n)
 	tos->cyclefreq = m->cyclefreq;
 
 	nlen = strlen(name)+1;
-	ssize = BY2WD*2 + ((nlen+(BY2WD-1)) & ~(BY2WD-1));
+	charp = (char*)(tstk-sizeof(Tos))-nlen;
+	if(charp < (char*)tstk-USTKSIZE)
+		error(Enovmem);
+	memmove(charp, name, nlen);
+	nbytes = (char*)tstk-charp;
+	ssize = BY2WD*2 + ((nbytes+(BY2WD-1)) & ~(BY2WD-1));
 	if(PGROUND(ssize) >= USTKSIZE)
 		error(Enovmem);
 	argv = (char**)(tstk-ssize);
-	charp = (char*)tstk-nlen;
-	memmove(charp, name, nlen);
 	argv[0] = charp+(USTKTOP-tstk);
 	argv[1] = nil;
 	args = malloc(nlen);
@@ -566,8 +570,8 @@ sysexec(va_list list)
 	char *file, *elem, *args, *charp, *a, *e;
 	int i, n, indir, nargs, argc;
 	ulong magic, ssize, nbytes;
-	uintptr entry, adata, tstk;
-	ulong text, data, abss, ebss;
+	uintptr entry, adata, abss, ebss, tstk;
+	ulong text, data;
 	Segment *s, *ts, *ds, *bs;
 	Image *img;
 	Tos *tos;
