@@ -1,49 +1,86 @@
-# Next task: fix native O exec argument copying
+# Next task: make O-loaded MicroPython the normal boot path
 
-## Goal and scope
+## Goal
 
-Fix the user-memory validation/copy race in execo() in sys/src/9/port/sysproc.c. Preserve the current oexecute(space, oid, argv, argc) ABI, MicroPython-from-O boot, synthetic argv[0] for argc == 0, Tos layout and close-on-exec semantics.
+Promote the demonstrated MicroPython-from-O path to the normal amd64 O-only system:
 
-Read AGENTS.md, docs/O-FORMAT.md and docs/STATUS.md, then inspect the latest code and the kernel's existing user-memory access/error mechanisms. The reviewed implementation is in commit 07088d60a04da97b517b691d6bd4abcbcd5f3116; work from current main.
+UEFI -> kernel -> embedded oinit -> MicroPython executable in O -> persistent init Space or interactive REPL.
 
-## Defect
+Remove the embedded MicroPython binary from the normal kernel configuration. Retain the small oinit bootstrap and kbdfs console helper for now.
 
-The current code measures user strings with vmemchr(), allocates kargs from that total, then rereads uargv[i] and uses unbounded strlen() before memmove().
+Prioritize working progress toward a file-free experimental OS. Keep this change focused; do not redesign mechanisms already sufficient for this experiment.
 
-An RFMEM peer can change a pointer, terminator or string between those passes. The earlier validation no longer bounds the later copy. This can overrun kernel-owned memory or access an unchecked address.
+## Starting point
 
-Fix the mechanism, not just the observed input. Repeating validation before an unbounded copy does not solve the race.
+Read AGENTS.md, README.md, docs/O-FORMAT.md, docs/STATUS.md and the relevant build/boot tools.
 
-## Required implementation
+The reviewed baseline is 8600401a84d812ca3d465802684c554e4f24dde0:
+- pc64omp already boots O-resident MicroPython.
+- oinit opens the volume/Space and invokes oexecute with validated arguments.
+- OID_MP_EXEC is 0x4f45584543000003.
+- MPEXEC seeds the unchanged interpreter.
+- Native exec argv copying is now capacity-bounded.
+- Three persistent boots, interactive REPL and missing/malformed-object checks have been demonstrated.
 
-- Snapshot the bounded user pointer array into kernel-owned storage using appropriate checked access. Never reread the live user argv array during subsequent string copying.
-- Copy each string with a hard destination-capacity bound, using the kernel's supported fault-safe user-memory access conventions. Check user address ranges, arithmetic, and mapped spans as needed.
-- Do not measure user data and then perform an unbounded copy. No strlen(), strcpy(), or equivalent unbounded operation on user-owned strings.
-- Determine each argument's accepted length and terminating NUL from bytes actually copied into kernel-owned memory. If scanning and copying are separate, validate the copied result and never use the source's earlier length as proof of termination.
-- Enforce argument-count and aggregate-byte limits during copying. Reserve space for terminators, argv pointers, Tos, stack alignment and architecture-specific entry setup. Guard address/size arithmetic against overflow.
-- Build the final exec stack exclusively from the validated kernel-owned argument snapshot. Bounded scans or strlen() on that proven, private, NUL-terminated snapshot are acceptable.
-- Concurrent modification need not produce an atomic snapshot of all arguments. A bounded copied result or a clean syscall error is acceptable; unchecked access, unterminated accepted arguments and kernel buffer overruns are not.
-- Use a small, understandable helper if useful. Avoid a large new user-copy framework or unrelated changes to ordinary exec.
-- Preserve rollback: failure before process transition leaves the caller image and O handles usable. Release the object buffer, argument allocations, session references and partially constructed segments on every error path. Use existing kernel error handling.
-- Retain the existing limit of 32 arguments. Document an explicit aggregate-byte limit and ensure currently used MicroPython arguments remain supported. Avoid large temporary allocations when a smaller bounded strategy suffices.
+Work from current main and inspect actual dependencies before editing.
 
-Do not change SG_NOSWAP policy, program loading architecture, seed tree format, bootstrap configuration or persistent storage semantics in this task.
+## 1. Make the O-loaded interpreter the default
 
-## Focused regressions
+Update the normal amd64 kernel configuration, O-only image preparation and supported launch commands so the default path starts oinit and loads MicroPython from O.
 
-Extend the existing native-exec tests or add a bounded regression with explicit assertions.
+In particular, inspect repl_tui.sh and the scripts it delegates to. The existing human-facing REPL command must reach the O-loaded interpreter without requiring the user to select an experimental kernel or know its OID.
 
-Cover:
-1. Multiple valid arguments, empty argument strings, argc == 0, and the maximum supported argument count. The loaded target checks exact content and argv[argc] == nil.
-2. Negative/excessive argc, nil or misaligned argv when argc > 0, invalid string pointers, a string crossing into an unmapped page, missing NUL within the allowed span, and the aggregate-byte boundary including terminators and stack overhead.
-3. Failed calls preserve the caller and its usable O handle. Repeat failures enough to expose obvious cleanup/capacity regressions.
-4. An RFMEM peer changes source pointers and string contents/terminators during bounded attempts. Use controlled buffers and synchronization, not arbitrary memory corruption. Keep a parent supervisor outside the executing child so successful exec cannot remove the test controller. Permit either successful execution of a valid bounded snapshot or a clean error; do not require concurrent mutation to be rejected.
-5. Existing argv/Tos/BSS assertions and O-loaded MicroPython startup still pass.
+Preserve both uses:
+- Run the persistent init Space, with the existing run()/commit behavior.
+- Start the interactive REPL, using the argument combination already demonstrated by oinit -repl.
 
-A probabilistic stress test alone is insufficient evidence. Also verify the copy helper's bounds and fault paths with deterministic cases. Use bounded waits, clear FAIL diagnostics and disposable QEMU images.
+Keep the existing fixed experimental OID; a program catalog is not required.
 
-Run the appropriate build, the focused regression, and the eight existing O-only gates listed in STATUS (including test-o-boot-omp). Preserve assertions and failure logs.
+Fresh runnable O images must be seeded with the real built MicroPython executable, byte-for-byte unchanged. Keep the ohello BSS-header mutation confined to its regression fixture. Never silently reformat or reseed an existing persistent user image. If an older image lacks the executable, return a clear diagnostic; automatic migration is outside this task.
 
-## Technical documentation
+## 2. Remove embedded mp from the normal kernel
 
-Update docs/O-FORMAT.md with the actual argument limits and concurrent-modification semantics. Update docs/STATUS.md with the commands, tested source state, results and log paths. Distinguish source-review conclusions from executed test evidence.
+Remove MicroPython from the normal kernel bootdir and any normal-path dependency on exec("/boot/mp"). Establish its absence using the generated boot contents.
+
+MicroPython must still be built as an ordinary user-space executable: image preparation needs that binary to seed O. Removing the embedded copy must not accidentally remove the build output or host bootstrap dependencies used to prepare images.
+
+Use one clear maintained default configuration. If pc64omp becomes identical to pc64, consolidate it or retain a documented alias only where needed by tools. Avoid duplicate configurations that can drift.
+
+Existing test-only kernels may embed their dedicated harnesses. Historical embedded-MicroPython tests may be migrated to the new default path; preserve their behavioral assertions. Retain an embedded-MicroPython configuration only if a concrete regression still needs it, clearly marked as test-only. It must not remain a hidden fallback for normal startup.
+
+## 3. Retain the minimal bootstrap dependencies
+
+Keep embedded oinit and kbdfs. Do not remove devroot globally or rewrite console/keyboard drivers in this task.
+
+Document the exact remaining dependencies:
+- oinit is still reached through the inherited internal boot interface.
+- kbdfs is still an embedded console helper.
+- MicroPython executable bytes, Environment/code and persistent state come from O.
+
+Do not claim that every runtime file interface has been removed.
+
+If normal loading fails, print a useful serial/console diagnostic. Do not fall back to embedded MicroPython or add a recovery shell, watchdog, supervisor or reboot policy.
+
+## Verification
+
+Use disposable QEMU images and bounded waits.
+
+Verify the actual default configuration and normal launch tooling:
+- Generated default kernel boot contents contain oinit and kbdfs, with no embedded mp.
+- Fresh default O images contain the expected MicroPython object; its digest matches the built binary.
+- No root filesystem mount or pathname-based MicroPython exec is used.
+- The same default disk boots three times: counter 1 -> 2 -> 3, stable Counter identity/alias and restored graph.
+- The supported human REPL launch command reaches a prompt; evaluate a simple expression and demonstrate a persisted value across a restart using the same image.
+- A missing or malformed interpreter object produces a clear diagnostic without using an embedded interpreter fallback.
+- A failed load preserves the existing native-exec rollback and handle behavior.
+- Build modes advertised for this path produce all required artifacts and fail clearly when prerequisites are missing.
+
+Run the appropriate build and all nine existing O-only regressions listed in STATUS. Adapt obsolete embedded-boot assumptions to the new path while keeping persistence, identity, argv/Tos/BSS, handle and error assertions. Do not weaken tests to obtain PASS. Avoid duplicating an entire suite merely to rename a configuration.
+
+The previous argv mutation test has imperfect synchronization: its ready signal precedes childopen(). This is not a blocker for this task; do not expand this change into another argument-copy redesign.
+
+## Boundaries and documentation
+
+Do not change the disk format, native argv ABI, SG_NOSWAP policy, GE/O relationship model, permissions, IPC or remote protocols. Do not implement a general program catalog or move the build system into O yet.
+
+Update README.md, docs/O-FORMAT.md and docs/STATUS.md to describe the new normal boot chain, retained bootstrap dependencies, exact human-facing command, image prerequisites, and actual test evidence. Preserve historical test records and distinguish the new default from earlier experiments.
