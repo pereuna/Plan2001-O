@@ -1,8 +1,8 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 22 October 2026. **Current runtime evidence baseline:**
-`main` at `122e585a172f39bdc1fb31eca79841acfe2e6d27` plus the uncommitted
-working-tree changes of the native O MicroPython experiment below; the
+`main` at `b41a102384efa81b17cdc5f923415b123341f8ca` plus the uncommitted
+working-tree changes of the native O exec argv copy fix below; the
 previous clean-tree baseline was `4678fada0d66f83b310291320e57aba12068934d`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -17,10 +17,10 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 
 | Level | Current evidence |
 | --- | --- |
-| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object path with bounded argv, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. A dedicated test configuration boots the real MicroPython executable from an O object. |
+| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object path with a snapshot-based, capacity-bounded argv copy, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. A dedicated test configuration boots the real MicroPython executable from an O object. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, both kernels, selfroot, the five existing O-only gates, the process-local handle regression, the native executable-object regression and the new O-loaded MicroPython gate passed on 22 October 2026 with KVM. The earlier clean-tree run was at `4678fad`; the O-loaded MicroPython run used HEAD `122e585` plus the uncommitted working tree. See the records below and `build/verification/*.log`. |
+| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, both kernels, selfroot, the eight O-only gates (including the O-loaded MicroPython gate) and the focused native-exec argv gate passed on 22 October 2026 with KVM. The earlier clean-tree run was at `4678fad`; this run used HEAD `b41a102` plus the uncommitted working tree. See the records below and `build/verification/*.log`. |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
@@ -246,6 +246,75 @@ architecture selection, dynamic linking, permissions framework, or
 general executable-object format support. The on-disk format is
 unchanged.
 
+## Native O exec argv copy fix — 22 October 2026
+
+**Source state:** HEAD `b41a102384efa81b17cdc5f923415b123341f8ca`, with
+the fix in an **uncommitted working tree**:
+`sys/src/9/port/sysproc.c`, `sys/src/cmd/oexec/oexec.c`,
+`sys/src/cmd/ohello/ohello.c`, `docs/O-FORMAT.md`, this file and the new
+`tools/test-o-exec-args.sh`. This record is not a claim about a clean
+committed revision.
+
+**Source-review conclusion (not runtime evidence):** the previous
+`execo()` measured each user string with `vmemchr()`, allocated from that
+total, then reread `uargv[i]` and used unbounded `strlen()` before
+`memmove()`. An RFMEM peer could change a pointer, terminator or string
+between passes, so the later copy was not bounded by the earlier check.
+The fix:
+
+- snapshots the bounded pointer array once into kernel storage after an
+  `okaddr()` range check; later code never rereads the live array;
+- copies each string with `execargcopy()` into kernel memory, checking
+  each page with `okaddr()` and never writing past the remaining
+  destination capacity;
+- accepts a length and terminating NUL only from the copied bytes, then
+  uses bounded scans on that private snapshot;
+- enforces `Oargmax = 32` and `Oargbytes = 16 KiB` including every NUL,
+  plus the existing `Tos`, argv-pointer, alignment and 16 MiB stack
+  checks; and
+- reports bad pointers as ordinary `-1` syscall errors via `okaddr()`
+  rather than the note-posting `validaddr()`, so the caller can verify
+  its O handle after a failed call.
+
+Concurrent modification is explicitly not an atomic all-argument
+snapshot: a bounded copied result or a clean error is accepted. Failure
+before process transition still releases the object buffer, argument
+allocations, session reference and any partially constructed segments.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+tools/test-o-exec-args.sh
+tools/test-o-boot-omp.sh
+tools/test-o-exec.sh
+tools/test-o-handles.sh
+tools/test-ge.sh
+tools/test-o-volume.sh
+tools/test-o-objects.sh
+tools/test-o-space.sh
+tools/test-o-boot.sh
+```
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build, both kernels | **PASS** | `BUILD-DONE`; `build/amd64/9pc64` md5 `d028692a55eda1a6ae60215b51c7ffda`, `build/amd64/9pc64omp` md5 `24a8c66c27ac40f02b683326c8a77253`. `build/verification/build-args.log` |
+| selfroot | **PASS** | HEAD `b41a102`; `oexec` SHA-256 `68d4fe842c254ec8125c3de361a6b97032fc5d0447c8dd2115af72fe7755b6f0`, `ohello` SHA-256 `2d1b022e29aafe95333cf6452601262c50a0777b6ec70e4b39800f46d8f16afd`. `build/verification/selfroot-args.log` |
+| Focused native-exec argv gate | **PASS** | synthetic `argc == 0`, 5 valid arguments including an empty one, 32 arguments, the exact 16 KiB aggregate boundary accepted, one byte over rejected, missing NUL, negative and excessive argc, nil and misaligned argv, invalid string pointer, cross-page string, repeated failures with usable handles, and 32 shared-memory mutation attempts. `build/verification/test-o-exec-argv.log`, `build/amd64/oexecargsvm/serial.clean.log` |
+| O-loaded MicroPython | **PASS** | `PASS: MicroPython loaded from a native O object (no embedded mp)`; three boots and the REPL smoke test. `build/verification/test-o-boot-omp-args.log` |
+| Native executable object | **PASS** | `PASS: native executable object from O, exec and rollback`. `build/verification/test-o-exec-existing.log` |
+| Process-local O handles | **PASS** | `PASS: process-local O handles, isolation/lifetime/cleanup`. `build/verification/test-o-handles-args.log` |
+| Existing five O-only gates | **PASS** | GE, O volume, O objects, Python/O and embedded O init all exited 0. `build/verification/test-ge-args.log`, `test-o-volume-args.log`, `test-o-objects-args.log`, `test-o-space-args.log`, `test-o-boot-args.log` |
+
+Log timestamps (UTC, completion of each log write): build 19:42:10;
+selfroot 19:42:11; focused argv 19:42:34; embedded O init 19:43:32;
+native executable 19:43:56; handles 19:44:19; GE 19:44:29; O volume
+19:45:29; O objects 19:45:56; Python/O 19:46:27; O init 19:47:02. The documented
+`test-o-space` shutdown diagnostic (`panic: boot process died: unknown`)
+is unchanged and is not a gate failure. No focused-gate failure or kernel
+panic occurred in the recorded run.
+
 ## Reproduction on a prepared Debian/amd64 host
 
 Run from the repository root with a **committed, clean source tree**.
@@ -286,7 +355,7 @@ test -x build/selfroot/amd64/bin/oexec
 test -x build/selfroot/amd64/bin/ohello
 test -x build/selfroot/amd64/bin/oinit
 
-for gate in test-o-boot-omp test-o-exec test-o-handles test-ge test-o-volume test-o-objects test-o-space test-o-boot; do
+for gate in test-o-boot-omp test-o-exec-args test-o-exec test-o-handles test-ge test-o-volume test-o-objects test-o-space test-o-boot; do
     "tools/$gate.sh" 2>&1 | tee "build/verification/$gate.log"
 done
 ```
@@ -315,6 +384,7 @@ evidence of PASS.**
 | O init | `tools/test-o-boot.sh` exits 0 with `PASS: three O-only boots`; one disk, `run()` yields 1, 2, 3, same Counter OID, no root filesystem mount | `build/verification/test-o-boot.log`, `build/amd64/obootvm/three-boots.log`, `boot1.log`–`boot3.log` |
 | O handles | `tools/test-o-handles.sh` exits 0 with both its per-check markers and `PASS: process-local O handles`; isolation, independent sessions, close/exit capacity, abort, exec rules and invalid handles pass | `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
 | O execute | `tools/test-o-exec.sh` exits 0 with `PASS: native executable object from O, exec and rollback`; the O-only target marker appears once, the child exits successfully, missing/malformed loads preserve the caller's handle, and native exec closes handles | `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
+| O argv | `tools/test-o-exec-args.sh` exits 0 with `PASS: native O argv bounds, rollback and race`; valid/empty/32-argument argv, the exact aggregate boundary, over-limit and malformed copies, bad counts/pointers, repeated rollback with usable handles, and shared-memory mutation attempts pass, with the synthetic argv/Tos/BSS markers appearing exactly once | `build/verification/test-o-exec-argv.log`, `build/amd64/oexecargsvm/serial.clean.log` |
 | O MicroPython | `tools/test-o-boot-omp.sh` exits 0 with `PASS: MicroPython loaded from a native O object (no embedded mp)`; the generated `pc64omp` boot contents contain no `mp`; three boots of one disk yield `run()` 1, 2, 3 with the same Counter OID/alias; the REPL evaluates a test expression; missing/malformed objects return errors and preserve the handle | `build/verification/test-o-boot-from-o.log`, `build/amd64/ompbootvm/omp-boots.log`, `build/amd64/ompbootvm/repl.log`, `build/amd64/ompbootvm/check.log` |
 
 Individual QEMU serial logs may be **overwritten between boots** by

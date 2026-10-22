@@ -199,14 +199,39 @@ data and BSS segments and the exec stack, and enters the shared
 process-transition path.
 
 The `argv` interface is Plan 9's bounded pointer-and-count form. The
-kernel checks the array alignment and mapping, every string pointer and
-NUL termination, the argument count and total byte length, and the
-resulting stack bounds. It copies the strings into kernel-owned memory
-before the process image is replaced, then builds the new stack with
-`sizeof(Tos)` reserved first and argv and its strings below that
-reservation. The strings and argv array do not overlap. No pathname,
+copy helper is `execargcopy()` in `sys/src/9/port/sysproc.c`:
+
+```text
+Oargmax   = 32 arguments
+Oargbytes = 16 KiB, all argument bytes including every terminating NUL
+```
+
+The count, the pointer-array alignment and mapped span, every string
+pointer, and the aggregate byte limit are checked. The kernel snapshots
+the pointer array once into kernel-owned storage, then copies each string
+with a hard destination-capacity bound. It finds the accepted length and
+terminating NUL only in the bytes actually copied, never by measuring a
+live user string and then copying it without a bound. A string without a
+NUL inside the remaining aggregate capacity, an invalid or cross-page
+pointer, or a bad count returns the ordinary syscall error (`-1`) and
+leaves the caller image and O handles intact.
+
+An RFMEM peer can still change pointers, bytes or terminators while the
+copy runs. No atomic snapshot of all arguments is promised: the accepted
+arguments are the bounded bytes actually copied, and a clean error is
+also valid. Unchecked user access, an accepted unterminated argument and
+a kernel buffer overrun are not acceptable outcomes. Bounded scans on
+the private, NUL-terminated snapshot are used afterwards.
+
+The aggregate limit includes the terminators; the stack construction
+additionally reserves `sizeof(Tos)`, the argv pointer array, alignment
+and the architecture's entry word, and rejects a stack that exceeds the
+16 MiB user-stack segment. `argc == 0` keeps the synthetic
+`oexec <oid>` argv[0]. The resulting stack reserves `sizeof(Tos)` first
+and places argv and its strings below it without overlap. No pathname,
 synthetic file, `Chan`, `Fid`, Qid, mount or 9P operation is involved.
 Successful transition applies the current close-on-exec O handle rule.
+The current MicroPython arguments are far below `Oargbytes`.
 
 Native segments carry no file image, so the shared loader sets an
 internal `SG_NOSWAP` flag on its text, data, BSS and stack segments and
@@ -249,7 +274,8 @@ support. It does not remove `devroot` or `kbdfs` from the ordinary boot
 configuration, and it does not change the on-disk format.
 
 References: `sys/src/9/port/devgefs.c`, `sys/src/9/port/sysproc.c`,
-`sys/src/cmd/oinit/oinit.c`, `tools/test-o-boot-omp.sh`.
+`sys/src/cmd/oinit/oinit.c`, `tools/test-o-boot-omp.sh`,
+`tools/test-o-exec-args.sh`.
 
 ## 6. Reserved OIDs and MicroPython payloads
 

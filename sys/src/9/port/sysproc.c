@@ -450,8 +450,45 @@ segload(Segment *s, uchar *src, ulong len, ulong off)
 }
 
 enum {
-	Oargmax	= 32,
+	Oargmax		= 32,
+	Oargbytes	= 16*KiB,	/* all argv strings, including NULs */
 };
+
+/*
+ * Copy one user string into dst, never writing more than cap bytes.
+ * Check each page before reading it; scan the bytes actually copied for
+ * the NUL, so a racing peer can change the source without making the
+ * accepted length exceed the copy.  Returns the copied length including
+ * the NUL, or -1 if no NUL was copied within cap.
+ */
+static long
+execargcopy(char *dst, long cap, char *us)
+{
+	uintptr a;
+	ulong m, k;
+	long n;
+	char *q;
+
+	if(us == nil || (uintptr)us >= KZERO)
+		error(Ebadarg);
+	n = 0;
+	while(n < cap){
+		a = (uintptr)us + n;
+		if(a < (uintptr)us)	/* address arithmetic overflow */
+			error(Ebadarg);
+		m = BY2PG - (a & (BY2PG-1));
+		k = cap - n;
+		if(k > m)
+			k = m;
+		if(!okaddr(a, k, 0))
+			error(Ebadarg);
+		memmove(dst+n, (void*)a, k);
+		if((q = memchr(dst+n, 0, k)) != nil)
+			return (q-dst)+1;
+		n += k;
+	}
+	return -1;
+}
 
 uintptr
 execo(uvlong oid, void *vbuf, long n, char **uargv, int argc)
@@ -462,10 +499,12 @@ execo(uvlong oid, void *vbuf, long n, char **uargv, int argc)
 	ulong magic, text, data, ssize, nbytes, total;
 	uintptr abss, ebss;
 	uintptr entry, adata, tstk;
-	char *elem, *args, name[64], *charp, *p, *a, *endp;
+	char *elem, *args, name[64], *charp, *p;
 	char **argv, **kargv, *kargs;
+	char *uarg[Oargmax];
 	Tos *tos;
 	int i, argn, nargs, nlen;
+	long cap, len;
 
 	buf = vbuf;
 	ts = ds = bs = stk = nil;
@@ -504,32 +543,33 @@ execo(uvlong oid, void *vbuf, long n, char **uargv, int argc)
 	if(argc > 0){
 		if(uargv == nil)
 			error(Ebadarg);
-		evenaddr((uintptr)uargv);
-		validaddr((uintptr)uargv, argc*BY2WD, 0);
-		total = 0;
-		for(i = 0; i < argc; i++){
-			a = uargv[i];
-			validaddr((uintptr)a, 1, 0);
-			if((endp = vmemchr(a, 0, USTKSIZE-total)) == nil)
-				error(Ebadarg);
-			total += (endp-a)+1;
-			if(total >= USTKSIZE)
-				error(Enovmem);
-		}
-		if(total == 0)
+		if((uintptr)uargv & (BY2WD-1))
 			error(Ebadarg);
-		kargs = malloc(total);
+		if(!okaddr((uintptr)uargv, argc*BY2WD, 0))
+			error(Ebadarg);
+		/*
+		 * Snapshot the pointer array once.  A peer may still change
+		 * the strings, but no later code reads the live array.
+		 */
+		memmove(uarg, uargv, argc*BY2WD);
+		kargs = malloc(Oargbytes);
 		if(kargs == nil)
 			error(Enomem);
 		kargv = malloc((argc+1)*sizeof(char*));
 		if(kargv == nil)
 			error(Enomem);
 		p = kargs;
+		total = 0;
 		for(i = 0; i < argc; i++){
-			nlen = strlen(uargv[i])+1;
-			memmove(p, uargv[i], nlen);
+			cap = Oargbytes - total;
+			if(cap <= 0)
+				error(Enovmem);
+			len = execargcopy(p, cap, uarg[i]);
+			if(len < 0)
+				error(Ebadarg);
 			kargv[i] = p;
-			p += nlen;
+			p += len;
+			total += len;
 		}
 		kargv[argc] = nil;
 		argn = argc;
