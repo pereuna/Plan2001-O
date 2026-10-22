@@ -1,86 +1,87 @@
-# Next task: make O-loaded MicroPython the normal boot path
+# Task: machine-generated operation map of the entire kernel driver surface
 
-## Goal
+## Goal and scope
 
-Promote the demonstrated MicroPython-from-O path to the normal amd64 O-only system:
+Build a repeatable source-analysis tool that inventories the entire kernel driver surface and maps file-facing operations to the underlying C operations and hardware/service interfaces.
 
-UEFI -> kernel -> embedded oinit -> MicroPython executable in O -> persistent init Space or interactive REPL.
+This is the first step toward removing file abstractions from native device access. Produce evidence for subsequent transformations; do not change drivers, system calls, libc, boot behavior or storage formats in this task.
 
-Remove the embedded MicroPython binary from the normal kernel configuration. Retain the small oinit bootstrap and kbdfs console helper for now.
+The intended destination is ordinary kernel C functions and records, with appropriately authorized system calls. Do not design a universal object runtime or assume that reducing the number of system calls is a goal. Recover existing operations first; harmonization and parameterization come later.
 
-Prioritize working progress toward a file-free experimental OS. Keep this change focused; do not redesign mechanisms already sufficient for this experiment.
+Read applicable AGENTS.md instructions and current source. Treat existing documentation as context, not as proof of implementation.
 
-## Starting point
+## 1. Discover the complete surface
 
-Read AGENTS.md, README.md, docs/O-FORMAT.md, docs/STATUS.md and the relevant build/boot tools.
+Scan all kernel source and configuration trees under sys/src/9, including architecture-specific drivers, shared port code, storage/network/controller backends, and GE/O integration. Derive the inventory from source and build configuration, not from a hand-maintained list of known drivers.
 
-The reviewed baseline is 8600401a84d812ca3d465802684c554e4f24dde0:
-- pc64omp already boots O-resident MicroPython.
-- oinit opens the volume/Space and invokes oexecute with validated arguments.
-- OID_MP_EXEC is 0x4f45584543000003.
-- MPEXEC seeds the unchanged interpreter.
-- Native exec argv copying is now capacity-bounded.
-- Three persistent boots, interactive REPL and missing/malformed-object checks have been demonstrated.
+Identify:
+- Dev registrations, device characters, operation callbacks and default/delegating handlers.
+- Dirtab/Qid definitions, dynamic directory generation and path dispatch.
+- Command tables and control-command dispatch, including handlers implemented without Cmdtab.
+- Lower-level driver registrations and callback tables, including SDifc and analogous network, display, input and other subsystem interfaces.
+- Native non-file entry points and calls from system-call handlers into these subsystems where present.
 
-Work from current main and inspect actual dependencies before editing.
+Separate source presence from build inclusion. Show which drivers are selected by the normal amd64 configuration, which belong to other configurations, and where conditional inclusion cannot be resolved. Do not omit inactive or architecture-specific drivers. Do not label a driver active merely because its source exists.
 
-## 1. Make the O-loaded interpreter the default
+Account for every scanned source file with a classification or an explicit unresolved reason. An ordinary helper file need not create a fake operation, but must remain visible in coverage accounting. Report parse failures, unsupported declarations and ambiguous registrations rather than silently skipping them.
 
-Update the normal amd64 kernel configuration, O-only image preparation and supported launch commands so the default path starts oinit and loads MicroPython from O.
+## 2. Generate an operation map
 
-In particular, inspect repl_tui.sh and the scripts it delegates to. The existing human-facing REPL command must reach the O-loaded interpreter without requiring the user to select an experimental kernel or know its OID.
+For each exposed operation, record as much as can be established statically:
+- Stable source-derived ID, subsystem and driver.
+- File-facing entry: device character, path/Qid, callback, command/subcommand and dispatch condition where applicable.
+- Input/output shape and units when evident: byte stream, key event, block request, offset, length, configuration value, etc.
+- The concrete handler and downstream function/callback chain to the first identifiable device or service primitive.
+- Which steps perform path lookup, walk, open, Chan handling, offset translation, textual parsing or formatting.
+- Which steps perform substantive work: access checks, bounds validation, locking, state transitions, lifetime/reference management, waiting, hardware/register/DMA/interrupt interaction.
+- Return/error behavior and asynchronous completion where recognizable.
+- Source path, symbol and line evidence for each material mapping.
+- Analysis status: resolved, partial or unresolved, with the specific reason and unresolved edge.
 
-Preserve both uses:
-- Run the persistent init Space, with the existing run()/commit behavior.
-- Start the interactive REPL, using the argument combination already demonstrated by oinit -repl.
+Distinguish a C call observed in source from a possible indirect-call target. Resolve callback assignments where practical; otherwise retain the callback edge and known candidates. Never fabricate a complete call chain through an unresolved function pointer. Handle recursion and graph cycles without unbounded traversal.
 
-Keep the existing fixed experimental OID; a program catalog is not required.
+A file callback is not necessarily a single device operation: split recognizable command and Qid branches. Conversely, read/write must not automatically be dismissed as meaningless wrappers; they can implement actual device data transfer. Preserve the distinction between framing/transport and substantive behavior.
 
-Fresh runnable O images must be seeded with the real built MicroPython executable, byte-for-byte unchanged. Keep the ohello BSS-header mutation confined to its regression fixture. Never silently reformat or reseed an existing persistent user image. If an older image lacks the executable, return a clear diagnostic; automatic migration is outside this task.
+Record local Dev/Chan dispatch separately from mounted 9P transport. Do not describe all kernel device access as 9P. Treat #x as device naming syntax, not as a process handle.
 
-## 2. Remove embedded mp from the normal kernel
+Do not claim semantic equivalence, safe removability or complete behavioral understanding merely from call-graph reachability. For responsibilities that cannot be established, record unknown rather than absent.
 
-Remove MicroPython from the normal kernel bootdir and any normal-path dependency on exec("/boot/mp"). Establish its absence using the generated boot contents.
+## 3. Implementation and outputs
 
-MicroPython must still be built as an ordinary user-space executable: image preparation needs that binary to seed O. Removing the embedded copy must not accidentally remove the build output or host bootstrap dependencies used to prepare images.
+Deliver:
+- A checked-in analysis program under tools/, with one documented command to regenerate the inventory from the repository.
+- A versioned machine-readable JSON operation map.
+- A generated Markdown report under docs/ with coverage totals, per-subsystem summaries, operation tables, source references and an explicit unresolved-work list.
 
-Use one clear maintained default configuration. If pc64omp becomes identical to pc64, consolidate it or retain a documented alias only where needed by tools. Avoid duplicate configurations that can drift.
+Choose sensible artifact names and document them. Generate both outputs from the same analysis data. Keep output deterministic, sorted and free of machine-specific absolute paths and timestamps. Include source identity/fingerprints sufficient to detect stale results.
 
-Existing test-only kernels may embed their dedicated harnesses. Historical embedded-MicroPython tests may be migrated to the new default path; preserve their behavioral assertions. Retain an embedded-MicroPython configuration only if a concrete regression still needs it, clearly marked as test-only. It must not remain a hidden fallback for normal startup.
+Prefer existing repository tooling and minimal dependencies. Inspect the Plan 9 C dialect and build conventions before choosing a parser. Do not require a new compiler framework just to start this inventory. A lightweight lexical/structural scanner is acceptable if its limitations are explicit; regex matches alone must not be presented as a reliable complete semantic analysis. Ignore comments/string contents appropriately when finding declarations and calls, and preserve source locations.
 
-## 3. Retain the minimal bootstrap dependencies
+Bound traversal and output size sensibly through shared graph nodes and references rather than truncating drivers or hiding unresolved paths. Do not spend this stage building a general-purpose C compiler, whole-program theorem prover or automatic rewrite engine.
 
-Keep embedded oinit and kbdfs. Do not remove devroot globally or rewrite console/keyboard drivers in this task.
+Any manual annotations must be kept separate, source-linked and clearly labeled. The inventory itself must be regenerated by the program, not hand-authored to look generated.
 
-Document the exact remaining dependencies:
-- oinit is still reached through the inherited internal boot interface.
-- kbdfs is still an embedded console helper.
-- MicroPython executable bytes, Environment/code and persistent state come from O.
+## 4. Validate coverage and representative chains
 
-Do not claim that every runtime file interface has been removed.
+Run the tool over the complete kernel tree. Report actual counts for scanned files, registrations, exposed operations, mapped primitives, partial mappings and unresolved cases. Define those counts so that they can be checked and are not inflated by duplicate graph paths.
 
-If normal loading fails, print a useful serial/console diagnostic. Do not fall back to embedded MicroPython or add a recovery shell, watchdog, supervisor or reboot policy.
+Manually cross-check generated results against representative source paths:
+- GE/O native entry points through the storage backend, including any remaining Chan/Dev dependency.
+- Block-device partition dispatch through SDifc to NVMe and another available storage backend.
+- Keyboard input, kernel console and serial/UART paths.
+- At least one network driver/subsystem path.
+- One dynamically generated directory or nontrivial textual control dispatcher.
 
-## Verification
+Use actual current source names. If a representative subsystem does not exist, report that fact and select an available alternative.
 
-Use disposable QEMU images and bounded waits.
+Explain the boundary around user-space kbdfs: its binary may be embedded in the kernel image, but it is a user-space service, not a kernel-mode driver. Identify the relevant kernel endpoints; do not count its user-space 9P server as a kernel driver or expand this task into a user-space-wide audit.
 
-Verify the actual default configuration and normal launch tooling:
-- Generated default kernel boot contents contain oinit and kbdfs, with no embedded mp.
-- Fresh default O images contain the expected MicroPython object; its digest matches the built binary.
-- No root filesystem mount or pathname-based MicroPython exec is used.
-- The same default disk boots three times: counter 1 -> 2 -> 3, stable Counter identity/alias and restored graph.
-- The supported human REPL launch command reaches a prompt; evaluate a simple expression and demonstrate a persisted value across a restart using the same image.
-- A missing or malformed interpreter object produces a clear diagnostic without using an embedded interpreter fallback.
-- A failed load preserves the existing native-exec rollback and handle behavior.
-- Build modes advertised for this path produce all required artifacts and fail clearly when prerequisites are missing.
+Add focused analyzer tests for meaningful failure modes: comments/strings resembling declarations, multiline registrations, Qid/command branches, indirect callbacks, duplicate symbol names in separate files, conditional compilation and deliberately unsupported input that must appear as unresolved. Add a determinism check and verify that newly introduced discoverable registrations are picked up without editing an allowlist. A kernel boot regression suite is unnecessary when runtime source has not changed.
 
-Run the appropriate build and all nine existing O-only regressions listed in STATUS. Adapt obsolete embedded-boot assumptions to the new path while keeping persistence, identity, argv/Tos/BSS, handle and error assertions. Do not weaken tests to obtain PASS. Avoid duplicating an entire suite merely to rename a configuration.
+## Acceptance criteria
 
-The previous argv mutation test has imperfect synchronization: its ready signal precedes childopen(). This is not a blocker for this task; do not expand this change into another argument-copy redesign.
+The command runs successfully on current source and regenerates both artifacts deterministically. Every kernel source file is accounted for; every discovered driver registration has a mapped or explicitly unresolved entry. The report shows the full discovered surface, including non-default architectures, and distinguishes it from the normal amd64 build.
 
-## Boundaries and documentation
+Representative chains are source-checked, and gaps are visible rather than hidden behind a claim of completeness. The result must let a reviewer select a bounded next transformation and see which file-layer responsibilities must be preserved in plain C operations.
 
-Do not change the disk format, native argv ABI, SG_NOSWAP policy, GE/O relationship model, permissions, IPC or remote protocols. Do not implement a general program catalog or move the build system into O yet.
-
-Update README.md, docs/O-FORMAT.md and docs/STATUS.md to describe the new normal boot chain, retained bootstrap dependencies, exact human-facing command, image prerequisites, and actual test evidence. Preserve historical test records and distinguish the new default from earlier experiments.
+Finish the report with a short, evidence-based shortlist of promising next extraction targets and their unresolved prerequisites. Do not perform those transformations, prescribe a universal syscall ABI, or harmonize different drivers yet.
