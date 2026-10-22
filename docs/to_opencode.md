@@ -1,75 +1,49 @@
-# Next task: load MicroPython directly from a native O object
+# Next task: fix native O exec argument copying
 
-## Goal
+## Goal and scope
 
-Extend the working native executable-loading experiment so the existing user-space MicroPython binary can be stored in GE/O and executed directly by OID.
+Fix the user-memory validation/copy race in execo() in sys/src/9/port/sysproc.c. Preserve the current oexecute(space, oid, argv, argc) ABI, MicroPython-from-O boot, synthetic argv[0] for argc == 0, Tos layout and close-on-exec semantics.
 
-Demonstrate:
+Read AGENTS.md, docs/O-FORMAT.md and docs/STATUS.md, then inspect the latest code and the kernel's existing user-memory access/error mechanisms. The reviewed implementation is in commit 07088d60a04da97b517b691d6bd4abcbcd5f3116; work from current main.
 
-embedded bootstrap harness -> native O executable loader -> O-resident MicroPython -> existing persistent init Space.
+## Defect
 
-Keep this task limited to proving that transition. Preserve the current embedded MicroPython boot path until the alternative has been demonstrated.
+The current code measures user strings with vmemchr(), allocates kargs from that total, then rereads uargv[i] and uses unbounded strlen() before memmove().
 
-## Starting point
+An RFMEM peer can change a pointer, terminator or string between those passes. The earlier validation no longer bounds the later copy. This can overrun kernel-owned memory or access an unchecked address.
 
-Read AGENTS.md, README.md, docs/O-FORMAT.md, docs/STATUS.md and docs/to_chatgpt_review.md. Inspect the current code before editing.
+Fix the mechanism, not just the observed input. Repeating validation before an unbounded copy does not solve the race.
 
-The reviewed native executable experiment includes:
-- Process-local O Space handles.
-- oexecute(space, oid), currently constructing one synthetic argv[0].
-- A bounded 8 MiB whole-object read.
-- Shared exec parsing and process-transition machinery.
-- Corrected Tos reservation and uintptr segment addresses.
-- A regression probing a BSS page at 4 GiB.
+## Required implementation
 
-The clean tested implementation is commit 4678fada0d66f83b310291320e57aba12068934d; later documentation commits record its results. Start from current main and record the actual revision.
+- Snapshot the bounded user pointer array into kernel-owned storage using appropriate checked access. Never reread the live user argv array during subsequent string copying.
+- Copy each string with a hard destination-capacity bound, using the kernel's supported fault-safe user-memory access conventions. Check user address ranges, arithmetic, and mapped spans as needed.
+- Do not measure user data and then perform an unbounded copy. No strlen(), strcpy(), or equivalent unbounded operation on user-owned strings.
+- Determine each argument's accepted length and terminating NUL from bytes actually copied into kernel-owned memory. If scanning and copying are separate, validate the copied result and never use the source's earlier length as proof of termination.
+- Enforce argument-count and aggregate-byte limits during copying. Reserve space for terminators, argv pointers, Tos, stack alignment and architecture-specific entry setup. Guard address/size arithmetic against overflow.
+- Build the final exec stack exclusively from the validated kernel-owned argument snapshot. Bounded scans or strlen() on that proven, private, NUL-terminated snapshot are acceptable.
+- Concurrent modification need not produce an atomic snapshot of all arguments. A bounded copied result or a clean syscall error is acceptable; unchecked access, unterminated accepted arguments and kernel buffer overruns are not.
+- Use a small, understandable helper if useful. Avoid a large new user-copy framework or unrelated changes to ordinary exec.
+- Preserve rollback: failure before process transition leaves the caller image and O handles usable. Release the object buffer, argument allocations, session references and partially constructed segments on every error path. Use existing kernel error handling.
+- Retain the existing limit of 32 arguments. Document an explicit aggregate-byte limit and ensure currently used MicroPython arguments remain supported. Avoid large temporary allocations when a smaller bounded strategy suffices.
 
-## Implementation
+Do not change SG_NOSWAP policy, program loading architecture, seed tree format, bootstrap configuration or persistent storage semantics in this task.
 
-1. Store the real built MicroPython executable in a disposable O volume under a documented experimental OID. Reuse the existing object representation; do not add a disk-format revision.
+## Focused regressions
 
-2. Inspect the current seeding constraints before extending them. The existing native-exec seed path patches the executable BSS header for the ohello boundary test. Keep that mutation strictly within that test fixture: MicroPython must be stored byte-for-byte unchanged. Verify the seeded content against the input binary.
+Extend the existing native-exec tests or add a bounded regression with explicit assertions.
 
-   The existing small catalog/seed leaf must not become an arbitrary executable-size ceiling. Use the smallest sound change to seed a realistically sized executable, preserving existing image preparation and tests.
+Cover:
+1. Multiple valid arguments, empty argument strings, argc == 0, and the maximum supported argument count. The loaded target checks exact content and argv[argc] == nil.
+2. Negative/excessive argc, nil or misaligned argv when argc > 0, invalid string pointers, a string crossing into an unmapped page, missing NUL within the allowed span, and the aggregate-byte boundary including terminators and stack overhead.
+3. Failed calls preserve the caller and its usable O handle. Repeat failures enough to expose obvious cleanup/capacity regressions.
+4. An RFMEM peer changes source pointers and string contents/terminators during bounded attempts. Use controlled buffers and synchronization, not arbitrary memory corruption. Keep a parent supervisor outside the executing child so successful exec cannot remove the test controller. Permit either successful execution of a valid bounded snapshot or a clean error; do not require concurrent mutation to be rejected.
+5. Existing argv/Tos/BSS assertions and O-loaded MicroPython startup still pass.
 
-3. Extend native execution to pass the arguments MicroPython actually requires. Inspect main.c and the current boot configuration rather than guessing them.
+A probabilistic stress test alone is insufficient evidence. Also verify the copy helper's bounds and fault paths with deterministic cases. Use bounded waits, clear FAIL diagnostics and disposable QEMU images.
 
-   Use a bounded, validated argv interface consistent with the existing syscall ABI. Preserve existing callers or update them together. Validate user pointers, argument count, total bytes, alignment and stack bounds before replacing the process image. Copy argument data into kernel-owned state before destroying the old address space.
-
-   Keep argv and strings below the reserved Tos area. Preserve the argv/Tos regression.
-
-4. Add a small embedded bootstrap harness which opens the O volume and Space, then executes the MicroPython OID with the required arguments. It must not contain or load a second MicroPython copy through a file wrapper.
-
-5. Preserve the current close-on-exec O handle rule. The new interpreter must acquire its own O session using its startup arguments. Do not silently inherit handles to make startup work.
-
-6. Load the interpreter bytes directly through the native O engine. No temporary executable file, synthetic filesystem, pathname-based exec, Chan wrapper, Fid, Qid, mount or 9P in this loading path.
-
-7. Check the actual MicroPython executable size against the loader's current 8 MiB limit. Retain that limit if sufficient. If a change is necessary, make it explicit and bounded, document the memory cost, and test oversized-object rejection. Preserve single-published-version reads and rollback on failure.
-
-## Verification
-
-Add a bounded automated QEMU regression using disposable ESP + O images without a root filesystem.
-
-Demonstrate:
-- The harness executes MicroPython from its OID.
-- The tested kernel image does not embed MicroPython: absence must be established from the generated boot contents, not merely by observing a successful boot. Use a dedicated test configuration if needed; preserve the ordinary configuration.
-- MicroPython loads its Environment/code and persistent init Space from O.
-- Across three boots of the same disk, the existing counter advances 1 -> 2 -> 3 and retains the expected identity/alias.
-- A separate interactive smoke test reaches the REPL through the O-loaded interpreter and evaluates a simple expression. Automate serial input if practical.
-- Missing or malformed interpreter objects return a clear error to the harness without a kernel panic.
-- Failed native execution preserves the harness image and its usable O handle.
-- Existing argument/Tos/BSS and process-local handle assertions still pass.
-
-Run the appropriate build, the new regression, and the seven existing O-only regressions, following the current STATUS instructions. Do not weaken assertions or conceal failures. Preserve diagnostic logs.
-
-## Boundaries
-
-Do not remove devroot globally, kbdfs, legacy drivers or the ordinary embedded MicroPython configuration in this task.
-
-Do not implement a program catalog, architecture-selection graph, tags, package manager, permissions framework, remote protocol, watchdog or recovery supervisor.
-
-The resulting test may still embed its small harness and console helper. Report those dependencies explicitly. This experiment proves that MicroPython no longer needs to be embedded in the tested configuration; it does not claim that all internal file interfaces have been removed.
+Run the appropriate build, the focused regression, and the eight existing O-only gates listed in STATUS (including test-o-boot-omp). Preserve assertions and failure logs.
 
 ## Technical documentation
 
-Update docs/O-FORMAT.md and docs/STATUS.md with the actual API, boot chain, executable size/limits, commands, results, timestamps and log paths.
+Update docs/O-FORMAT.md with the actual argument limits and concurrent-modification semantics. Update docs/STATUS.md with the commands, tested source state, results and log paths. Distinguish source-review conclusions from executed test evidence.
