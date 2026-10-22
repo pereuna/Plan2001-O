@@ -1,7 +1,7 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 22 October 2026. **Current runtime evidence baseline:**
-`main` at `30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd`.
+`main` at `cb7d4a1d95cab3e82b1f46f601c0963249488ce2`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -18,7 +18,7 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object test path, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, all five GE/O QEMU gates, the process-local handle regression and the native executable-object regression passed on 22 October 2026 with KVM from `HEAD` `30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd` plus the uncommitted native-exec change set. See the records below and `build/verification/*.log`. |
+| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, all five GE/O QEMU gates, the process-local handle regression and the native executable-object regression passed on 22 October 2026 with KVM from a clean tree at `cb7d4a1d95cab3e82b1f46f601c0963249488ce2`. See the records below and `build/verification/*.log`. |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
@@ -111,18 +111,15 @@ O init 15:38:29.
 
 ## Native executable-object experiment — 22 October 2026
 
-**Source state:** `HEAD` is
-`30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd` (the process-local handle
-experiment). The native-executable change set (`devgefs.c`, `sysproc.c`,
-`portfns.h`, `pc64`, `sys.h`, `syscall.c`, `ream.c`, `mkovol`,
-`oseed.py`, `sys/src/cmd/oexec/`, `sys/src/cmd/ohello/`,
-`tools/test-o-exec.sh`, plus small `README.md`/`AGENTS.md` and
-`tools/test-o-boot.sh` documentation/assertion corrections) was
-**uncommitted** during this verification.
-`tools/selfroot` therefore cloned `30e9ae1` as its source tree while the
-kernel and binaries came from the working-tree build. A clean committed
-rerun is required before this is release evidence rather than experiment
-evidence.
+**Source state:** clean tree at
+`cb7d4a1d95cab3e82b1f46f601c0963249488ce2`. This commit fixes the two
+review findings against `ab3a77e`: the exec stack now reserves
+`sizeof(Tos)` before placing `argv` and its strings, and segment
+addresses (`abss`/`ebss`) remain `uintptr` through both loader paths.
+The target now asserts `argv[0]`, intact `Tos` fields and a high BSS
+page; host seeding enlarges the target's BSS header to `0xffe00000` so
+the address crosses 4 GiB. This STATUS update is a docs-only follow-up
+commit.
 
 **Loader:** `OEXECUTE`/`oexecute(space, oid)` resolves the handle only in
 the calling process, retains its session reference for one bounded
@@ -159,17 +156,17 @@ tools/test-o-boot.sh
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Full amd64 build | **PASS** | `BUILD-DONE`; 116 programs; kernel and loader present. `build/verification/build-oexec.log` |
-| selfroot binaries | **PASS** | `gefs`, `ohello`, `oexec` built; selfroot at `30e9ae1`. `build/verification/selfroot-oexec.log` |
-| Native executable object | **PASS** | one ESP + O boot, no FS root; child loaded `ohello` by OID, printed `ohello: native executable from O marker`, exited 0, parent observed success; missing OID and a truncated valid header failed while the handle remained usable; close-on-exec handle rule held. `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
+| Full amd64 build | **PASS** | `BUILD-DONE`; 116 programs; kernel and loader present. `build/verification/build-tosfix.log` |
+| selfroot binaries | **PASS** | `gefs`, `ohello`, `oexec` built; selfroot at `cb7d4a1`. `build/verification/selfroot-tosfix.log` |
+| Native executable object | **PASS** | one ESP + O boot, no FS root; child loaded `ohello` by OID, checked `argv[0]`, intact `Tos` fields and a BSS page beyond 4 GiB, printed both target markers, exited 0, parent observed success; missing OID and a truncated valid header failed while the handle remained usable; close-on-exec handle rule held. `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
 | Process-local O handles | **PASS** | all isolation, lifetime, abort, exec and error checks. `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
 | Existing five O-only gates | **PASS** | GE, O volume, O objects, Python/O and O init all exited 0. `build/verification/test-ge.log`, `test-o-volume.log`, `test-o-objects.log`, `test-o-space.log`, `test-o-boot.log` |
 
-Gate start times (UTC): native executable 16:29:49, process-local
-handles 16:25:42, GE 16:26:05, O volume 16:26:16, O objects 16:27:16,
-Python/O 16:27:43, O init 16:28:14. The O init gate passed after
-correcting a pre-existing `-c` grep that matched random UUID text; its
-assertions were not weakened.
+Gate start times (UTC, clean tree at `cb7d4a1`): native executable
+16:44:14, process-local handles 16:44:38, GE 16:45:01, O volume
+16:45:12, O objects 16:46:12, Python/O 16:46:40, O init 16:47:10. The
+binary-grep false positive in `test-o-boot.sh` remains fixed; no
+assertion was weakened.
 
 ## Reproduction on a prepared Debian/amd64 host
 
