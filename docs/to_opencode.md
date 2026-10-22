@@ -70,14 +70,6 @@ Do not implement a program catalog, architecture-selection graph, tags, package 
 
 The resulting test may still embed its small harness and console helper. Report those dependencies explicitly. This experiment proves that MicroPython no longer needs to be embedded in the tested configuration; it does not claim that all internal file interfaces have been removed.
 
-## Delivery and agent handoff
-
-Complete implementation and verification, then commit and push automatically as authorized by the owner.
-
-Run the final validation against a clean committed implementation. Later documentation-only commits are acceptable; identify the exact tested source commit separately from the final repository HEAD.
+## Technical documentation
 
 Update docs/O-FORMAT.md and docs/STATUS.md with the actual API, boot chain, executable size/limits, commands, results, timestamps and log paths.
-
-Write your final completion summary to docs/to_chatgpt_review.md as well as presenting it to the owner. Include implementation commits, exact tested SHA, tests actually run, outcomes, remaining limitations and any requested review. Ensure that summary is committed and pushed by the established completion automation; do not create duplicate automation.
-
-docs/to_opencode.md is the incoming task instruction maintained by ChatGPT. docs/to_chatgpt_review.md is your outgoing completion summary. Do not replace this task instruction with your completion report.
