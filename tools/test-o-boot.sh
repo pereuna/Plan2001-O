@@ -83,7 +83,7 @@ puuid=$(cat "$disk.partuuid")
 # the boot configuration itself: no root=, no -c, no Python source
 grep -q "^init=/boot/mp -O PARTUUID=$puuid -S init -B$" "$disk.ini" || fail "plan9.ini: wrong init line"
 grep -q '^root=' "$disk.ini" && fail "plan9.ini: has root="
-grep -q -- '-c' "$disk.ini" && fail "plan9.ini: has -c"
+grep -Eq '(^|[[:space:]])-c([[:space:]]|$)' "$disk.ini" && fail "plan9.ini: has -c"
 grep -q '\.py' "$disk.ini" && fail "plan9.ini: has Python source"
 
 boot boot1

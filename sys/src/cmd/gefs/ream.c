@@ -504,6 +504,32 @@ seedread(char *path, uchar **bp, long *np)
 }
 
 static void
+seedfile(Seedrec **r, int *n, int *a, char *name, char *oidname)
+{
+	char path[512], hex[17];
+	uchar *data, *hb;
+	long dn, hn;
+	uvlong oid;
+
+	snprint(path, sizeof path, "%s/%s", seeddir, name);
+	if(seedread(path, &data, &dn) < 0)
+		return;
+	snprint(path, sizeof path, "%s/%s", seeddir, oidname);
+	if(seedread(path, &hb, &hn) < 0)
+		sysfatal("seed: %s: %r", path);
+	while(hn > 0 && (hb[hn-1] == '\n' || hb[hn-1] == '\r' || hb[hn-1] == ' '))
+		hn--;
+	if(hn != 16)
+		sysfatal("seed: %s: not 16 hex digits", oidname);
+	memmove(hex, hb, 16);
+	hex[16] = 0;
+	oid = strtoull(hex, nil, 16);
+	seedobj(r, n, a, oid, data, dn);
+	free(data);
+	free(hb);
+}
+
+static void
 oseed(Blk *tb)
 {
 	char *env, *p, *e, *q, path[512];
@@ -566,6 +592,9 @@ oseed(Blk *tb)
 		free(data);
 		p = *e ? e+1 : e;
 	}
+	seedfile(&r, &nr, &ar, "exe", "exeoid");
+	seedfile(&r, &nr, &ar, "bad", "badoid");
+
 	/* the header: version 1, then Environment and next OID */
 	memmove(hex, hb, 64);
 	hex[64] = 0;

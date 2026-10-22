@@ -18,7 +18,7 @@ This README describes the **architectural hypothesis**. The following table dist
 | Relationships | Python graph serialized as one `OID_GRAPH` object | Native, indexed GE/O bindings and relations |
 | Namespaces | Seeded `init` Space and flat catalog | Persistent, shareable, non-hierarchical namespaces |
 | Python | Kernel-embedded user-space MicroPython; code and state from O | Ordinary executable object loaded from O |
-| Native executables | Inherited loader and embedded `/boot/mp` bootstrap | Native object-ID-based loader |
+| Native executables | Embedded `/boot/mp` bootstrap plus a bounded test loader executing one O object by OID | General native object-ID-based loader |
 | Process/remote interfaces | Inherited Plan 9 mechanisms for the PoC | Object handles, IPC and remote protocol to be explored |
 
 **Document roles:** [README](README.md) explains the hypothesis; [POC](docs/POC.md) records what the source-branch experiments demonstrated; [STATUS](docs/STATUS.md) reports current verification and test instructions; [O-FORMAT](docs/O-FORMAT.md) specifies the *implemented* format. [AGENTS](AGENTS.md) is the coding-agent contract. Neither this README nor its diagrams establish an implemented API.
@@ -183,7 +183,7 @@ UEFI -> kernel
 
 The current embedded MicroPython executable is a practical bootstrap, **not a permanent architectural requirement**. A future kernel should load executable objects from O and provide a small diagnostic path if that volume is missing or corrupt. This design does not require an initramfs or another root filesystem.
 
-Do not replace the embedded executable with an initramfs or a pseudo-filesystem merely to preserve traditional `exec(path)` behavior. First make a small native executable-object loading experiment work.
+Do not replace the embedded executable with an initramfs or a pseudo-filesystem merely to preserve traditional `exec(path)` behavior. A bounded native executable-object experiment now exists; extending it to a general program loader remains work.
 
 ## 6. What about Plan 9 and 9P2000?
 
@@ -220,7 +220,7 @@ The test script is `tools/test-o-boot.sh`. These results are documented PoC test
 
 **The native GE/O relationship graph described above does not yet exist in full.** The storage engine already supports OID-addressed, versioned records, but MicroPython currently serializes its whole persistent graph into **one `OID_GRAPH` object** on commit. The internal Python objects have persistent logical OIDs, but they are not yet independently stored and indexed as native GE/O objects and relationships.
 
-Other current limitations include a small seeded `init` environment, limited native Space management, no general native executable-object loader, incomplete crash/failure recovery and diagnostics, and no defined native cross-process or network object protocol.
+Other current limitations include a small seeded `init` environment, limited native Space management, only a bounded native executable-object test path rather than a general loader, incomplete crash/failure recovery and diagnostics, and no defined native cross-process or network object protocol.
 
 **Never mistake a design goal in this document for an implemented API.** The next experiments must close these gaps without inserting a filesystem facade.
 
@@ -244,7 +244,7 @@ This repository descends from a much larger 9front/Plan 9 tree. That history exp
 
 - Persist individual Python objects and **native GE/O namespace bindings/relationships**, without the monolithic `OID_GRAPH` snapshot.
 - Demonstrate direct lookup by OID and indexed name, without path traversal; test sharing, aliases, cycles, and incremental commits.
-- Load and start a minimal native executable directly from an O object, without `devroot` or a file wrapper.
+- Extend the bounded native executable-object path beyond one test OID to catalogs and architecture selection, without `devroot` or a file wrapper.
 - Define per-process object-handle lifetime and controlled sharing; replace current PoC-global handle bookkeeping.
 - Test crashes, corrupt or missing objects, incomplete transactions, and recovery with machine-readable diagnostics.
 - Establish which minimal kernel resource operations are actually required before designing any remote object protocol.

@@ -56,3 +56,4 @@
 #define	OSPACEPUT	57
 #define	OSPACECOMMIT	58
 #define	OSPACECLOSE	59
+#define	OEXECUTE	60

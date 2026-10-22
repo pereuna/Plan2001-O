@@ -1,0 +1,8 @@
+</$objtype/mkfile
+
+TARG=oexec
+OFILES=oexec.$O\
+
+BIN=/$objtype/bin
+
+</sys/src/cmd/mkone

@@ -10,6 +10,9 @@
 #                             SOURCE, also seed one demo Environment and
 #                             its compiled .mpy as O objects in the fresh
 #                             image (Stage 4, tools/oseed.py).
+#   NATIVEEXEC=FILE           also seed FILE as the native executable test
+#                             object (requires SOURCE and the current
+#                             seed layout; see docs/O-FORMAT.md).
 #   GEFS=FILE                 userspace gefs (default
 #                             build/selfroot/amd64/bin/gefs)
 set -e
@@ -19,7 +22,10 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 out=$(realpath -m "$1")
 mb=${2:-512}
 src=$3
+native=${NATIVEEXEC:-}
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
+[ -z "$native" ] || [ -r "$native" ] || { echo "mkovol: NATIVEEXEC: no $native" >&2; exit 1; }
+[ -z "$native" ] || [ -n "$src" ] || { echo "mkovol: NATIVEEXEC requires SOURCE" >&2; exit 2; }
 dir=$root/build/selfroot
 gefs=${GEFS:-$dir/amd64/bin/gefs}
 [ -x "$gefs" ] || { echo "mkovol: no $gefs (tools/selfroot)" >&2; exit 1; }
@@ -31,6 +37,10 @@ tar cf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$dir" ./amd64/bin/gefs
 if [ -n "$src" ]; then
 	cp "$src" "$b/odemo.py"
 	tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$dir" ./amd64/bin/micropython -C "$b" ./odemo.py -C "$here" ./oseed.py
+	if [ -n "$native" ]; then
+		cp "$native" "$b/nativeexec"
+		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./nativeexec
+	fi
 fi
 truncate -s $(( $(stat -c %s "$b/in.img") / 1048576 + 16 ))M "$b/in.img"
 truncate -s ${mb}M "$b/out.img"
@@ -41,7 +51,7 @@ printf 'term%% \t!done\n' | "$here/9run" -t 180 --dialog - >/dev/null
 if [ -n "$src" ]; then
 "$here/9run" -t "${MKOVOL_TIMEOUT:-600}" --script - <<'RC'
 g=/dev/sdE2/data
-cd /tmp && tar xf /dev/sdE1/data ./amd64/bin/gefs ./amd64/bin/micropython ./odemo.py ./oseed.py
+cd /tmp && tar xf /dev/sdE1/data
 mkdir -p /tmp/seed/mod
 /tmp/amd64/bin/micropython /tmp/oseed.py >/tmp/oseed.log >[2=1] || { cat /tmp/oseed.log; exit seed }
 cat /tmp/oseed.log
@@ -64,7 +74,7 @@ fi
 mv "$b/out.img" "$out"
 rm -f "$b/in.img"
 if [ -n "$src" ]; then
-	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src"
+	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src${native:+, native executable $native}"
 else
 	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1"
 fi

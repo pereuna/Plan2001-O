@@ -13,7 +13,7 @@ Read [README.md](README.md) for direction, [docs/STATUS.md](docs/STATUS.md) for 
 
 - GE/O owns persistent object identity **and, as a goal, native persistent relationships**. The implemented identity is `(SpaceID, OID)`, not a path.
 - Python replaces the scripting layer and demonstrates persistent values, namespaces and code. GE/O must not depend on Python.
-- Code, native executables and other byte-addressable or structured content are objects. Direct executable loading from O is **not implemented**.
+- Code, native executables and other byte-addressable or structured content are objects. A bounded native O executable test path exists; general executable-object loading (catalog, architecture selection, dynamic linking) is **not implemented**.
 - Native object-handle lifetime, indexing, permissions, IPC and remote operation remain research questions; do not invent a universal schema or protocol in advance.
 - The current O path commits the Python graph as **one `OID_GRAPH` object**. Do not misrepresent this as native GE/O edges or per-object Python persistence.
 

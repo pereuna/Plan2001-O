@@ -130,6 +130,7 @@ ospaceget(space, oid, buf, len, &ver)      -> bytes or -1
 ospaceput(space, oid, buf, len)
 ospacecommit(space, &ver)                  -> publish and sync
 ospaceclose(space)
+oexecute(space, oid)                       -> execute object (no return on success)
 ```
 
 `spec` may denote `PARTUUID=...` or a device specification.
@@ -170,6 +171,50 @@ The volume instance (`Gefs *ovol`) is still global to this
 experiment. Volume acquisition and authorization remain separate work;
 these process-local handles do **not** constitute complete capability
 security.
+
+### 5.2 Native executable-object loading (bounded experiment)
+
+`oexecute(space, oid)` resolves `space` only in the calling process,
+reads one published object value, and follows `exec` semantics: on
+success the calling process is replaced and does not return; on failure
+the original image and its handles remain. The on-disk format is
+unchanged.
+
+The read is a **bounded whole-object read**. The kernel allocates
+`8 MiB` (`Objexecmax`) for the object, so this temporary memory cost is
+paid even for a small executable, and an object larger than the limit is
+rejected. There is no size-then-read pair: `ospaceget` selects one
+published version and copies that version's bytes in a single call, so
+the header and payload cannot come from different versions.
+
+The loader reuses the existing `Exec`/a.out validation and segment
+machinery. Before committing it checks the architecture magic, header
+length, text/data/bss sizes, segment bounds and rounding, object length
+against `text+data`, the entry point's membership in the text segment,
+and the user-address bounds. It then builds ordinary text, data and BSS
+segments and the exec stack, and enters the shared process-transition
+path. No pathname, synthetic file, `Chan`, `Fid`, Qid, mount or 9P
+operation is involved. Successful transition applies the current
+close-on-exec O handle rule.
+
+Test objects are seeded only for the regression:
+
+```text
+OID_EXEC_TEST    = 0x4f45584543000001   small amd64 executable
+OID_BADEXEC_TEST = 0x4f45584543000002   truncated executable header
+```
+
+`tools/mkovol ... SOURCE` accepts `NATIVEEXEC=FILE` and stores the file
+under `OID_EXEC_TEST` (plus the malformed test record) through the
+existing `gefs -O -i` seed layout. The current seed catalog leaf is
+small; the test executable is built as a tiny no-frills program. The
+target executable exists only in O for the test. `/boot/oexec` is an
+embedded test harness, not the loader and not a production bootstrap.
+
+Limits of this experiment: no program catalog, architecture selection,
+permissions, dynamic linking, or general executable-object format
+support. It does not remove `devroot`, embedded MicroPython or `kbdfs`,
+and it does not change the on-disk format.
 
 ## 6. Reserved OIDs and MicroPython payloads
 

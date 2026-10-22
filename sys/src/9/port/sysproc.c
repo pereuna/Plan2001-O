@@ -292,6 +292,266 @@ beswav(uvlong v)
 				  | (uvlong)p[7];
 }
 
+static void
+execparse(Exec *e, int n, ulong magic, uintptr *entryp, ulong *textp,
+	ulong *datap, uintptr *adap, ulong *abssp, ulong *ebssp)
+{
+	uintptr entry, text;
+	ulong data, bss, align;
+	uvlong a, d, ab, eb, h;
+
+	if(magic != AOUT_MAGIC)
+		error(Ebadexec);
+	if(magic & HDR_MAGIC){
+		if(n < sizeof(Exec)+sizeof(uvlong))
+			error(Ebadexec);
+		memmove(&h, e+1, sizeof h);
+		entry = beswav(h);
+		text = UTZERO+sizeof(Exec)+sizeof(uvlong);
+	} else {
+		entry = beswal(e->entry);
+		text = UTZERO+sizeof(Exec);
+	}
+	if(entry < text)
+		error(Ebadexec);
+	if((uvlong)text + beswal(e->text) > (uvlong)(USTKTOP-USTKSIZE))
+		error(Ebadexec);
+	text += beswal(e->text);
+	if(text <= entry || text >= (USTKTOP-USTKSIZE))
+		error(Ebadexec);
+
+	switch(magic){
+	case S_MAGIC:	/* 2MB segment alignment for amd64 */
+		align = 0x1fffff;
+		break;
+	case P_MAGIC:	/* 16K segment alignment for spim */
+	case V_MAGIC:	/* 16K segment alignment for mips */
+		align = 0x3fff;
+		break;
+	case R_MAGIC:	/* 64K segment alignment for arm64 */
+		align = 0xffff;
+		break;
+	default:
+		align = BY2PG-1;
+	}
+
+	a = ((uvlong)text+align) & ~(uvlong)align;
+	data = beswal(e->data);
+	bss = beswal(e->bss);
+	d = a + data;
+	ab = (d+(BY2PG-1)) & ~(uvlong)(BY2PG-1);
+	eb = (d+bss+(BY2PG-1)) & ~(uvlong)(BY2PG-1);
+	if(a >= (uvlong)(USTKTOP-USTKSIZE) || ab < a || eb < ab ||
+	   ab >= (uvlong)(USTKTOP-USTKSIZE) || eb >= (uvlong)(USTKTOP-USTKSIZE))
+		error(Ebadexec);
+
+	*entryp = entry;
+	*textp = text-UTZERO;
+	*datap = data;
+	*adap = a;
+	*abssp = ab;
+	*ebssp = eb;
+}
+
+static void
+execcommit(Segment *ts, Segment *ds, Segment *bs, uintptr tstk,
+	char *args, int nargs, char *elem)
+{
+	Segment *s;
+	Fgrp *f;
+	int i;
+
+	qlock(&up->seglock);
+	if(waserror()){
+		qunlock(&up->seglock);
+		nexterror();
+	}
+	for(i = SSEG; i <= BSEG; i++){
+		s = up->seg[i];
+		if(s != nil){
+			up->seg[i] = nil;
+			putseg(s);
+		}
+	}
+	for(i = ESEG+1; i < NSEG; i++){
+		s = up->seg[i];
+		if(s != nil && (s->type&SG_CEXEC) != 0){
+			up->seg[i] = nil;
+			putseg(s);
+		}
+	}
+
+	assert(ts->ref > 0);
+	up->seg[TSEG] = ts;
+	up->seg[DSEG] = ds;
+	up->seg[BSEG] = bs;
+
+	s = up->seg[ESEG];
+	up->seg[ESEG] = nil;
+	qlock(s);
+	s->base = USTKTOP-USTKSIZE;
+	s->top = USTKTOP;
+	relocateseg(s, USTKTOP-tstk);
+	qunlock(s);
+	up->seg[SSEG] = s;
+	qunlock(&up->seglock);
+	poperror();
+
+	if((f = up->fgrp) != nil)
+		for(i = 0; i <= f->maxfd; i++)
+			fdclose(i, CCEXEC);
+
+	qlock(&up->debug);
+	free(up->text);
+	up->text = elem;
+	free(up->args);
+	up->args = args;
+	up->nargs = nargs;
+	up->setargs = 0;
+	freenotes(up);
+	freenote(up->lastnote);
+	up->lastnote = nil;
+	up->notify = nil;
+	up->notified = 0;
+	up->noteureg = nil;
+	up->privatemem = 0;
+	up->noswap = 0;
+	up->pcycles = -up->kentry;
+	procsetup(up);
+	qunlock(&up->debug);
+
+	up->errbuf0[0] = '\0';
+	up->errbuf1[0] = '\0';
+	flushmmu();
+	if(up->hang)
+		up->procctl = Proc_stopme;
+	oprocexec(up);
+}
+
+static void
+segload(Segment *s, uchar *src, ulong len, ulong off)
+{
+	Page *p;
+	KMap *k;
+	ulong m, so;
+	uintptr va;
+
+	for(so = 0; so < len; so += m){
+		m = len-so;
+		if(m > BY2PG)
+			m = BY2PG;
+		va = s->base+so;
+		p = fillpage(newpage(va, nil), 0);
+		k = kmap(p);
+		memmove(VA(k), src+off+so, m);
+		kunmap(k);
+		segpage(s, p);
+	}
+}
+
+uintptr
+execo(uvlong oid, void *vbuf, long n)
+{
+	uchar *buf;
+	Exec *e;
+	Segment *ts, *ds, *bs, *stk, *s;
+	ulong magic, text, data, abss, ebss, ssize;
+	uintptr entry, adata, tstk;
+	char *elem, *args, name[64], *charp, **argv;
+	Tos *tos;
+	int nargs, nlen;
+
+	buf = vbuf;
+	ts = ds = bs = stk = nil;
+	elem = args = nil;
+	if(waserror()){
+		free(buf);
+		if(ts != nil)
+			putseg(ts);
+		if(ds != nil)
+			putseg(ds);
+		if(bs != nil)
+			putseg(bs);
+		if(args != nil)
+			free(args);
+		if(elem != nil)
+			free(elem);
+		if(stk != nil){
+			qlock(&up->seglock);
+			if(up->seg[ESEG] == stk){
+				up->seg[ESEG] = nil;
+				putseg(stk);
+			}
+			qunlock(&up->seglock);
+		}
+		if(up->seg[SSEG] == nil)
+			pexit(up->errstr, 1);
+		nexterror();
+	}
+
+	if(n < sizeof(Exec))
+		error(Ebadexec);
+	e = (Exec*)buf;
+	magic = beswal(e->magic);
+	execparse(e, n, magic, &entry, &text, &data, &adata, &abss, &ebss);
+	if((uvlong)n < (uvlong)text+data)
+		error(Ebadexec);
+
+	snprint(name, sizeof name, "oexec %016llux", oid);
+	kstrdup(&elem, name);
+
+	ts = newseg(SG_TEXT|SG_RONLY, UTZERO, PGROUND(text)>>PGSHIFT);
+	ts->flushme = 1;
+	segload(ts, buf, text, 0);
+	ds = newseg(SG_DATA, adata, PGROUND(data)>>PGSHIFT);
+	segload(ds, buf, data, text);
+	bs = newseg(SG_BSS, abss, (ebss-abss)>>PGSHIFT);
+	free(buf);
+	buf = nil;
+
+	qlock(&up->seglock);
+	if(waserror()){
+		qunlock(&up->seglock);
+		nexterror();
+	}
+	s = up->seg[SSEG];
+	do {
+		tstk = s->base;
+		if(tstk <= USTKSIZE)
+			error(Enovmem);
+	} while((s = isoverlap(tstk-USTKSIZE, USTKSIZE)) != nil);
+	stk = newseg(SG_STACK|SG_NOEXEC, tstk-USTKSIZE, USTKSIZE/BY2PG);
+	up->seg[ESEG] = stk;
+	qunlock(&up->seglock);
+	poperror();
+
+	tos = (Tos*)(tstk-sizeof(Tos));
+	memset(tos, 0, sizeof(Tos));
+	tos->cyclefreq = m->cyclefreq;
+
+	nlen = strlen(name)+1;
+	ssize = BY2WD*2 + ((nlen+(BY2WD-1)) & ~(BY2WD-1));
+	if(PGROUND(ssize) >= USTKSIZE)
+		error(Enovmem);
+	argv = (char**)(tstk-ssize);
+	charp = (char*)tstk-nlen;
+	memmove(charp, name, nlen);
+	argv[0] = charp+(USTKTOP-tstk);
+	argv[1] = nil;
+	args = malloc(nlen);
+	if(args == nil)
+		error(Enomem);
+	memmove(args, name, nlen);
+	nargs = nlen;
+
+	execcommit(ts, ds, bs, tstk, args, nargs, elem);
+	poperror();
+
+	tos = (Tos*)(USTKTOP-sizeof(Tos));
+	argv = (char**)(USTKTOP-ssize);
+	return execregs(entry, 1, argv, tos);
+}
+
 uintptr
 sysexec(va_list list)
 {
@@ -306,12 +566,12 @@ sysexec(va_list list)
 	char *file, *elem, *args, *charp, *a, *e;
 	int i, n, indir, nargs, argc;
 	ulong magic, ssize, nbytes;
-	uintptr entry, text, data, bss, adata, abss, ebss, tstk, align;
-	Segment *s, *ts;
+	uintptr entry, adata, tstk;
+	ulong text, data, abss, ebss;
+	Segment *s, *ts, *ds, *bs;
 	Image *img;
 	Tos *tos;
 	Chan *tc;
-	Fgrp *f;
 
 	file = va_arg(list, char*);
 	validaddr((uintptr)file, 1, 0);
@@ -436,46 +696,7 @@ sysexec(va_list list)
 	}
 
 	/* Process a.out(6) header */
-	if(magic & HDR_MAGIC) {
-		if(n < sizeof(u.ehdr))
-			error(Ebadexec);
-		entry = beswav(u.ehdr.hdr[0]);
-		text = UTZERO+sizeof(u.ehdr);
-	} else {
-		entry = beswal(u.ehdr.entry);
-		text = UTZERO+sizeof(Exec);
-	}
-	if(entry < text)
-		error(Ebadexec);
-	text += beswal(u.ehdr.text);
-	if(text <= entry || text >= (USTKTOP-USTKSIZE))
-		error(Ebadexec);
-
-	switch(magic){
-	case S_MAGIC:	/* 2MB segment alignment for amd64 */
-		align = 0x1fffff;
-		break;
-	case P_MAGIC:	/* 16K segment alignment for spim */
-	case V_MAGIC:	/* 16K segment alignment for mips */
-		align = 0x3fff;
-		break;
-	case R_MAGIC:	/* 64K segment alignment for arm64 */
-		align = 0xffff;
-		break;
-	default:
-		align = BY2PG-1;
-	}
-
-	adata = (text+align) & ~align;
-	text -= UTZERO;
-	data = beswal(u.ehdr.data);
-	bss = beswal(u.ehdr.bss);
-	align = BY2PG-1;
-	
-	abss = (adata + data + align) & ~align;
-	ebss = (adata + data + bss + align) & ~align;
-	if(adata >= (USTKTOP-USTKSIZE) || abss >= (USTKTOP-USTKSIZE) || ebss >= (USTKTOP-USTKSIZE))
-		error(Ebadexec);
+	execparse(&u.ehdr, n, magic, &entry, &text, &data, &adata, &abss, &ebss);
 
 	/* Replace argv[0] with script name */
 	if(indir){
@@ -599,55 +820,14 @@ sysexec(va_list list)
 	 * Free old memory.
 	 * Special segments are maintained across exec
 	 */
-	qlock(&up->seglock);
-	if(waserror()){
-		qunlock(&up->seglock);
-		nexterror();
-	}
-
-	for(i = SSEG; i <= BSEG; i++) {
-		s = up->seg[i];
-		if(s != nil) {
-			/* prevent a second free if we have an error */
-			up->seg[i] = nil;
-			putseg(s);
-		}
-	}
-	for(i = ESEG+1; i < NSEG; i++) {
-		s = up->seg[i];
-		if(s != nil && (s->type&SG_CEXEC) != 0) {
-			up->seg[i] = nil;
-			putseg(s);
-		}
-	}
-
-	/* Text. Shared. */
-	assert(ts->ref > 0);
-	up->seg[TSEG] = ts;
-
-	/* Data. Shared. */
-	s = newseg(SG_DATA, adata, PGROUND(data)>>PGSHIFT);
-	s->image = img;
-	s->fstart = text;
-	s->flen = data;
+	ds = newseg(SG_DATA, adata, PGROUND(data)>>PGSHIFT);
+	ds->image = img;
+	ds->fstart = text;
+	ds->flen = data;
 	incref(img);
-	up->seg[DSEG] = s;
+	bs = newseg(SG_BSS, abss, (ebss - abss)>>PGSHIFT);
+	execcommit(ts, ds, bs, tstk, args, nargs, elem);
 
-	/* BSS. Zero fill on demand */
-	up->seg[BSEG] = newseg(SG_BSS, abss, (ebss - abss)>>PGSHIFT);
-
-	/* Move the stack */
-	s = up->seg[ESEG];
-	up->seg[ESEG] = nil;
-	qlock(s);
-	s->base = USTKTOP-USTKSIZE;
-	s->top = USTKTOP;
-	relocateseg(s, USTKTOP-tstk);
-	qunlock(s);
-	up->seg[SSEG] = s;
-	qunlock(&up->seglock);
-
-	poperror();	/* up->seglock */
 	poperror();	/* args */
 	poperror();	/* tc */
 	poperror();	/* elem, file */
@@ -661,48 +841,9 @@ sysexec(va_list list)
 	cclose(tc);
 	free(file);
 
-	/* Close on exec */
-	if((f = up->fgrp) != nil) {
-		for(i=0; i<=f->maxfd; i++)
-			fdclose(i, CCEXEC);
-	}
-
-	qlock(&up->debug);
-	free(up->text);
-	up->text = elem;
-	free(up->args);
-	up->args = args;
-	up->nargs = nargs;
-	up->setargs = 0;
-
-	freenotes(up);
-	freenote(up->lastnote);
-	up->lastnote = nil;
-	up->notify = nil;
-	up->notified = 0;
-	up->noteureg = nil;
-	up->privatemem = 0;
-	up->noswap = 0;
-	up->pcycles = -up->kentry;
-	procsetup(up);
-	qunlock(&up->debug);
-
-	up->errbuf0[0] = '\0';
-	up->errbuf1[0] = '\0';
-
-	/*
-	 *  At this point, the mmu contains info about the old address
-	 *  space and needs to be flushed
-	 */
-	flushmmu();
-
-	if(up->hang)
-		up->procctl = Proc_stopme;
-
 	tos = (Tos*)(USTKTOP - sizeof(Tos));
 	argv = (char**)(USTKTOP - ssize);
 
-	oprocexec(up);
 	return execregs(entry, argc, argv, tos);
 }
 

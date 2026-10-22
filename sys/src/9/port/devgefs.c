@@ -700,6 +700,39 @@ sysospaceclose(va_list list)
 	return 0;
 }
 
+enum {
+	Objexecmax	= 8*MiB,
+};
+
+uintptr
+sysoexecute(va_list list)
+{
+	Ohand *oh;
+	uchar *buf;
+	long n;
+	uvlong oid, ver;
+	int h;
+
+	h = va_arg(list, int);
+	oid = va_arg(list, uvlong);
+	oh = ogetspace(h);
+	if((buf = malloc(Objexecmax)) == nil){
+		ohandput(oh);
+		error(Enomem);
+	}
+	if(waserror()){
+		free(buf);
+		ohandput(oh);
+		nexterror();
+	}
+	n = onativeget(oh->sp, oid, buf, Objexecmax, &ver);
+	if(n < 0)
+		error("oexec: no such object");
+	ohandput(oh);
+	poperror();
+	return execo(oid, buf, n);
+}
+
 /*
  * plan9.ini's root= ([-w] PARTUUID=guid|DEVICE [!tree]): the kernel's
  * gefs mounted before / in the first process, before it runs init

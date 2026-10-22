@@ -1,7 +1,7 @@
 # Implementation status — Plan2001-O
 
-**Status date:** 22 October 2026. **Phase C runtime evidence baseline:**
-`main` at `f23d5624a153bd3645be8f8b540b3bc243ebabec`.
+**Status date:** 22 October 2026. **Current runtime evidence baseline:**
+`main` at `30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -15,11 +15,11 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 
 | Level | Current evidence |
 | --- | --- |
-| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. |
+| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object test path, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build and all five GE/O QEMU gates were executed from `f23d5624a153bd3645be8f8b540b3bc243ebabec` on 22 October 2026 with KVM. The process-local O handle regression also passed from a working tree based on that commit (the experiment was uncommitted at verification time). See the records below and `build/verification/*.log`. |
-| **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, a direct native O executable loader, general persistent namespaces, object IPC and a remote protocol. |
+| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, all five GE/O QEMU gates, the process-local handle regression and the native executable-object regression passed on 22 October 2026 with KVM from `HEAD` `30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd` plus the uncommitted native-exec change set. See the records below and `build/verification/*.log`. |
+| **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
@@ -69,14 +69,10 @@ the specification.
 
 ## Process-local O handle experiment — 22 October 2026
 
-**Source state:** `HEAD` is `f23d5624a153bd3645be8f8b540b3bc243ebabec`.
-The experiment change set (`devgefs.c`, `portdat.h`, `portfns.h`, `proc.c`,
-`sysproc.c`, `pc64`, `sys/src/cmd/ohandle/`, `tools/test-o-handles.sh`)
-was **uncommitted** during this verification. `tools/selfroot` therefore
-cloned `f23d562` as its source tree, while the built kernel and the
-selfroot binaries came from the working-tree build. A clean committed
-rerun is required before this is treated as release evidence rather than
-experiment evidence.
+**Source state:** this experiment is committed as
+`30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd`. The results below were
+first run from its working tree before that commit; the same handle
+regression was rerun in the final native-exec suite recorded below.
 
 **Design:** each `Proc` owns an opaque eight-entry table of `Ohand`
 sessions. An entry holds an `Ospace *` and a `Ref`. Table lookup takes a
@@ -113,6 +109,68 @@ Gate start times (UTC): process-local handles 15:35:46,
 GE 15:36:19, O volume 15:36:30, O objects 15:37:31, Python/O 15:37:58,
 O init 15:38:29.
 
+## Native executable-object experiment — 22 October 2026
+
+**Source state:** `HEAD` is
+`30e9ae16c0b7ab82fcc6404cdffddbbb246c8ebd` (the process-local handle
+experiment). The native-executable change set (`devgefs.c`, `sysproc.c`,
+`portfns.h`, `pc64`, `sys.h`, `syscall.c`, `ream.c`, `mkovol`,
+`oseed.py`, `sys/src/cmd/oexec/`, `sys/src/cmd/ohello/`,
+`tools/test-o-exec.sh`, plus small `README.md`/`AGENTS.md` and
+`tools/test-o-boot.sh` documentation/assertion corrections) was
+**uncommitted** during this verification.
+`tools/selfroot` therefore cloned `30e9ae1` as its source tree while the
+kernel and binaries came from the working-tree build. A clean committed
+rerun is required before this is release evidence rather than experiment
+evidence.
+
+**Loader:** `OEXECUTE`/`oexecute(space, oid)` resolves the handle only in
+the calling process, retains its session reference for one bounded
+whole-object read (`Objexecmax` = 8 MiB, a single published version),
+then releases the reference before parsing. `execparse` is shared with
+`sys_exec` and validates the amd64 a.out magic, header length,
+text/data/bss arithmetic and bounds, object length, entry point and
+user-address limits. `execo` builds ordinary text/data/BSS segments from
+the object bytes, then uses the shared `execcommit` process-transition
+path (segments, stack, close-on-exec handles, text/args, notes, MMU
+flush). Failure before commit leaves the old image and handles intact;
+there is no pathname, `Chan`, `Fid`, Qid, mount or 9P step.
+
+The target program `ohello` exists only as an O object. `/boot/oexec`
+is an embedded regression harness (test bootstrap, not the loader).
+`tools/mkovol` seeds the target at `OID_EXEC_TEST` and malformed bytes
+at `OID_BADEXEC_TEST` through the existing `-i` seed layout.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+NATIVEEXEC=build/selfroot/amd64/bin/ohello \
+  tools/mkovol build/amd64/oexec-o.img 192 tools/odemo.py
+tools/test-o-exec.sh
+tools/test-o-handles.sh
+tools/test-ge.sh
+tools/test-o-volume.sh
+tools/test-o-objects.sh
+tools/test-o-space.sh
+tools/test-o-boot.sh
+```
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; 116 programs; kernel and loader present. `build/verification/build-oexec.log` |
+| selfroot binaries | **PASS** | `gefs`, `ohello`, `oexec` built; selfroot at `30e9ae1`. `build/verification/selfroot-oexec.log` |
+| Native executable object | **PASS** | one ESP + O boot, no FS root; child loaded `ohello` by OID, printed `ohello: native executable from O marker`, exited 0, parent observed success; missing OID and a truncated valid header failed while the handle remained usable; close-on-exec handle rule held. `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
+| Process-local O handles | **PASS** | all isolation, lifetime, abort, exec and error checks. `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
+| Existing five O-only gates | **PASS** | GE, O volume, O objects, Python/O and O init all exited 0. `build/verification/test-ge.log`, `test-o-volume.log`, `test-o-objects.log`, `test-o-space.log`, `test-o-boot.log` |
+
+Gate start times (UTC): native executable 16:29:49, process-local
+handles 16:25:42, GE 16:26:05, O volume 16:26:16, O objects 16:27:16,
+Python/O 16:27:43, O init 16:28:14. The O init gate passed after
+correcting a pre-existing `-c` grep that matched random UUID text; its
+assertions were not weakened.
+
 ## Reproduction on a prepared Debian/amd64 host
 
 Run from the repository root with a **committed, clean source tree**.
@@ -148,8 +206,10 @@ test -s build/amd64/bootx64.efi
 test -x build/selfroot/amd64/bin/gefs
 test -x build/selfroot/amd64/bin/micropython
 test -x build/selfroot/amd64/bin/ohandle
+test -x build/selfroot/amd64/bin/oexec
+test -x build/selfroot/amd64/bin/ohello
 
-for gate in test-o-handles test-ge test-o-volume test-o-objects test-o-space test-o-boot; do
+for gate in test-o-exec test-o-handles test-ge test-o-volume test-o-objects test-o-space test-o-boot; do
     "tools/$gate.sh" 2>&1 | tee "build/verification/$gate.log"
 done
 ```
@@ -170,13 +230,14 @@ evidence of PASS.**
 
 | Gate | Required check | Main outputs |
 | --- | --- | --- |
-| Build | Exit 0, `BUILD-DONE` in the build session, kernel + UEFI loader + `gefs` + MicroPython + `ohandle` binaries present | `build/verification/build.log`, `build/amd64/session.log`, `build/vm/serial.log` |
+| Build | Exit 0, `BUILD-DONE` in the build session, kernel + UEFI loader + `gefs` + MicroPython + `ohandle` + `oexec`/`ohello` binaries present | `build/verification/build.log`, `build/amd64/session.log`, `build/vm/serial.log` |
 | GE | `tools/test-ge.sh` exits 0 and reports `PASS: GE volume, raw key/value, no FS`; same raw value survives reboot | `build/verification/test-ge.log`, `build/amd64/getestvm/serial.log` |
 | O profile | `tools/test-o-volume.sh` exits 0 with `PASS: O volume, no FS`; wrong-profile open attempts are rejected | `build/verification/test-o-volume.log`, `build/amd64/ovolvm/serial.log` |
 | O objects | `tools/test-o-objects.sh` exits 0 with `PASS: native O objects, no FS`; two OIDs survive reboot | `build/verification/test-o-objects.log`, `build/amd64/oobjvm/serial.log` |
 | Python/O | `tools/test-o-space.sh` exits 0 with its Environment/code/Space graph PASS; same alias/OID and O code survive two boots | `build/verification/test-o-space.log`, `build/amd64/ospvm/serial.log` |
 | O init | `tools/test-o-boot.sh` exits 0 with `PASS: three O-only boots`; one disk, `run()` yields 1, 2, 3, same Counter OID, no root filesystem mount | `build/verification/test-o-boot.log`, `build/amd64/obootvm/three-boots.log`, `boot1.log`–`boot3.log` |
 | O handles | `tools/test-o-handles.sh` exits 0 with both its per-check markers and `PASS: process-local O handles`; isolation, independent sessions, close/exit capacity, abort, exec rules and invalid handles pass | `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
+| O execute | `tools/test-o-exec.sh` exits 0 with `PASS: native executable object from O, exec and rollback`; the O-only target marker appears once, the child exits successfully, missing/malformed loads preserve the caller's handle, and native exec closes handles | `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
 
 Individual QEMU serial logs may be **overwritten between boots** by
 their scripts. The captured `build/verification/*.log` output and
@@ -195,7 +256,10 @@ source-branch logs as evidence of execution at a newer commit.
 - Python logical object OIDs live inside a whole `OID_GRAPH` payload;
   native per-Python-object storage and incremental updates are absent.
 - MicroPython is still embedded via the inherited `devroot` bootstrap.
-  Loading user executables directly from O remains to be demonstrated.
+  A bounded native executable-object path is now demonstrated, but it
+  has no program catalog, architecture selection, permissions, dynamic
+  linking or general object-loading contract. `devroot`, MicroPython
+  and `kbdfs` remain the bootstrap.
 - Native O Space handles are now process-local, but handle inheritance
   and cross-process transfer are not implemented; each process has at
   most eight handles. The volume instance remains global, there is no
