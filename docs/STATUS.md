@@ -1,7 +1,7 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 22 October 2026. **Current runtime evidence baseline:**
-`main` at `cb7d4a1d95cab3e82b1f46f601c0963249488ce2`.
+`main` at `4678fada0d66f83b310291320e57aba12068934d`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -18,7 +18,7 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object test path, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, all five GE/O QEMU gates, the process-local handle regression and the native executable-object regression passed on 22 October 2026 with KVM from a clean tree at `cb7d4a1d95cab3e82b1f46f601c0963249488ce2`. See the records below and `build/verification/*.log`. |
+| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, all five GE/O QEMU gates, the process-local handle regression and the native executable-object regression passed on 22 October 2026 with KVM from a clean tree at `4678fada0d66f83b310291320e57aba12068934d`. See the records below and `build/verification/*.log`. |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
@@ -112,7 +112,7 @@ O init 15:38:29.
 ## Native executable-object experiment — 22 October 2026
 
 **Source state:** clean tree at
-`cb7d4a1d95cab3e82b1f46f601c0963249488ce2`. This commit fixes the two
+`4678fada0d66f83b310291320e57aba12068934d`. This commit fixes the two
 review findings against `ab3a77e`: the exec stack now reserves
 `sizeof(Tos)` before placing `argv` and its strings, and segment
 addresses (`abss`/`ebss`) remain `uintptr` through both loader paths.
@@ -156,15 +156,15 @@ tools/test-o-boot.sh
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Full amd64 build | **PASS** | `BUILD-DONE`; 116 programs; kernel and loader present. `build/verification/build-tosfix.log` |
-| selfroot binaries | **PASS** | `gefs`, `ohello`, `oexec` built; selfroot at `cb7d4a1`. `build/verification/selfroot-tosfix.log` |
+| Full amd64 build | **PASS** | `BUILD-DONE`; 116 programs; kernel and loader present. `build/verification/build-bssboundary.log` |
+| selfroot binaries | **PASS** | `gefs`, `ohello`, `oexec` built; selfroot at `4678fad`. `build/verification/selfroot-bssboundary.log` |
 | Native executable object | **PASS** | one ESP + O boot, no FS root; child loaded `ohello` by OID, checked `argv[0]`, intact `Tos` fields and a BSS page beyond 4 GiB, printed both target markers, exited 0, parent observed success; missing OID and a truncated valid header failed while the handle remained usable; close-on-exec handle rule held. `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
 | Process-local O handles | **PASS** | all isolation, lifetime, abort, exec and error checks. `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
 | Existing five O-only gates | **PASS** | GE, O volume, O objects, Python/O and O init all exited 0. `build/verification/test-ge.log`, `test-o-volume.log`, `test-o-objects.log`, `test-o-space.log`, `test-o-boot.log` |
 
-Gate start times (UTC, clean tree at `cb7d4a1`): native executable
-16:44:14, process-local handles 16:44:38, GE 16:45:01, O volume
-16:45:12, O objects 16:46:12, Python/O 16:46:40, O init 16:47:10. The
+Gate start times (UTC, clean tree at `4678fad`): native executable
+16:50:09, process-local handles 16:50:33, GE 16:50:56, O volume
+16:51:07, O objects 16:52:07, Python/O 16:52:35, O init 16:53:05. The
 binary-grep false positive in `test-o-boot.sh` remains fixed; no
 assertion was weakened.
 
