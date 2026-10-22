@@ -212,7 +212,7 @@ under `OID_EXEC_TEST` (plus the malformed test record) through the
 existing `gefs -O -i` seed layout. The current seed catalog leaf is
 small; the test executable is built as a tiny no-frills program. For the
 BSS boundary regression, the host seeding path patches the target's BSS
-header field to `0xffe00000`, so `abss`/`ebss` cross 4 GiB and the
+header field to `0xffffffff`, so the BSS extent crosses 4 GiB and the
 program probes a high BSS page. The target executable exists only in O
 for the test. `/boot/oexec` is an embedded test harness, not the loader
 and not a production bootstrap.

@@ -117,8 +117,8 @@ review findings against `ab3a77e`: the exec stack now reserves
 `sizeof(Tos)` before placing `argv` and its strings, and segment
 addresses (`abss`/`ebss`) remain `uintptr` through both loader paths.
 The target now asserts `argv[0]`, intact `Tos` fields and a high BSS
-page; host seeding enlarges the target's BSS header to `0xffe00000` so
-the address crosses 4 GiB. This STATUS update is a docs-only follow-up
+page; host seeding enlarges the target's BSS header to `0xffffffff` so
+the BSS extent crosses 4 GiB. This STATUS update is a docs-only follow-up
 commit.
 
 **Loader:** `OEXECUTE`/`oexecute(space, oid)` resolves the handle only in

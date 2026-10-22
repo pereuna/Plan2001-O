@@ -28,9 +28,9 @@ except OSError:
     x = None
 if x is not None:
     orig = x
-    x = x[:12] + b"\xff\xe0\x00\x00" + x[16:]
+    x = x[:12] + b"\xff\xff\xff\xff" + x[16:]
     open(SEED + "/exe", "wb").write(x)
     open(SEED + "/exeoid", "w").write("%016x" % EXEC_OID)
     open(SEED + "/bad", "wb").write(orig[:72])
     open(SEED + "/badoid", "w").write("%016x" % BADEXEC_OID)
-    print("seed: nativeexec", len(x), "%016x" % EXEC_OID, "bss 0xffe00000")
+    print("seed: nativeexec", len(x), "%016x" % EXEC_OID, "bss 0xffffffff")
