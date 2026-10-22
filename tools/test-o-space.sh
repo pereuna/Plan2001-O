@@ -44,7 +44,7 @@ boot() {
 }
 setini() {
 	local f=$1; shift
-	{ printf 'bootfile=/%s\nconsole=0\nuser=glenda\n' "$kernel"; printf 'init=%s\n' "$*"; } > "$f"
+	{ printf 'bootfile=/%s\nconsole=0\nuser=glenda\n' "$testkernel"; printf 'init=%s\n' "$*"; } > "$f"
 	mcopy -o -i "$disk@@1048576" "$f" ::/plan9.ini
 }
 
@@ -52,7 +52,9 @@ echo "### mkovol with the Stage 4 demo Environment"
 "$here/mkovol" "$oimg" 192 "$here/odemo.py"
 
 echo "### ESP + O, no FS root"
-NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" \
+# TEST-ONLY embedded-MicroPython kernel: the Stage 4 probe still drives the
+# historical /boot/mp -c harness; the normal O kernel has no /boot/mp.
+NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$testkernel" \
 	INIT='/boot/mp -O PARTUUID=@PARTUUID@ -S init -c "print(1)"' \
 	"$here/gefsdisk" "$disk"
 puuid=$(cat "$disk.partuuid")

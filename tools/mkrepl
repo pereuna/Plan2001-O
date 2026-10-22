@@ -1,0 +1,40 @@
+#!/bin/bash
+# Plan2001: prepare a fresh runnable O-only REPL disk for the normal amd64
+# boot path.  It seeds one demo Environment, its compiled code and the built
+# MicroPython executable (byte for byte) into a new O volume, then makes an
+# ESP + O disk whose plan9.ini runs the embedded oinit with -repl.  The
+# interpreter itself comes from O; no /boot/mp is involved.
+#
+# An existing output disk is a persistent user image and is never silently
+# reformatted or reseeded.  Remove it deliberately, or set FORCE=1, to make
+# a new one.  An older disk without the interpreter object is left as it is;
+# the normal boot reports the missing O object.
+#   tools/mkrepl [OUT]        default build/$TARGET/repl.img
+#   FORCE=1                   replace an existing OUT (a new image)
+#   OIMG=FILE                 intermediate O image (default repl-o.img)
+#   MIB=N                     O image size (default 192, minimum 129)
+set -e
+here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
+. "$here/target.sh"
+out=$(realpath -m "${1:-$tbuild/repl.img}")
+oimg=${OIMG:-$(dirname "$out")/repl-o.img}
+mb=${MIB:-192}
+if [ -e "$out" ] && [ "${FORCE:-0}" != 1 ]; then
+	echo "mkrepl: $out exists; keeping the persistent image (FORCE=1 to replace it)" >&2
+	exit 1
+fi
+[ "$mb" -ge 129 ] || { echo "mkrepl: MIB must be at least 129" >&2; exit 2; }
+mp=$root/build/selfroot/amd64/bin/micropython
+gefs=$root/build/selfroot/amd64/bin/gefs
+[ -x "$mp" ] || { echo "mkrepl: no $mp (tools/selfroot)" >&2; exit 1; }
+[ -x "$gefs" ] || { echo "mkrepl: no $gefs (tools/selfroot)" >&2; exit 1; }
+for f in "$tbuild/$kernel" "$tbuild/$loader"; do
+	[ -s "$f" ] || { echo "mkrepl: no $f (tools/build.sh)" >&2; exit 1; }
+done
+echo "### fresh O image with Environment, code and MicroPython"
+MPEXEC="$mp" "$here/mkovol" "$oimg" "$mb" "$here/odemo.py"
+echo "### ESP + O REPL disk (default oinit path)"
+NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" \
+	INIT='/boot/oinit -repl -vol PARTUUID=@PARTUUID@' \
+	"$here/gefsdisk" "$out"
+echo "mkrepl: $out ready; run ./repl_tui.sh"

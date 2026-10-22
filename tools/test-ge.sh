@@ -17,7 +17,10 @@ vm=$b/getestvm
 disk=$b/getestdisk.img
 rootimg=${ROOTIMG:-$b/getest.gefs}
 [ -s "$rootimg" ] || "$here/gefsroot" "$root/build/selfroot" "$rootimg"
-NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' GETEST=partuuid ROOTIMG="$rootimg" "$here/gefsdisk" "$disk"
+# TEST-ONLY embedded-MicroPython kernel: this probe keeps its historical
+# /boot/mp harness; the normal O kernel does not embed MicroPython.
+NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' GETEST=partuuid ROOTIMG="$rootimg" \
+	KERNEL="$testkernel" "$here/gefsdisk" "$disk"
 mkdir -p "$vm"
 q=
 clean() { tr -d '\r' < "$vm/serial.log" | sed 's/\x1b\[[0-9;=?]*[a-zA-Z]//g'; }

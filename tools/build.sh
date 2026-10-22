@@ -8,8 +8,8 @@
 #           loader: the UEFI loader alone
 #   PASSES  2: the tree a second time with its own tools (WHAT=all)
 # Results: build/$TARGET/<kernel>, <loader>, kbdfs, ktest, hjfs, *.log
-# (amd64: 9pc64, bootx64.efi) and, WHAT=all, root/$objtype/{bin,lib}: the
-# binaries of a root (tools/selfroot).
+# (amd64: normal 9pc64, test-only 9pc64mp, bootx64.efi) and, WHAT=all,
+# root/$objtype/{bin,lib}: the binaries of a root (tools/selfroot).
 #
 # Boots a throwaway overlay of the base VM (tools/vm, set up once by
 # tools/vm-setup), hands it the repo's tree (tools/overlay) and build.rc as a tar on a raw disk image,

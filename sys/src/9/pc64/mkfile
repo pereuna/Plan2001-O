@@ -1,5 +1,5 @@
 CONF=pc64
-CONFLIST=pc64 pc64omp
+CONFLIST=pc64 pc64mp
 
 objtype=amd64
 </$objtype/mkfile

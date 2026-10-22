@@ -1,9 +1,10 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 22 October 2026. **Current runtime evidence baseline:**
-`main` at `b41a102384efa81b17cdc5f923415b123341f8ca` plus the uncommitted
-working-tree changes of the native O exec argv copy fix below; the
-previous clean-tree baseline was `4678fada0d66f83b310291320e57aba12068934d`.
+`main` at `016ccffebfe8c9baa93f09c7e6599315e65e4751` plus this task's
+uncommitted working-tree changes (normal O-loaded MicroPython boot below);
+the previous clean-tree baselines were `b41a102384efa81b17cdc5f923415b123341f8ca`
+and `4678fada0d66f83b310291320e57aba12068934d`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -17,15 +18,95 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 
 | Level | Current evidence |
 | --- | --- |
-| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object path with a snapshot-based, capacity-bounded argv copy, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. A dedicated test configuration boots the real MicroPython executable from an O object. |
+| **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object path with a snapshot-based, capacity-bounded argv copy, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. The normal amd64 `pc64` boot now embeds only `oinit`/`kbdfs` (and the separate `ohandle`/`oexec` harnesses) and loads the real MicroPython executable from O. A `pc64mp` kernel remains explicitly test-only for historical embedded-MicroPython gates. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, both kernels, selfroot, the eight O-only gates (including the O-loaded MicroPython gate) and the focused native-exec argv gate passed on 22 October 2026 with KVM. The earlier clean-tree run was at `4678fad`; this run used HEAD `b41a102` plus the uncommitted working tree. See the records below and `build/verification/*.log`. |
+| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, selfroot, and all nine O-only gates (including both boot gates, REPL persistence, and the focused native-exec argv gate) passed on 22 October 2026 with KVM. This run used HEAD `016ccff` plus the uncommitted normal-O-boot working tree; earlier runs used `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Normal O-loaded MicroPython boot — 22 October 2026
+
+**Source state:** HEAD `016ccffebfe8c9baa93f09c7e6599315e65e4751`, with
+this task's source changes in an **uncommitted working tree**. This record
+is not a claim about a clean committed revision. Earlier experiment records
+below are unchanged history.
+
+**Normal boot chain:** UEFI -> `9pc64` kernel -> embedded `/boot/oinit`
+and `/boot/kbdfs` -> O volume and flat `init` Space -> the bounded native
+loader executes `OID_MP_EXEC` (`0x4f45584543000003`) -> MicroPython ->
+persistent `init` Space (`run()`/commit) or an interactive REPL. There is
+no embedded `/boot/mp` and no pathname-based MicroPython `exec` on this
+path.
+
+**Implemented in this change**
+
+- The normal `pc64` bootdir is `kbdfs`, `oinit`, `ohandle` and `oexec`;
+  `micropython`/`mp` is absent. The previous `pc64omp` default candidate
+  is removed. `pc64mp`/`9pc64mp` remains only as a clearly marked
+  **test-only** embedded-MicroPython kernel for the historical Stage 1-4
+  and legacy file/DMOBJ/REPL gates.
+- `tools/mkovol ... SOURCE` seeds the built selfroot MicroPython byte for
+  byte by default at `OID_MP_EXEC`; `NOMPEXEC=1` deliberately omits it for
+  the missing-object diagnostic. The `ohello` BSS-header mutation remains
+  confined to its fixture. An older image without the interpreter is not
+  migrated; `oinit` reports the missing OID and exits without a fallback.
+- `tools/mkrepl [OUT]` prepares a fresh ESP + O REPL disk with the normal
+  kernel and `init=/boot/oinit -repl -vol PARTUUID=...`. It refuses to
+  replace an existing image unless `FORCE=1`, so a persistent user image
+  is never silently reformatted or reseeded. `./repl_tui.sh` is the exact
+  human-facing command from the repository root.
+- Retained bootstrap dependencies are explicit: `oinit` is still reached
+  through the inherited internal boot interface, `kbdfs` is still the
+  embedded console helper, and `devroot` plus the separate `ohandle`/
+  `oexec` regression harnesses remain. MicroPython executable bytes, its
+  Environment/code and persistent state come from O. This is not a claim
+  that every runtime file interface has been removed.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+for gate in test-o-boot-omp test-o-boot test-o-exec-args test-o-exec \
+            test-o-handles test-ge test-o-volume test-o-objects test-o-space; do
+    "tools/$gate.sh" 2>&1 | tee "build/verification/$gate-default-o.log"
+done
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; `build/amd64/9pc64` md5 `f5f989838226c6b8135c0b137a5f813c` (SHA-256 `0254386260027b6f3be197d17a87ab08ea554fc44761f08d370c96190e772d16`), test-only `9pc64mp` md5 `39ef7f6af90766c88095a8da11e999fe` (SHA-256 `f661e97404284355154ff5029a9e77784c63025302f34a36456b663cb1f5914f`), plus loader and userspace binaries. `build/verification/build-default-o.log` |
+| selfroot | **PASS** | `build/selfroot` at HEAD `016ccff`; `gefs`, `micropython`, `oinit`, `ohello`, `oexec`, `ohandle` and `kbdfs` present. `build/verification/selfroot-default-o.log` |
+| Generated default boot contents | **PASS** | `build/amd64/pc64.rootc.c` has `addbootfile("oinit"`, `addbootfile("kbdfs"`, `ohandle` and `oexec`, and no `addbootfile("mp"`. The test-only `pc64mp.rootc.c` still has `mp`. Asserted by `test-o-boot-omp.sh`. |
+| Fresh O image seed | **PASS** | `mkovol` seeded the 2,191,593-byte MicroPython executable by default at `OID_MP_EXEC`, SHA-256 `1487111f358ac845db3ca2b9485a561e722675c59c0632ca105ddd02c13b7e53`, unchanged, matching the built selfroot binary. `build/amd64/ompbootvm/mkovol.log`, `build/amd64/obootvm/mkovol.log` |
+| Normal O boot, three boots | **PASS** | One ESP + O disk, no FS root, normal `9pc64`: `run()` 1 -> 2 -> 3, Counter OID/alias 7/7, O object hash equal to the host binary, no root FS mount. `build/verification/test-o-boot-default-o.log`, `build/verification/test-o-boot-omp-default-o.log`, `build/amd64/obootvm/three-boots.log`, `build/amd64/ompbootvm/omp-boots.log` |
+| REPL and persistence | **PASS** | The supported `tools/mkrepl` image and `oinit -repl` path reached a prompt, evaluated `OINIT-REPL 42`, committed `kept = 4242`, and after a restart of the same disk restored the graph and printed `REPL-KEPT 4242`. `build/amd64/ompbootvm/repl1.log`, `build/amd64/ompbootvm/repl2.log` |
+| Missing/malformed and older image | **PASS** | Missing and malformed OIDs returned errors while preserving the O handle; a fresh image made with `NOMPEXEC=1` printed `MicroPython object 0x4f45584543000003 is missing from O` and did not use an embedded interpreter. `build/amd64/ompbootvm/check.log`, `build/amd64/ompbootvm/legacy.log` |
+| Native executable object | **PASS** | `PASS: native executable object from O, exec and rollback`; rollback and handle assertions unchanged. `build/verification/test-o-exec-default-o.log` |
+| Native argv bounds | **PASS** | `PASS: native O argv bounds, rollback and race`; argv/Tos/BSS, boundary, malformed-copy, rollback and mutation assertions unchanged. `build/verification/test-o-exec-args-default-o.log` |
+| Process-local O handles | **PASS** | `PASS: process-local O handles, isolation/lifetime/cleanup`. `build/verification/test-o-handles-default-o.log` |
+| GE, O volume, O objects, Python/O | **PASS** | `PASS: GE volume, raw key/value, no FS`; `PASS: O volume, no FS`; `PASS: native O objects, no FS`; `PASS: Stage 4 Environment, code and Space graph from O (no FS)`. These historical harnesses use the test-only `9pc64mp` kernel where they still need `/boot/mp`. `build/verification/test-ge-default-o.log`, `test-o-volume-default-o.log`, `test-o-objects-default-o.log`, `test-o-space-default-o.log` |
+
+Log completion times (UTC): build 20:17:29; selfroot 20:17:34; O-loaded
+MicroPython boot 20:19:26; normal O boot 20:20:01; argv 20:20:26; native
+exec 20:20:51; handles 20:21:14; GE 20:21:25; O volume 20:22:25; O
+objects 20:22:53; Python/O 20:23:25. The documented `test-o-space`
+shutdown diagnostic (`panic: boot process died: unknown`) is unchanged
+and is not a gate failure. The older image in the missing-object test also
+ends when its init process exits; that diagnostic is expected, not a
+fallback.
+
+**Remaining limits:** the normal path still uses a fixed experimental OID
+and embedded `oinit`/`kbdfs`; there is no program catalog, architecture
+selection, permissions framework, dynamic linking or general
+executable-object format support. The `pc64mp` kernel is test-only and is
+never a normal or fallback boot path. The on-disk format is unchanged.
 
 ## Phase C validation record
 
@@ -325,7 +406,7 @@ sources risks mixing incompatible binaries and code.
 
 `tools/vm-setup` checks Debian packages, OVMF, the selected VM
 accelerator and a pinned 9front bootstrap image. The **O-only QEMU suite
-(five existing gates plus the handle regression) currently expects KVM**: `tools/targets/amd64` supplies
+(nine gates) currently expects KVM**: `tools/targets/amd64` supplies
 `-accel kvm -cpu host` directly to those guest invocations.
 `VM_ACCEL=tcg` is supported by the bootstrap `tools/vm` path, but it
 does **not** automatically switch these standalone gate scripts to TCG.
@@ -346,7 +427,7 @@ ORIGIN=https://github.com/pereuna/Plan2001-O.git \
   tools/selfroot build/selfroot 2>&1 | tee build/verification/selfroot.log
 
 test -s build/amd64/9pc64
-test -s build/amd64/9pc64omp
+test -s build/amd64/9pc64mp        # test-only historical harness kernel
 test -s build/amd64/bootx64.efi
 test -x build/selfroot/amd64/bin/gefs
 test -x build/selfroot/amd64/bin/micropython
@@ -355,9 +436,18 @@ test -x build/selfroot/amd64/bin/oexec
 test -x build/selfroot/amd64/bin/ohello
 test -x build/selfroot/amd64/bin/oinit
 
-for gate in test-o-boot-omp test-o-exec-args test-o-exec test-o-handles test-ge test-o-volume test-o-objects test-o-space test-o-boot; do
+for gate in test-o-boot-omp test-o-boot test-o-exec-args test-o-exec \
+            test-o-handles test-ge test-o-volume test-o-objects test-o-space; do
     "tools/$gate.sh" 2>&1 | tee "build/verification/$gate.log"
 done
+```
+
+The normal human REPL uses a fresh disposable image; an existing
+`build/amd64/repl.img` is kept, not reseeded:
+
+```bash
+tools/mkrepl                     # refuses to replace an existing image
+./repl_tui.sh                    # UEFI -> 9pc64 -> oinit -> O MicroPython
 ```
 
 **Safety:** these scripts create, overwrite or reformat disposable
@@ -376,16 +466,16 @@ evidence of PASS.**
 
 | Gate | Required check | Main outputs |
 | --- | --- | --- |
-| Build | Exit 0, `BUILD-DONE` in the build session, ordinary and `pc64omp` kernels + UEFI loader + `gefs` + MicroPython + `ohandle` + `oexec`/`ohello`/`oinit` binaries present | `build/verification/build.log`, `build/amd64/session.log`, `build/vm/serial.log` |
-| GE | `tools/test-ge.sh` exits 0 and reports `PASS: GE volume, raw key/value, no FS`; same raw value survives reboot | `build/verification/test-ge.log`, `build/amd64/getestvm/serial.log` |
-| O profile | `tools/test-o-volume.sh` exits 0 with `PASS: O volume, no FS`; wrong-profile open attempts are rejected | `build/verification/test-o-volume.log`, `build/amd64/ovolvm/serial.log` |
-| O objects | `tools/test-o-objects.sh` exits 0 with `PASS: native O objects, no FS`; two OIDs survive reboot | `build/verification/test-o-objects.log`, `build/amd64/oobjvm/serial.log` |
-| Python/O | `tools/test-o-space.sh` exits 0 with its Environment/code/Space graph PASS; same alias/OID and O code survive two boots | `build/verification/test-o-space.log`, `build/amd64/ospvm/serial.log` |
-| O init | `tools/test-o-boot.sh` exits 0 with `PASS: three O-only boots`; one disk, `run()` yields 1, 2, 3, same Counter OID, no root filesystem mount | `build/verification/test-o-boot.log`, `build/amd64/obootvm/three-boots.log`, `boot1.log`–`boot3.log` |
+| Build | Exit 0, `BUILD-DONE` in the build session, normal `9pc64` and test-only `9pc64mp` kernels + UEFI loader + `gefs` + MicroPython + `ohandle` + `oexec`/`ohello`/`oinit` binaries present | `build/verification/build.log`, `build/amd64/session.log`, `build/vm/serial.log` |
+| GE | `tools/test-ge.sh` exits 0 and reports `PASS: GE volume, raw key/value, no FS`; same raw value survives reboot. Historical `/boot/mp` harness runs on test-only `9pc64mp`. | `build/verification/test-ge.log`, `build/amd64/getestvm/serial.log` |
+| O profile | `tools/test-o-volume.sh` exits 0 with `PASS: O volume, no FS`; wrong-profile open attempts are rejected. Historical `/boot/mp` harness runs on test-only `9pc64mp`. | `build/verification/test-o-volume.log`, `build/amd64/ovolvm/serial.log` |
+| O objects | `tools/test-o-objects.sh` exits 0 with `PASS: native O objects, no FS`; two OIDs survive reboot. Historical `/boot/mp` harness runs on test-only `9pc64mp`. | `build/verification/test-o-objects.log`, `build/amd64/oobjvm/serial.log` |
+| Python/O | `tools/test-o-space.sh` exits 0 with its Environment/code/Space graph PASS; same alias/OID and O code survive two boots. Historical `/boot/mp` harness runs on test-only `9pc64mp`. | `build/verification/test-o-space.log`, `build/amd64/ospvm/serial.log` |
+| O init | `tools/test-o-boot.sh` exits 0 with `PASS: three O-only boots`; normal `9pc64` + `oinit`, one disk, `run()` yields 1, 2, 3, same Counter OID, no root filesystem mount, O object hash equals the host binary | `build/verification/test-o-boot.log`, `build/amd64/obootvm/three-boots.log`, `boot1.log`–`boot3.log` |
 | O handles | `tools/test-o-handles.sh` exits 0 with both its per-check markers and `PASS: process-local O handles`; isolation, independent sessions, close/exit capacity, abort, exec rules and invalid handles pass | `build/verification/test-o-handles.log`, `build/amd64/ohandvm/serial.clean.log` |
 | O execute | `tools/test-o-exec.sh` exits 0 with `PASS: native executable object from O, exec and rollback`; the O-only target marker appears once, the child exits successfully, missing/malformed loads preserve the caller's handle, and native exec closes handles | `build/verification/test-o-exec.log`, `build/amd64/oexecvm/serial.clean.log` |
 | O argv | `tools/test-o-exec-args.sh` exits 0 with `PASS: native O argv bounds, rollback and race`; valid/empty/32-argument argv, the exact aggregate boundary, over-limit and malformed copies, bad counts/pointers, repeated rollback with usable handles, and shared-memory mutation attempts pass, with the synthetic argv/Tos/BSS markers appearing exactly once | `build/verification/test-o-exec-argv.log`, `build/amd64/oexecargsvm/serial.clean.log` |
-| O MicroPython | `tools/test-o-boot-omp.sh` exits 0 with `PASS: MicroPython loaded from a native O object (no embedded mp)`; the generated `pc64omp` boot contents contain no `mp`; three boots of one disk yield `run()` 1, 2, 3 with the same Counter OID/alias; the REPL evaluates a test expression; missing/malformed objects return errors and preserve the handle | `build/verification/test-o-boot-from-o.log`, `build/amd64/ompbootvm/omp-boots.log`, `build/amd64/ompbootvm/repl.log`, `build/amd64/ompbootvm/check.log` |
+| O MicroPython | `tools/test-o-boot-omp.sh` exits 0 with `PASS: MicroPython loaded from a native O object (no embedded mp)`; the generated normal `pc64` boot contents contain `oinit`/`kbdfs` and no `mp`; three boots of one disk yield `run()` 1, 2, 3 with the same Counter OID/alias; `tools/mkrepl` + the REPL evaluate an expression and keep a value across a restart; missing/malformed objects and an older image without the interpreter return clear diagnostics and preserve the handle where the object exists | `build/verification/test-o-boot-from-o.log`, `build/amd64/ompbootvm/omp-boots.log`, `build/amd64/ompbootvm/repl1.log`, `repl2.log`, `check.log`, `legacy.log` |
 
 Individual QEMU serial logs may be **overwritten between boots** by
 their scripts. The captured `build/verification/*.log` output and
@@ -403,12 +493,14 @@ source-branch logs as evidence of execution at a newer commit.
 - GE/O has no native graph edge, tag or indexed namespace relation API.
 - Python logical object OIDs live inside a whole `OID_GRAPH` payload;
   native per-Python-object storage and incremental updates are absent.
-- The ordinary configuration still embeds MicroPython via the inherited
-  `devroot` bootstrap. The dedicated `pc64omp` configuration demonstrates
-  the real interpreter loaded from a native O object by OID, but the
-  bounded loader still has no program catalog, architecture selection,
+- The normal `pc64` configuration embeds no MicroPython: `oinit` loads
+  the real interpreter from a native O object by the fixed `OID_MP_EXEC`.
+  The bounded loader still has no program catalog, architecture selection,
   permissions, dynamic linking or general object-loading contract.
-  `devroot`, the ordinary embedded MicroPython and `kbdfs` remain.
+  Inherited `devroot`, `oinit`, `kbdfs` and the separate `ohandle`/`oexec`
+  regression harnesses remain. The `pc64mp`/`9pc64mp` kernel is test-only
+  for historical embedded-MicroPython gates and is never a normal or
+  fallback boot path.
 - Native O Space handles are now process-local, but handle inheritance
   and cross-process transfer are not implemented; each process has at
   most eight handles. The volume instance remains global, there is no
@@ -419,8 +511,8 @@ source-branch logs as evidence of execution at a newer commit.
 - Crash/corruption recovery, incomplete transactions, concurrency,
   performance and physical hardware behavior lack production validation.
 - Inherited 9front/Monolith code and legacy FS/9P tests are separate from
-  the existing five O-only gates. Preserve them as needed for bootstrap but do
-  not treat them as native GE/O architecture.
+  the nine O-only gates. Preserve them as needed for bootstrap but do not
+  treat them as native GE/O architecture.
 - `tools/selfroot` still defaults its remote origin to
   `pereuna/Plan2001.git`, and the legacy `tools/test-selfroot.sh`
   still clones that repository. The 22 October run used the documented

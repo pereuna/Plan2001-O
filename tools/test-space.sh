@@ -3,7 +3,8 @@
 # Historical V0-V7 cases are enumerated below; for native O results use
 # docs/POC.md and docs/STATUS.md. This tests the inherited GEFS-root path
 # in QEMU: the
-# gefs root (tools/gefsdisk, root=-w PARTUUID=) with plan9.ini
+# TEST-ONLY embedded-MicroPython kernel and gefs root (tools/gefsdisk,
+# root=-w PARTUUID=) with plan9.ini
 # init=/boot/mp -B, console=0, booted again and again on the same disk.
 # Each boot is driven over the serial console in Python's raw REPL (as
 # tools/test-mpinit.sh); a crash is QEMU killed (no fshalt, no sync).
@@ -104,12 +105,12 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 b=$tbuild
 vm=$b/spacevm
 phase=${PHASE:-0}
-for f in "$b/$kernel" "$b/$loader"; do
+for f in "$b/$testkernel" "$b/$loader"; do
 	[ -s "$f" ] || { echo "test-space: no $f (tools/build.sh)" >&2; exit 1; }
 done
 mkdir -p "$vm"
 disk=$b/spacedisk.img
-CONSOLE=0 INIT='/boot/mp -B' INI= "$here/gefsdisk" "$disk"
+CONSOLE=0 INIT='/boot/mp -B' INI= KERNEL="$testkernel" "$here/gefsdisk" "$disk"
 echo "test-space: PHASE=$phase${ONLY:+ ONLY=$ONLY} CRASH=${CRASH:-3}; limits: a boot 150 s, a step 30-120 s, all about $(( ${CRASH:-3} + 2 )) min (QEMU, KVM)"
 
 st=0

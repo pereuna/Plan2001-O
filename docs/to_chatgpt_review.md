@@ -1,20 +1,16 @@
-Implemented the native O exec argv copy fix.
+Implemented the normal O-loaded MicroPython boot path.
 
-Summary:
-- `execo()` now snapshots the bounded user argv pointer array once.
-- New `execargcopy()` copies each string with a hard destination cap, checks each page with `okaddr()`, and derives the NUL/length only from copied bytes.
-- Enforced `Oargmax = 32`, `Oargbytes = 16 KiB` including terminators, plus existing `Tos`/stack/alignment checks.
-- Bad pointers return clean `-1` errors via `okaddr()` rather than note-posting `validaddr()`, preserving the caller and O handle.
-- No unbounded user `strlen()`/`memcpy()` remains.
-- Added `tools/test-o-exec-args.sh` covering valid/empty/32 args, argc 0, aggregate boundary, missing NUL, bad counts/pointers, cross-page strings, repeated rollback, and RFMEM mutation.
-- Extended `ohello` to validate explicit argv content and `argv[argc] == nil`.
-- Updated `docs/O-FORMAT.md` and `docs/STATUS.md`.
+- Normal `9pc64` now embeds `oinit`, `kbdfs`, `ohandle`, `oexec`; no `/boot/mp`.
+- Removed `pc64omp`; added clearly test-only `pc64mp`/`9pc64mp` for historical `/boot/mp` gates.
+- `tools/mkovol` now seeds the built MicroPython executable by default; `NOMPEXEC=1` covers the older-image diagnostic.
+- Added `tools/mkrepl` and updated `./repl_tui.sh` to launch the O-loaded REPL without selecting a kernel or OID.
+- Updated `oinit` diagnostics, README, O-FORMAT and STATUS.
 
-Verification, on HEAD `b41a102` plus uncommitted changes:
-- Focused argv gate: PASS
-- `test-o-boot-omp`: PASS
-- All seven other O-only gates: PASS
-- Build and selfroot: PASS
-- Logs: `build/verification/build-args.log`, `selfroot-args.log`, `test-o-exec-argv.log`, and `build/verification/*-args.log`
+Verification on HEAD `016ccff` plus this uncommitted tree:
 
-Changes are not committed.
+- Full amd64 build: PASS, `9pc64` `f5f989838226c6b8135c0b137a5f813c`.
+- Generated default boot contents: no `mp`; `oinit`/`kbdfs` present.
+- All nine O-only gates: PASS, including 3-boot persistence `1 -> 2 -> 3`, REPL value surviving restart (`kept = 4242`), missing/malformed/older-image diagnostics, argv/Tos/BSS, rollback and handles.
+- Logs: `build/verification/*-default-o.log`.
+
+The older `test-o-space` shutdown diagnostic (`panic: boot process died: unknown`) remains expected and is not a gate failure. No commit was made.

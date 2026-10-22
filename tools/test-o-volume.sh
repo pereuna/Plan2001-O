@@ -48,7 +48,8 @@ echo "### mkovol"
 "$here/mkovol" "$oimg" 192
 
 echo "### O disk (no root=)"
-NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OTEST=partuuid ROOTIMG="$oimg" "$here/gefsdisk" "$odisk"
+NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OTEST=partuuid ROOTIMG="$oimg" \
+	KERNEL="$testkernel" "$here/gefsdisk" "$odisk"
 n=0
 boot "$odisk" 'otest: value written .* PASS'
 clean | grep -q 'otest: O volume .* opened without FS' || fail "boot 1: no O volume"
@@ -64,7 +65,8 @@ clean | grep -q '^init: / on gefs' && fail "boot 2: an FS was mounted"
 stop
 
 echo "### FS opener rejects the O volume"
-CONSOLE=0 ROOTIMG="$oimg" INIT='/boot/mp -B' "$here/gefsdisk" "$fsreject"
+CONSOLE=0 ROOTIMG="$oimg" INIT='/boot/mp -B' KERNEL="$testkernel" \
+	"$here/gefsdisk" "$fsreject"
 boot "$fsreject" 'root=.*: gefs: O volume, not FS'
 clean | grep -q 'root=.*: gefs: O volume, not FS' || fail "FS did not reject O"
 clean | grep -q '^init: / on gefs' && fail "FS mounted an O volume"
@@ -75,7 +77,8 @@ rm -rf "$b/ovollegacytree"
 mkdir -p "$b/ovollegacytree/amd64/bin"
 cp "$root/build/selfroot/amd64/bin/gefs" "$b/ovollegacytree/amd64/bin/gefs"
 "$here/gefsroot" "$b/ovollegacytree" "$legacy" 192
-NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OTEST=partuuid ROOTIMG="$legacy" "$here/gefsdisk" "$legacydisk"
+NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OTEST=partuuid ROOTIMG="$legacy" \
+	KERNEL="$testkernel" "$here/gefsdisk" "$legacydisk"
 boot "$legacydisk" 'otest=.*: O: not an O volume'
 clean | grep -q 'otest=.*: O: not an O volume' || fail "O did not reject FS"
 clean | grep -q 'otest: value written .* PASS' && fail "O opened an FS volume"

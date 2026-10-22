@@ -12,9 +12,14 @@
 #                             image (Stage 4, tools/oseed.py).
 #   NATIVEEXEC=FILE           also seed FILE as the native executable test
 #                             object (requires SOURCE; see docs/O-FORMAT.md).
-#   MPEXEC=FILE               also seed the real MicroPython executable
-#                             byte for byte at the experimental OID
-#                             0x4f45584543000003 (requires SOURCE).
+#   MPEXEC=FILE               seed FILE as the MicroPython executable byte for
+#                             byte at OID 0x4f45584543000003 (requires SOURCE).
+#                             With SOURCE and no MPEXEC, the built selfroot
+#                             micropython is seeded by default: every fresh
+#                             runnable O image then boots the normal O path.
+#   NOMPEXEC=1                with SOURCE, omit the interpreter (an older or
+#                             diagnostic image; the normal boot then reports a
+#                             missing object).  Not valid with MPEXEC.
 #   GEFS=FILE                 userspace gefs (default
 #                             build/selfroot/amd64/bin/gefs)
 set -e
@@ -26,16 +31,22 @@ mb=${2:-512}
 src=$3
 native=${NATIVEEXEC:-}
 mpexec=${MPEXEC:-}
+nompexec=${NOMPEXEC:-}
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
 [ -z "$native" ] || [ -r "$native" ] || { echo "mkovol: NATIVEEXEC: no $native" >&2; exit 1; }
 [ -z "$mpexec" ] || [ -r "$mpexec" ] || { echo "mkovol: MPEXEC: no $mpexec" >&2; exit 1; }
+[ -z "$nompexec" ] || [ -z "$mpexec" ] || { echo "mkovol: NOMPEXEC and MPEXEC are exclusive" >&2; exit 2; }
 [ -z "$native" ] || [ -n "$src" ] || { echo "mkovol: NATIVEEXEC requires SOURCE" >&2; exit 2; }
 [ -z "$mpexec" ] || [ -n "$src" ] || { echo "mkovol: MPEXEC requires SOURCE" >&2; exit 2; }
+[ -z "$nompexec" ] || [ -n "$src" ] || { echo "mkovol: NOMPEXEC requires SOURCE" >&2; exit 2; }
 dir=$root/build/selfroot
 gefs=${GEFS:-$dir/amd64/bin/gefs}
 [ -x "$gefs" ] || { echo "mkovol: no $gefs (tools/selfroot)" >&2; exit 1; }
 mp=$dir/amd64/bin/micropython
-[ -z "$src" ] || [ -x "$mp" ] || { echo "mkovol: no $mp (tools/selfroot)" >&2; exit 1; }
+[ -z "$src" ] || [ -n "$nompexec" ] || [ -x "$mp" ] || { echo "mkovol: no $mp (tools/selfroot)" >&2; exit 1; }
+if [ -n "$src" ] && [ -z "$mpexec" ] && [ -z "$nompexec" ]; then
+	mpexec=$mp
+fi
 b=$root/build
 rm -f "$b/in.img" "$b/out.img"
 tar cf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$dir" ./amd64/bin/gefs

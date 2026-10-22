@@ -44,7 +44,10 @@ echo "### mkovol"
 "$here/mkovol" "$oimg" 192
 
 echo "### O objects (no root=)"
-NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OOBJ=partuuid ROOTIMG="$oimg" "$here/gefsdisk" "$odisk"
+# TEST-ONLY embedded-MicroPython kernel: this probe keeps its historical
+# /boot/mp harness; the normal O kernel does not embed MicroPython.
+NOROOTFS=1 CONSOLE=0 INIT='/boot/mp -B' OOBJ=partuuid ROOTIMG="$oimg" \
+	KERNEL="$testkernel" "$here/gefsdisk" "$odisk"
 boot "$odisk" 'oobj: put A and B, commit, readback: PASS'
 clean | grep -q 'oobj: O volume .* opened without FS' || fail "boot 1: no O volume"
 clean | grep -q 'oobj: space init has no objects' || fail "boot 1: init Space was not empty"

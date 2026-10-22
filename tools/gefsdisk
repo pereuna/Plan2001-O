@@ -1,9 +1,11 @@
 #!/bin/bash
 # Build a GPT boot disk: an ESP (EFI loader, kernel, plan9.ini) and a
 # GE/GEFS partition identified by PARTUUID. LEGACY FS mode mounts a
-# GEFS root via plan9.ini root=. NATIVE O-ONLY TESTS set NOROOTFS=1
-# and INIT=/boot/mp -O ... -S init -B, using the partition as a native
-# O volume without mounting an FS root (docs/POC.md, docs/O-FORMAT.md).
+# GEFS root via plan9.ini root=. NATIVE O-ONLY BOOTS set NOROOTFS=1 and
+# INIT=/boot/oinit -vol PARTUUID=... (or -repl), using the partition as a
+# native O volume without mounting an FS root (docs/O-FORMAT.md).  The
+# historical embedded-MicroPython harnesses use INIT=/boot/mp on the
+# test-only pc64mp kernel.
 # Tests use disposable QEMU disk images; writing such images to a real
 # disk is an explicit destructive operator action, never a test default.
 #   tools/gefsdisk [OUT]      default build/$TARGET/gefsdisk.img
@@ -23,7 +25,7 @@
 #                             O partition; stage 3's native object probe)
 #   INI='k=v;k=v'             more plan9.ini lines, ;-separated
 #   INIT may contain @PARTUUID@, replaced by this disk's O/GE partition
-#   GUID (Stage 4: init=/boot/mp -O PARTUUID=@PARTUUID@ -S init ...).
+#   GUID (normal O: init=/boot/oinit -vol PARTUUID=@PARTUUID@).
 #   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
 #                             directory, not the ESP's root (the loader
 #                             looks there first: as in another system's

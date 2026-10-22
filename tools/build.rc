@@ -138,6 +138,8 @@ if not if(~ $what kernel){
 	cp /$objtype/bin/aux/kbdfs $out
 	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out
 	kernel
+	# TEST-ONLY historical embedded-MicroPython kernel (targets/amd64);
+	# the normal kernel above is the O-loaded default.
 	if(! ~ $testkconf ''){
 		kconf=$testkconf
 		kernel=$testkernel
@@ -150,6 +152,8 @@ if not {
 	bindtree
 	tree $out/root
 	kernel
+	# TEST-ONLY historical embedded-MicroPython kernel (targets/amd64);
+	# the normal kernel above is the O-loaded default.
 	if(! ~ $testkconf ''){
 		kconf=$testkconf
 		kernel=$testkernel

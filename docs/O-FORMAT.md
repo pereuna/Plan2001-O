@@ -253,6 +253,12 @@ OID_MP_EXEC      = 0x4f45584543000003   real MicroPython amd64 executable
 `tools/mkovol ... SOURCE` accepts `NATIVEEXEC=FILE`, which is stored
 under `OID_EXEC_TEST` (plus the malformed test record), and
 `MPEXEC=FILE`, which is stored byte for byte under `OID_MP_EXEC`.
+With `SOURCE` and no `MPEXEC`, the built selfroot MicroPython is seeded
+by default, so every fresh runnable O image has the interpreter needed
+by the normal boot path. `NOMPEXEC=1` deliberately omits it for a
+missing-object diagnostic image; normal startup then prints the missing
+OID and does not fall back to an embedded interpreter. An existing
+persistent image is never migrated or reseeded implicitly.
 For the BSS boundary regression only, the host seeding path patches the
 `NATIVEEXEC` target's BSS header field to `0xffffffff`, so the BSS extent
 crosses 4 GiB and the program probes a high BSS page. The MicroPython
@@ -270,8 +276,15 @@ harness. Neither is the loader and neither is a production bootstrap.
 
 Limits of this experiment: no program catalog, architecture selection,
 permissions, dynamic linking, or general executable-object format
-support. It does not remove `devroot` or `kbdfs` from the ordinary boot
-configuration, and it does not change the on-disk format.
+support. The normal boot still relies on embedded `oinit` and `kbdfs`
+through the inherited internal boot interface; `devroot` and the
+`ohandle`/`oexec` regression harnesses remain. It does not change the
+on-disk format.
+
+The normal amd64 configuration `pc64` embeds no MicroPython and has no
+`/boot/mp`. The separate `pc64mp` kernel is **test-only**: it embeds
+`/boot/mp` for the historical Stage 1-4 and legacy file/DMOBJ/REPL
+regressions and is never a fallback for normal startup.
 
 References: `sys/src/9/port/devgefs.c`, `sys/src/9/port/sysproc.c`,
 `sys/src/cmd/oinit/oinit.c`, `tools/test-o-boot-omp.sh`,
@@ -334,28 +347,16 @@ output**: never point it at a disk containing data.
 
 If `SOURCE` is supplied, the host-side setup compiles and seeds
 one demo Environment and its `.mpy` code through
-`tools/oseed.py` and `gefs -O -i`. The PoC seeds a small, fixed
-catalog/Environment. This is not general package management.
+`tools/oseed.py` and `gefs -O -i`, and by default also seeds the built
+MicroPython executable byte for byte at `OID_MP_EXEC`. The PoC seeds a
+small, fixed catalog/Environment. This is not general package management.
 
-The ordinary O-only boot configuration still embeds MicroPython:
-
-```text
-UEFI -> kernel -> inherited /boot/mp user-space executable
-             -> -O PARTUUID=... -S init -B
-             -> restore/initialize the O-resident init Space
-             -> call persistent run()
-```
-
-The embedded `/boot/mp` executable and `/boot/kbdfs` helper are
-made visible through inherited read-only `devroot` machinery; they
-are **not** an initramfs, the O volume or a native executable loader.
-
-The bounded O-loaded test configuration `pc64omp` embeds no
-MicroPython. Its generated boot directory contains only `oinit` and
-the `kbdfs` console helper:
+The normal amd64 O-only boot configuration `pc64` embeds no MicroPython.
+Its generated boot directory contains `oinit`, the `kbdfs` console
+helper and the separate `ohandle`/`oexec` regression harnesses:
 
 ```text
-UEFI -> kernel (9pc64omp) -> /boot/oinit -vol PARTUUID=...
+UEFI -> kernel (9pc64) -> /boot/oinit -vol PARTUUID=...
              -> ovolopen + ospaceopen("init")
              -> oexecute(space, OID_MP_EXEC, argv, argc)
              -> argv: micropython -O PARTUUID=... -S init -B
@@ -363,11 +364,24 @@ UEFI -> kernel (9pc64omp) -> /boot/oinit -vol PARTUUID=...
              -> commit; persistent run()
 ```
 
+`oinit` is still reached through the inherited internal boot interface,
+and `kbdfs` is still the embedded console helper. The MicroPython
+executable bytes, Environment/code and persistent state come from O.
+There is no `/boot/mp` and no pathname-based MicroPython `exec` on this
+path; the embedded files are **not** an initramfs, the O volume or a
+general native executable loader.
+
 The same harness with `-repl` passes `-O PARTUUID=... -B` (no `-S`),
 so `boot.py` sets up the console and the O-loaded interpreter reaches
-its REPL. The harness contains no MicroPython copy and opens no
-executable file. The ordinary `pc64` configuration and its embedded
-`/boot/mp` path are unchanged.
+its REPL. `tools/mkrepl [OUT]` prepares a fresh disposable ESP + O disk
+for this path (default `build/$TARGET/repl.img`); it refuses to replace
+an existing image unless `FORCE=1`, so a persistent image is never
+silently reformatted or reseeded. The human-facing launch command from
+the repository root is `./repl_tui.sh`.
+
+The separate `pc64mp` kernel is test-only: it embeds `/boot/mp` for the
+historical Stage 1-4 probes and legacy file/DMOBJ/REPL regressions. It
+is not a normal boot configuration and is never used as a fallback.
 
 On the **first** O boot, missing `OID_GRAPH` causes import of the
 seeded demo module `odemo`. Its top level and `init()` initialize
@@ -391,6 +405,10 @@ References: `sys/src/cmd/micropython/main.c`,
   graph specification.
 - The PoC relies on a fixed module seed, one native O volume, a small
   per-process Space-handle table and whole-value object reads.
+- The normal boot uses a fixed `OID_MP_EXEC`; there is no program catalog
+  or architecture selection. An older O image without that object is not
+  migrated automatically: startup reports the missing OID and exits
+  without an embedded-interpreter fallback.
 - Object deletion/tombstones and engine-level version retention do
   not constitute a complete object lifecycle, GC or capability model.
 - Missing/corrupt-volume diagnostics, arbitrary interruption recovery,

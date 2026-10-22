@@ -1,7 +1,8 @@
 #!/bin/bash
 # Legacy MicroPython REPL/bootstrap regression (not native O execution)
 # in QEMU: the
-# kernel (tools/build.sh; /boot/mp and /boot/kbdfs in its image) with
+# TEST-ONLY embedded-MicroPython kernel (tools/build.sh; /boot/mp and
+# /boot/kbdfs in its image; the normal O kernel has no /boot/mp) with
 # plan9.ini init=/boot/mp -B, console=0.  Over the serial console
 # (tools/9run's relay) Python's raw REPL, an agent's protocol (Ctrl-A;
 # code and Ctrl-D, back OK, the output, \x04, the error, \x04, >): the
@@ -25,7 +26,7 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 b=$tbuild
 vm=$b/mpvm
-for f in "$b/$kernel" "$b/$loader"; do
+for f in "$b/$testkernel" "$b/$loader"; do
 	[ -s "$f" ] || { echo "test-mpinit: no $f (tools/build.sh)" >&2; exit 1; }
 done
 mkdir -p "$vm"
@@ -33,15 +34,15 @@ mode=noroot
 if [ "${ROOT:-0}" = 1 ]; then
 	mode=root
 	disk=$b/mprootdisk.img
-	CONSOLE=0 INIT='/boot/mp -B' INI= "$here/gefsdisk" "$disk"
+	CONSOLE=0 INIT='/boot/mp -B' INI= KERNEL="$testkernel" "$here/gefsdisk" "$disk"
 	drive=(-drive file="$disk",format=raw,if=none,id=d0 -device virtio-blk-pci-non-transitional,drive=d0,bootindex=0)
 else
-	printf 'bootfile=/%s\nconsole=0\nuser=glenda\ninit=/boot/mp -B\n' "$kernel" >"$vm/plan9.ini"
+	printf 'bootfile=/%s\nconsole=0\nuser=glenda\ninit=/boot/mp -B\n' "$testkernel" >"$vm/plan9.ini"
 	rm -f "$vm/esp.img"
 	mformat -C -i "$vm/esp.img" -T 65536 -h 64 -s 32 ::
 	mmd -i "$vm/esp.img" ::/EFI ::/EFI/BOOT
 	mcopy -i "$vm/esp.img" "$b/$loader" "::/EFI/BOOT/$espname"
-	mcopy -i "$vm/esp.img" "$b/$kernel" ::/
+	mcopy -i "$vm/esp.img" "$b/$testkernel" ::/
 	mcopy -i "$vm/esp.img" "$vm/plan9.ini" ::/plan9.ini
 	drive=(-drive file="$vm/esp.img",format=raw,if=none,id=esp "${espdev[@]}")
 fi

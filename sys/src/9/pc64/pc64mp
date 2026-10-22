@@ -1,6 +1,9 @@
-# pc64omp - the pc64 test configuration that does not embed MicroPython.
-# Same devices as pc64; the only bootdir programs are the native O bootstrap
-# harness and its console helper.  Ordinary boots keep embedded /boot/mp.
+# pc64mp - TEST-ONLY configuration for the historical embedded-MicroPython
+# regressions.  It is never the normal O boot path: the default pc64 kernel
+# embeds oinit and kbdfs and loads MicroPython from O.  These gates still
+# drive the inherited file/DMOBJ and raw GE/O probes through /boot/mp:
+# tools/test-ge.sh, test-o-volume.sh, test-o-objects.sh, test-o-space.sh,
+# test-mpinit.sh and test-space.sh.  Same devices as pc64.
 dev
 	root
 	cons
@@ -80,9 +83,9 @@ ip
 port
 	int cpuserver = 0;
 
-# No bootfs.paq/paqfs/bootrc.  This test configuration deliberately embeds
-# no MicroPython: /boot/oinit loads the interpreter as a native O object by
-# OID, and kbdfs is the console helper required by boot.py.
+# No bootfs.paq/paqfs/bootrc.  TEST-ONLY: embeds the historical /boot/mp
+# interpreter so the Stage 1-4 probes and legacy file/DMOBJ gates keep their
+# original harness.  Normal boots use pc64 and never fall back to this image.
 bootdir
+	/$objtype/bin/micropython	mp
 	/$objtype/bin/aux/kbdfs	kbdfs
-	/$objtype/bin/oinit	oinit

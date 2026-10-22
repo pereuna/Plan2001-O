@@ -1,13 +1,15 @@
 #!/bin/bash
-# Plan2001 Stage 5 (docs/POC.md 5): boot the O-only
-# init Space three times from one disk image.  tools/mkovol seeds a fresh
-# O image with the demo Environment and its immutable .mpy; plan9.ini has
-# only init=/boot/mp -O PARTUUID=... -S init -B (no root=, no -c, no
-# Python source).  Boot 1 imports the O-resident module once, initializes
-# its Counter to zero and commits a persistent run().  Boots 2 and 3
-# restore the graph and call run() without running a module top level.
-# The same Counter instance, its alias and its OID survive; the counter
-# is 1, 2, 3.  No FS, 9P service, path lookup or .py/.mpy file is used.
+# Plan2001 Stage 5 (docs/POC.md 5): boot the normal O-only init Space three
+# times from one disk image.  tools/mkovol seeds a fresh O image with the demo
+# Environment, its immutable .mpy and (by default) the built MicroPython
+# executable; plan9.ini has only
+# init=/boot/oinit -vol PARTUUID=... (no root=, no -c, no Python source).
+# oinit executes the MicroPython object from O, which then runs -S init -B.
+# Boot 1 imports the O-resident module once, initializes its Counter to zero
+# and commits a persistent run().  Boots 2 and 3 restore the graph and call
+# run() without running a module top level.  The same Counter instance, its
+# alias and its OID survive; the counter is 1, 2, 3.  No FS, 9P service,
+# path lookup, /boot/mp or .py/.mpy file is used.
 #   TARGET          amd64 (default); see tools/targets
 #   MEM, SECONDS_TO_RUN
 set -e
@@ -26,6 +28,7 @@ stop() { [ -n "$q" ] && { kill $q 2>/dev/null || true; wait $q 2>/dev/null || tr
 trap stop EXIT
 fails=0
 fail() { echo "FAIL: $*"; fails=$((fails+1)); }
+mpsha=$(sha256sum "$root/build/selfroot/amd64/bin/micropython" | awk '{print $1}')
 # the same disk every time: never formatted or copied between boots
 boot() {
 	local tag=$1
@@ -54,6 +57,8 @@ checkboot() {
 	local tag=$1 n=$2 version=$3 oidprev=$4
 	local log=$vm/$tag.log oid
 	grep -q 'o: O volume .* opened without FS' "$log" || fail "$tag: no native O volume"
+	grep -q "^oinit: micropython object [0-9]\\+ bytes sha256 $mpsha$" "$log" || fail "$tag: O object hash differs from MicroPython"
+	grep -q 'boot: MicroPython, no root' "$log" || fail "$tag: MicroPython did not run with no root"
 	grep -q 'space: O: odemo code OID ffffffff00000000, digest [0-9a-f]\{64\}' "$log" || fail "$tag: code not loaded from O"
 	grep -q "^init: run() -> $n\$" "$log" || fail "$tag: run() -> $n missing"
 	grep -q "^init: shared Counter n $n, alias same, OID [0-9a-f]\+ (alias [0-9a-f]\+)\$" "$log" || fail "$tag: no same Counter/alias"
@@ -71,17 +76,23 @@ checkboot() {
 }
 
 rm -f "$vm/three-boots.log"
-echo "### mkovol with the demo Environment and code"
-"$here/mkovol" "$oimg" 192 "$here/odemo.py"
+echo "### mkovol with the demo Environment, code and default MicroPython seed"
+if ! "$here/mkovol" "$oimg" 192 "$here/odemo.py" > "$vm/mkovol.log" 2>&1; then
+	cat "$vm/mkovol.log" >&2
+	fail "mkovol failed"
+fi
+cat "$vm/mkovol.log"
+grep -q "^seed: mpexec [0-9]\\+ 4f45584543000003 $mpsha unchanged$" "$vm/mkovol.log" ||
+	fail "mkovol did not seed the unchanged MicroPython by default"
 
 echo "### ESP + O, no FS root, automatic init run()"
-NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" \
-	INIT='/boot/mp -O PARTUUID=@PARTUUID@ -S init -B' \
+NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$kernel" \
+	INIT='/boot/oinit -vol PARTUUID=@PARTUUID@' \
 	"$here/gefsdisk" "$disk"
 puuid=$(cat "$disk.partuuid")
 
 # the boot configuration itself: no root=, no -c, no Python source
-grep -q "^init=/boot/mp -O PARTUUID=$puuid -S init -B$" "$disk.ini" || fail "plan9.ini: wrong init line"
+grep -q "^init=/boot/oinit -vol PARTUUID=$puuid$" "$disk.ini" || fail "plan9.ini: wrong init line"
 grep -q '^root=' "$disk.ini" && fail "plan9.ini: has root="
 grep -Eq '(^|[[:space:]])-c([[:space:]]|$)' "$disk.ini" && fail "plan9.ini: has -c"
 grep -q '\.py' "$disk.ini" && fail "plan9.ini: has Python source"

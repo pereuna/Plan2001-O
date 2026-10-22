@@ -1,18 +1,19 @@
 /*
- * Plan2001: the small embedded bootstrap harness for the native
- * executable-object experiment (docs/O-FORMAT.md 5.2).  It opens the O
- * volume and the flat "init" Space and executes the MicroPython object
- * by OID, passing the arguments main.c actually needs:
+ * Plan2001: the small embedded bootstrap for the normal O-only boot path
+ * (docs/O-FORMAT.md 5.2, 7).  It opens the O volume and the flat "init"
+ * Space and executes the MicroPython object by OID, passing the arguments
+ * main.c actually needs:
  *
  *	micropython -O SPEC -S init -B
  *
  * The interpreter is in O, not in this image and not in a file: this
  * program carries no MicroPython copy and uses no pathname exec.  The O
  * handle does not cross exec; MicroPython opens its own O session from
- * the arguments below.
+ * the arguments below.  This harness is not a general program catalog or
+ * loader; it uses one fixed experimental OID.
  *
  *	oinit -vol SPEC		execute MicroPython at OID_MP_EXEC
- *	oinit -repl -vol SPEC	the same, but no -B: an interactive REPL
+ *	oinit -repl -vol SPEC	the same, but no -S: an interactive REPL
  *	oinit -test -vol SPEC	missing/malformed object error checks
  *
  * The test mode stays alive so that the kernel's init process does not
@@ -70,7 +71,8 @@ hashobject(int h)
 	int i;
 
 	if((n = ospaceget(h, MpOid, nil, 0, nil)) <= 0)
-		fail("MicroPython object is missing: %r");
+		fail("MicroPython object %#llux is missing from O: %r; "
+			"prepare a fresh image with tools/mkovol", MpOid);
 	if(n > Objexecmax)
 		fail("MicroPython object is %ld bytes, over the %d limit", n, Objexecmax);
 	if((buf = malloc(n)) == nil)
@@ -160,5 +162,5 @@ main(int argc, char **argv)
 	hashobject(h);
 	i = argvec(args);
 	oexecute(h, MpOid, args, i);
-	fail("oexecute returned: %r");
+	fail("MicroPython object %#llux could not be executed: %r", MpOid);
 }

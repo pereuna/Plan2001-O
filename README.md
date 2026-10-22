@@ -17,8 +17,8 @@ This README describes the **architectural hypothesis**. The following table dist
 | Persistent identity | Versioned GE/O records addressed by `(SpaceID, OID)` | Keep identity independent of location |
 | Relationships | Python graph serialized as one `OID_GRAPH` object | Native, indexed GE/O bindings and relations |
 | Namespaces | Seeded `init` Space and flat catalog | Persistent, shareable, non-hierarchical namespaces |
-| Python | Kernel-embedded user-space MicroPython; code and state from O | Ordinary executable object loaded from O |
-| Native executables | Embedded `/boot/mp` bootstrap plus a bounded test loader executing one O object by OID | General native object-ID-based loader |
+| Python | MicroPython executable stored in O and loaded by the normal amd64 `oinit` path; code and state from O | Ordinary executable object loaded from O |
+| Native executables | Bounded native loader used by `oinit` for the fixed MicroPython OID plus a test loader for one target OID | General native object-ID-based loader |
 | Process/remote interfaces | Inherited Plan 9 mechanisms for the PoC | Object handles, IPC and remote protocol to be explored |
 
 **Document roles:** [README](README.md) explains the hypothesis; [POC](docs/POC.md) records what the source-branch experiments demonstrated; [STATUS](docs/STATUS.md) reports current verification and test instructions; [O-FORMAT](docs/O-FORMAT.md) specifies the *implemented* format. [AGENTS](AGENTS.md) is the coding-agent contract. Neither this README nor its diagrams establish an implemented API.
@@ -151,7 +151,9 @@ UEFI / EFI System Partition
              |
        Plan2001 kernel
              |
-   embedded MicroPython binary
+        embedded oinit
+             |
+   MicroPython executable in GE/O
              |
        GE/O O partition
              |
@@ -160,9 +162,11 @@ UEFI / EFI System Partition
            run()
 ```
 
-The current kernel image embeds a normal **user-space MicroPython executable** and its console helper. Inherited Plan 9 `devroot` code exposes those embedded bytes as `/boot/mp` and `/boot/kbdfs` for the existing program loader. This is a tiny, read-only kernel-memory file interface, **not initramfs, a disk filesystem, or the target object architecture**.
+The normal kernel image embeds the small **`oinit` bootstrap** and the **`kbdfs` console helper**, not MicroPython. `oinit` is reached through the inherited internal boot interface and the read-only `devroot` machinery. It opens the O volume and the flat `init` Space, then calls the bounded native loader for the MicroPython executable stored at fixed OID `0x4f45584543000003`. There is no `/boot/mp` and no pathname-based MicroPython `exec` on the normal path. The embedded files are still a tiny kernel-memory file interface, **not initramfs, a disk filesystem, or the target object architecture**.
 
 Once running, the PoC loads the Python Environment, compiled `.mpy` definitions, and persistent state **from the O partition without mounting a filesystem root**. The EFI System Partition and the developer's build-host files are boot/build inputs, not evidence that the O runtime needs files.
+
+The normal persistent boot uses `init=/boot/oinit -vol PARTUUID=...`. For an interactive session, prepare a fresh disposable disk with `tools/mkrepl` and run the repository-root command `./repl_tui.sh`; both use the ordinary kernel and the same O-loaded interpreter. `tools/mkrepl` refuses to replace an existing disk without an explicit `FORCE=1`, so a persistent image is never silently reseeded.
 
 ### Intended architecture
 
@@ -181,9 +185,9 @@ UEFI -> kernel
     user-space program (Python or native)
 ```
 
-The current embedded MicroPython executable is a practical bootstrap, **not a permanent architectural requirement**. A future kernel should load executable objects from O and provide a small diagnostic path if that volume is missing or corrupt. This design does not require an initramfs or another root filesystem.
+The embedded `oinit` and `kbdfs` are the remaining bootstrap dependencies, **not permanent architectural requirements**. A future kernel should reach the selected executable object without them and provide a small diagnostic path if that volume or object is missing or corrupt. This design does not require an initramfs or another root filesystem.
 
-Do not replace the embedded executable with an initramfs or a pseudo-filesystem merely to preserve traditional `exec(path)` behavior. A bounded native executable-object experiment now exists; extending it to a general program loader remains work.
+Do not replace the bootstrap harness with an initramfs or a pseudo-filesystem merely to preserve traditional `exec(path)` behavior. A bounded native executable-object experiment now exists; extending it to a general program loader remains work.
 
 ## 6. What about Plan 9 and 9P2000?
 
@@ -211,10 +215,13 @@ The current **O-only PoC** demonstrates these operations in QEMU:
 1. Open a GE-backed **native O volume** directly, without mounting an FS root.
 2. Store and retrieve versioned objects using stable `(SpaceID, OID)` identities.
 3. Seed an O volume with an Environment and compiled `.mpy` code; load that code from O at runtime.
-4. Boot an embedded MicroPython interpreter into an O-resident persistent `init` Space and run its program.
+4. Boot the normal amd64 path: embedded `oinit` loads the real MicroPython executable from O, restores the O-resident persistent `init` Space and runs its program.
 5. Reboot the *same* ESP + O disk image three times: a saved counter advances **1 -> 2 -> 3**, preserving the same Python object identity and alias.
+6. Reach an interactive REPL through the same O-loaded interpreter and keep a value across a restart of the same disk.
 
-The test script is `tools/test-o-boot.sh`. These results are documented PoC test evidence, **not claims of production readiness or tests executed by every reader of this README**.
+`tools/test-o-boot.sh` and `tools/test-o-boot-omp.sh` are the boot gates; `tools/mkrepl` prepares a disposable REPL disk for `./repl_tui.sh`. These results are documented test evidence, **not claims of production readiness or tests executed by every reader of this README**.
+
+The remaining bootstrap dependencies are precise: the kernel still embeds `oinit` (reached through the inherited internal boot interface) and `kbdfs` (the console helper), plus the separate `ohandle`/`oexec` regression harnesses. MicroPython executable bytes, its Environment/code and persistent state come from O. This is not a claim that every runtime file interface has been removed.
 
 ### Critical limitations
 
@@ -234,11 +241,11 @@ This repository descends from a much larger 9front/Plan 9 tree. That history exp
 | Kernel-side native O system calls | `sys/src/9/port/devgefs.c` |
 | MicroPython entry point | `sys/src/cmd/micropython/main.c` |
 | Python persistence and Space integration | `sys/src/cmd/micropython/p9space.c` |
-| Existing embedded-boot implementation | `sys/src/9/port/devroot.c` |
+| Embedded bootstrap and console helper (`devroot`) | `sys/src/9/port/devroot.c`, `sys/src/cmd/oinit/` |
 | O volume specification (implemented format) | `docs/O-FORMAT.md` |
-| O volume preparation | `tools/mkovol` |
-| Native O tests | `tools/test-o-volume.sh`, `tools/test-o-objects.sh` |
-| Python/O tests | `tools/test-o-space.sh`, `tools/test-o-boot.sh` |
+| O volume and REPL image preparation | `tools/mkovol`, `tools/mkrepl` |
+| Native O tests | `tools/test-o-volume.sh`, `tools/test-o-objects.sh`, `tools/test-o-exec.sh`, `tools/test-o-handles.sh` |
+| Python/O and boot tests | `tools/test-o-space.sh`, `tools/test-o-boot.sh`, `tools/test-o-boot-omp.sh` |
 
 **High-value next experiments:**
 

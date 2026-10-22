@@ -78,14 +78,17 @@ ip
 port
 	int cpuserver = 0;
 
-# No bootfs.paq/paqfs/bootrc. O-only boot requires no filesystem root;
-# legacy plan9.ini root= mounting remains optional (port/devgefs.c).
-# Bootstrap userspace executable /boot/mp and /boot/kbdfs are embedded via
-# inherited devroot. With -O PARTUUID=... -S init -B, MicroPython loads
-# its persistent Environment/code/graph from O (docs/POC.md).
+# No bootfs.paq/paqfs/bootrc.  The normal O-only boot requires no filesystem
+# root; legacy plan9.ini root= mounting remains optional (port/devgefs.c).
+# /boot/oinit is the small inherited bootstrap harness: it opens the O
+# volume and the init Space and executes the MicroPython executable stored
+# in O at OID_MP_EXEC.  /boot/kbdfs is the embedded console helper.  There
+# is no embedded /boot/mp and no pathname-based MicroPython exec on this
+# path (docs/O-FORMAT.md 7).  /boot/ohandle and /boot/oexec remain embedded
+# regression harnesses, not the loader or a normal startup program.
 # This bootdir embedding is NOT the proposed native O executable loader.
 bootdir
-	/$objtype/bin/micropython	mp
 	/$objtype/bin/aux/kbdfs	kbdfs
+	/$objtype/bin/oinit	oinit
 	/$objtype/bin/ohandle	ohandle
 	/$objtype/bin/oexec	oexec
