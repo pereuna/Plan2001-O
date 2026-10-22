@@ -244,6 +244,7 @@ This repository descends from a much larger 9front/Plan 9 tree. That history exp
 | Embedded bootstrap and console helper (`devroot`) | `sys/src/9/port/devroot.c`, `sys/src/cmd/oinit/` |
 | O volume specification (implemented format) | `docs/O-FORMAT.md` |
 | O volume and REPL image preparation | `tools/mkovol`, `tools/mkrepl` |
+| Kernel driver operation map (generated, source analysis) | `docs/KERNEL-OPMAP.md`, `docs/KERNEL-OPMAP.json`, `tools/kernel_opmap.py` |
 | Native O tests | `tools/test-o-volume.sh`, `tools/test-o-objects.sh`, `tools/test-o-exec.sh`, `tools/test-o-handles.sh` |
 | Python/O and boot tests | `tools/test-o-space.sh`, `tools/test-o-boot.sh`, `tools/test-o-boot-omp.sh` |
 

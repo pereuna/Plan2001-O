@@ -488,6 +488,53 @@ fails, record its first relevant diagnostic and leave its status FAIL;
 do not edit the test to manufacture a PASS. Do not add historical
 source-branch logs as evidence of execution at a newer commit.
 
+## Kernel driver operation map — static inventory
+
+**What this is:** a checked-in, deterministic source analysis of the kernel
+driver surface, not a runtime change or a claim about device behaviour.
+Artifacts:
+
+- [KERNEL-OPMAP.md](KERNEL-OPMAP.md) — generated coverage report, operation
+  tables, representative chains and unresolved-work list.
+- [KERNEL-OPMAP.json](KERNEL-OPMAP.json) — the machine-readable operation map.
+- [KERNEL-OPMAP-NOTES.md](KERNEL-OPMAP-NOTES.md) — separate source-checked
+  manual annotations (not generated).
+
+**Source state:** kernel tree `sys/src/9` at commit
+`c1c4bc9bd26b5d00d5e4896ac9ba28b479ea9fdf`, clean at generation; source
+fingerprint `bacd6bc3245bb33ff47472f1ee80f6816625e8e2d10305bdff63a12197a0a071`.
+The generator is `tools/kernel_opmap.py` v1.
+
+**Commands run**
+
+```bash
+python3 tools/kernel_opmap.py --write
+python3 tools/kernel_opmap.py --check
+python3 tools/test_kernel_opmap.py
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Regeneration | **PASS** | `--write` wrote both artifacts; deterministic output is sorted and contains no timestamps or machine-specific absolute paths. |
+| Staleness check | **PASS** | `--check` reported `kernel operation map: up to date`. |
+| Analyzer tests | **PASS** | 10 tests: comments/strings, multiline Qid/Cmdtab branches, if-based Qid branches, indirect callbacks, duplicate symbols, conditional compilation, deliberate parse failure, manual commands, determinism/no allowlist, and per-file accounting. |
+| Coverage | **PASS (static)** | 226 files scanned (167 C, 37 headers, 7 assembly, 4 configs, 11 build helpers); 167 C files parsed; 69 registrations; 976 exposed operations; 613 shared chains; 59 native entry points. |
+| Build split | **PASS (static)** | Normal amd64 `pc64`: 148 active C files, no unresolved objects; `pc64mp` test-only has the same object selection; `arm64/qemu` (planned) has 93 active C files and explicit unresolved `devbridge`/`devpci`; `riscv64` source tree is absent. |
+| Representative chains | **PASS (source-checked)** | GE/O `OVOLOPEN` still reaches `Chan`/`Dev` through `gevolume` before `oopen`/`geopen`; devsd Qpart reaches `SDifc.bio` with NVMe/AHCI/virtio/loop/RAM candidates; kbd reaches `inb`; console reaches the `PhysUart.putc` interface; ethernet reaches the queue-kick `Ether.transmit`; `sdgen` exercises dynamic Qid dispatch. See the generated chain tables and NOTES. |
+| Unresolved visibility | **PASS (static)** | The JSON/report keep partial and unresolved edges explicit: 45 hardware-primitive chains, 82 controller-primitive chains, 868 partial operations and 63 unresolved operations. Duplicate non-static symbols across architecture trees remain ambiguous rather than guessed. |
+
+**Logs:** `build/verification/kernel-opmap-write.log`,
+`build/verification/kernel-opmap-check.log` and
+`build/verification/kernel-opmap-tests.log` (ignored build evidence).
+
+**Scope boundary:** `kbdfs` is embedded as a `bootdir` binary but remains a
+user-space 9P service; only its kernel endpoints (`devcons`, `devkbd`,
+`devuart`, `screenputs`, `PhysUart` callbacks) are in this inventory.
+
+No kernel source, syscall table, driver, libc or boot behaviour was changed.
+
 ## Known limits and follow-up work
 
 - GE/O has no native graph edge, tag or indexed namespace relation API.

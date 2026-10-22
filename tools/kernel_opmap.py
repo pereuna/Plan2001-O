@@ -1,0 +1,4000 @@
+#!/usr/bin/env python3
+"""Machine-generated operation map of the Plan2001-O kernel driver surface.
+
+This is a deliberately small lexical/structural analyser for the Plan 9 C
+dialect used under sys/src/9.  It is not a C compiler and it does not claim
+to prove the behaviour of a call chain.  It does:
+
+  * tokenise C with comments and string/character contents removed from the
+    declaration and call search;
+  * read build configurations (mkdevlist/mkfile semantics) to separate source
+    presence from build inclusion;
+  * find Dev, Dirtab, Cmdtab, SDifc, PhysUart, VGA, PCArch and ether cards;
+  * split Qid switches and Cmdtab commands into separate operations;
+  * follow direct C calls with a bounded, cycle-safe graph, while retaining
+    indirect callback edges and their known candidates instead of inventing a
+    concrete target;
+  * emit deterministic JSON and Markdown from the same analysis data.
+
+Regenerate the checked-in inventory from the repository root with:
+
+    python3 tools/kernel_opmap.py --write
+
+Verify that the checked-in outputs are current with:
+
+    python3 tools/kernel_opmap.py --check
+
+The analyser intentionally has no third-party dependencies.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+SCHEMA = "plan2001.kernel-opmap/v1"
+GENERATOR = "tools/kernel_opmap.py"
+GENERATOR_VERSION = "1"
+KERNEL_REL = "sys/src/9"
+DEFAULT_JSON = "docs/KERNEL-OPMAP.json"
+DEFAULT_MD = "docs/KERNEL-OPMAP.md"
+
+# Limits are per call-chain scope, not per driver.  They are deliberately
+# generous enough to cross a driver into the shared port code and a backend,
+# but bounded so a cycle or a very branchy function cannot run away.
+MAX_CHAIN_DEPTH = 8
+MAX_CHAIN_NODES = 350
+MAX_CHAIN_TERMINALS = 80
+
+KEYWORDS = {
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "int", "long", "register", "return", "short", "signed", "sizeof",
+    "static", "struct", "switch", "typedef", "union", "unsigned", "void",
+    "volatile", "while", "_Noreturn", "inline", "restrict",
+}
+
+# Identifiers that look like calls in the token stream but are not C calls.
+NON_CALL_IDENTIFIERS = KEYWORDS | {
+    "if", "for", "while", "switch", "return", "sizeof", "case", "do",
+    "__attribute__", "va_start", "va_end",
+    # Plan 9 macros that are frequently written in call form.
+    "nelem", "howmany", "QID", "TYPE", "NETTYPE", "NETID", "PART", "UNIT",
+    "DEV", "BLEN", "BPLONG", "BGLONG", "PACK64", "UNPACK64", "MACHP",
+    "ROUND", "RND", "PGROUND", "MIN", "MAX", "USED", "Tname",
+}
+
+QUALIFIERS = {"static", "extern", "const", "volatile", "register", "inline"}
+
+REG_TYPES = {
+    "Dev", "SDifc", "PhysUart", "VGAdev", "VGAcur", "PCArch", "ADifc",
+    "Dirtab", "Cmdtab", "Ether", "Netif", "Wifi", "ISAConf",
+}
+
+# Fallback interface schemas.  The analyser reads the real struct definitions
+# from the scanned headers first; these are only used when a fixture (or an
+# unusual tree) has no struct declaration in the scanned headers.
+FALLBACK_STRUCTS: dict[str, list[str]] = {
+    "Dev": [
+        "dc", "name", "reset", "init", "shutdown", "attach", "walk", "stat",
+        "open", "create", "close", "read", "bread", "write", "bwrite",
+        "remove", "wstat", "power", "config",
+    ],
+    "SDifc": [
+        "name", "pnp", "enable", "disable", "verify", "online", "rio",
+        "rctl", "wctl", "bio", "probe", "clear", "rtopctl", "wtopctl",
+        "ataio",
+    ],
+    "PhysUart": [
+        "name", "pnp", "enable", "disable", "kick", "dobreak", "baud",
+        "bits", "stop", "parity", "modemctl", "rts", "dtr", "status",
+        "fifo", "power", "getc", "putc",
+    ],
+    "VGAdev": [
+        "name", "enable", "disable", "page", "linear", "drawinit", "fill",
+        "ovlctl", "ovlwrite", "flush",
+    ],
+    "VGAcur": ["name", "enable", "disable", "load", "move"],
+    "PCArch": [
+        "id", "ident", "reset", "intrinit", "intrassign", "intrirqno",
+        "intrspurious", "intrvecno", "introff", "intron", "clockinit",
+        "clockenable", "fastclock", "timerset",
+    ],
+    "Dirtab": ["name", "qid", "length", "perm"],
+    "Cmdtab": ["index", "cmd", "narg"],
+    "Ether": [
+        "ISAConf", "tbdf", "ctlrno", "minmtu", "maxmtu", "attach",
+        "transmit", "ctl", "power", "shutdown", "ctlr", "oq", "Netif",
+        "ea", "mactab", "dmat",
+    ],
+    "Netif": [
+        "in", "out", "f", "nqueue", "alen", "addr", "bcast", "name",
+        "type", "prom", "scan", "bridge", "bypass", "headersonly", "link",
+        "mbps", "inpackets", "outpackets", "soverflows",
+    ],
+}
+
+# Exact calls that are directly at a hardware/controller boundary.  This is
+# deliberately not a "safe to remove" judgement.
+HARDWARE_CALLS = {
+    "inb", "inw", "inl", "ins", "outs", "outb", "outw", "outl",
+    "rdmsr", "wrmsr", "rdtsc", "cpuid", "halt",
+}
+
+# Prefixes used to recognise controller/service entry points whose exact
+# implementation is outside the scanned C tree.  They are reported as
+# controller primitives, not as proven hardware accesses.
+CONTROLLER_PREFIXES = (
+    "pci", "pcimap", "pcicfg", "intr", "dma", "mmio", "csr", "sysreg",
+    "nvme", "ahci", "virtio", "uart", "i825", "i8042", "rtc", "vga",
+)
+
+# Kernel services and generic Dev helpers.  Calls to these are recorded as
+# intermediate steps, but they do not satisfy "device or service primitive".
+KERNEL_SERVICES = {
+    "alarm", "allocb", "atoi", "atol", "blen", "block", "cclose",
+    "cclone", "cmount", "copen", "create", "cmderror", "delay",
+    "decref", "devattach", "devbread", "devbwrite", "devcreate",
+    "devdirread", "devgen", "devinit", "devopen", "devremove", "devreset",
+    "devshutdown", "devstat", "devwalk", "devwstat", "devpower", "error",
+    "evenaddr", "exit", "free", "freeb", "iallocb", "iallocbp", "ilock",
+    "incref", "iunlock", "iprint", "iseve", "kstrdup", "kstrcpy",
+    "lock", "lookupcmd", "malloc", "memchr", "memcmp", "memcpy",
+    "memmove", "memset", "microdelay", "mount", "namec", "nexterror",
+    "panic", "parsecmd", "pexit", "poperror", "print", "qbread",
+    "qbwrite", "qclose", "qconsume", "qdiscard", "qfull", "qget",
+    "qio", "qisclosed", "qiwrite", "qlen", "qnoblock", "qopen",
+    "qpass", "qproduce", "qput", "qread", "qsetbypass", "qsetlimit",
+    "qunlock", "qwrite", "qlock", "readnum", "readstr", "realloc",
+    "rendezvous", "rlock", "rwlock", "sleep", "smalloc", "smprint",
+    "snprint", "sprint", "strcmp", "strcpy", "strlen", "strncmp",
+    "strncpy", "strtol", "strtoul", "strtoull", "tokenize", "tsleep",
+    "unlock", "validaddr", "validnamedup", "wakeup", "waserror", "wlock",
+    "yield", "seprint", "vseprint", "vsnprint", "fmtstrinit",
+    "quotestrdup", "runlock", "rwlock", "wunlock", "mmuflush",
+    "flushmmu", "pmap", "kmap", "kunmap", "vmap", "vunmap", "ioalloc",
+    "iofree", "splhi", "spllo", "splx", "islo", "getcallerpc",
+    "setlabel", "gotolabel", "cistrcmp", "cistrncmp", "isaconfig",
+    "getconf", "ksetenv", "kset", "todset", "todget", "randomread",
+    "coherence", "assert", "_assert", "convD2M", "convM2D", "convM2S",
+    "convS2M", "convD2M", "getirqs", "setuplink", "panic", "iprint",
+    "print", "seprint", "snprint", "sprint", "vseprint", "vsnprint",
+    "fmtinstall", "fmtstrinit", "resrcwait", "sched", "resched",
+    "putstrn", "putstrn0", "isodump", "dump", "dprint", "deprint",
+    "ddeprint", "ddprint", "diprint", "ddiprint", "dbgprint", "fprint", "gfprint",
+    "cachedwbse", "cachedwbin", "cachedwbtlb", "cachedwbinvse",
+    "cachedwbinv", "cycles", "lcycles", "synccycles", "vcycles", "µs",
+    "tas", "cmpswap", "xadd", "xchg", "offsetof", "chartorune", "runetochar",
+    "delay", "microdelay", "addclock0link", "delclock", "dmaflush",
+    "cachedinv", "cachedinvse",
+    "poolalloc", "poolfree", "poolallocalign", "poolisoverlap", "sdmalloc",
+    "sdfree", "setupAESstate", "hmac_sha1", "dec16", "sha1",
+}
+
+SUBSYSTEM_NAMES = {
+    "network", "storage", "display-and-input", "console-and-input",
+    "ge-o", "process-and-memory", "security-and-tracing", "usb",
+    "platform", "other",
+}
+
+
+class ParseError(Exception):
+    pass
+
+
+@dataclass
+class Token:
+    kind: str
+    value: str
+    raw: str
+    line: int
+    col: int
+    offset: int
+
+
+@dataclass
+class Call:
+    kind: str  # direct, member, pointer, local-pointer
+    name: str
+    field: str | None
+    expr: str
+    line: int
+    offset: int
+    args_text: list[str] = field(default_factory=list)
+
+
+@dataclass
+class CaseLabel:
+    label: str
+    line: int
+    start: int
+    end: int
+
+
+@dataclass
+class Switch:
+    condition: str
+    line: int
+    start: int
+    end: int
+    cases: list[CaseLabel]
+
+
+@dataclass
+class Function:
+    id: str
+    name: str
+    path: str
+    line: int
+    end_line: int
+    static: bool
+    params: str
+    body: list[Token]
+    source_start: int
+    source_end: int
+    calls: list[Call] = field(default_factory=list)
+    switches: list[Switch] = field(default_factory=list)
+    local_function_pointers: set[str] = field(default_factory=set)
+    conditions: tuple[str, ...] = ()
+    text: str = ""
+
+    @property
+    def key(self) -> str:
+        return self.id
+
+
+@dataclass
+class SourceFile:
+    path: str
+    abs_path: Path
+    text: str
+    masked: str
+    kind: str
+    tokens: list[Token] = field(default_factory=list)
+    conditions: list[tuple[str, ...]] = field(default_factory=list)
+    includes: list[str] = field(default_factory=list)
+    parse_status: str = "ok"
+    parse_error: str | None = None
+    parse_error_line: int | None = None
+    functions: list[Function] = field(default_factory=list)
+    initializers: list[dict[str, Any]] = field(default_factory=list)
+    structs: dict[str, list[str]] = field(default_factory=dict)
+    sha256: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Lexical handling
+
+
+def mask_comments(text: str) -> str:
+    """Replace comments with spaces, preserving offsets and newlines."""
+    out = list(text)
+    i = 0
+    n = len(text)
+    state = "code"
+    while i < n:
+        c = text[i]
+        if state == "code":
+            if c == "/" and i + 1 < n and text[i + 1] == "*":
+                out[i] = out[i + 1] = " "
+                i += 2
+                state = "block"
+                continue
+            if c == "/" and i + 1 < n and text[i + 1] == "/":
+                out[i] = out[i + 1] = " "
+                i += 2
+                state = "line"
+                continue
+            if c == '"':
+                state = "string"
+            elif c == "'":
+                state = "char"
+            i += 1
+            continue
+        if state == "block":
+            if c == "*" and i + 1 < n and text[i + 1] == "/":
+                out[i] = out[i + 1] = " "
+                i += 2
+                state = "code"
+            else:
+                if c != "\n":
+                    out[i] = " "
+                i += 1
+            continue
+        if state == "line":
+            if c == "\n":
+                state = "code"
+                i += 1
+            else:
+                out[i] = " "
+                i += 1
+            continue
+        if state in ("string", "char"):
+            quote = '"' if state == "string" else "'"
+            if c == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if c == quote:
+                state = "code"
+            i += 1
+    return "".join(out)
+
+
+def compute_line_conditions(masked: str) -> list[tuple[str, ...]]:
+    lines = masked.splitlines()
+    result: list[tuple[str, ...]] = [()] * (len(lines) + 2)
+    stack: list[str] = []
+    pending = ""
+    for lineno, line in enumerate(lines, 1):
+        stripped = line.lstrip()
+        if pending:
+            stripped = pending + " " + stripped
+            pending = ""
+        if not stripped.startswith("#"):
+            result[lineno] = tuple(stack)
+            continue
+        body = stripped[1:].strip()
+        if body.endswith("\\"):
+            pending = body[:-1]
+            result[lineno] = tuple(stack)
+            continue
+        m = re.match(r"([A-Za-z_]+)\b(.*)", body)
+        if not m:
+            result[lineno] = tuple(stack)
+            continue
+        directive, rest = m.group(1), m.group(2).strip()
+        if directive in ("if", "ifdef", "ifndef"):
+            if directive == "ifdef":
+                expr = f"defined({rest})"
+            elif directive == "ifndef":
+                expr = f"!defined({rest})"
+            else:
+                expr = rest
+            stack.append(expr)
+        elif directive == "elif" and stack:
+            stack[-1] = rest
+        elif directive == "else" and stack:
+            stack[-1] = f"!({stack[-1]})"
+        elif directive == "endif" and stack:
+            stack.pop()
+        result[lineno] = tuple(stack)
+    return result
+
+
+def decode_escape(s: str) -> str:
+    if not s.startswith("\\"):
+        return s
+    m = {
+        "n": "\n", "t": "\t", "r": "\r", "b": "\b", "f": "\f",
+        "v": "\v", "a": "\a", "\\": "\\", "'": "'", '"': '"', "0": "\0",
+    }
+    return m.get(s[1:], s[1:])
+
+
+def decode_literal(raw: str) -> str:
+    if raw.startswith("L'"):
+        raw = raw[1:]
+    elif raw.startswith('L"'):
+        raw = raw[1:]
+    body = raw[1:-1]
+    out: list[str] = []
+    i = 0
+    while i < len(body):
+        if body[i] == "\\" and i + 1 < len(body):
+            out.append(decode_escape(body[i:i + 2]))
+            i += 2
+        else:
+            out.append(body[i])
+            i += 1
+    return "".join(out)
+
+
+def tokenize(text: str) -> list[Token]:
+    tokens: list[Token] = []
+    i = 0
+    n = len(text)
+    line = 1
+    col = 1
+
+    def advance(raw: str) -> None:
+        nonlocal line, col
+        nl = raw.count("\n")
+        if nl:
+            line += nl
+            col = len(raw.rsplit("\n", 1)[-1]) + 1
+        else:
+            col += len(raw)
+
+    num_re = re.compile(
+        r"0[xX][0-9a-fA-F]+[uUlL]*|"
+        r"[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?[uUlLfF]*"
+    )
+    multi_ops = [
+        ">>=", "<<=", "->", "++", "--", "==", "!=", "<=", ">=", "&&",
+        "||", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=",
+        "...", "##",
+    ]
+
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            advance(c)
+            i += 1
+            continue
+        if c in " \t\r\f\v":
+            advance(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            start = i
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i = min(n, i + 2)
+            advance(text[start:i])
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            start = i
+            while i < n and text[i] != "\n":
+                i += 1
+            advance(text[start:i])
+            continue
+        if c == "#":
+            # Preprocessor directives are tracked by line conditions.  They
+            # are not C declarations or calls.
+            start = i
+            while i < n:
+                if text[i] == "\\" and i + 1 < n and text[i + 1] == "\n":
+                    i += 2
+                    continue
+                if text[i] == "\n":
+                    break
+                i += 1
+            advance(text[start:i])
+            continue
+        if c == "L" and i + 1 < n and text[i + 1] in "'\"":
+            q = text[i + 1]
+            start = i
+            i += 2
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if text[i] == q:
+                    i += 1
+                    break
+                i += 1
+            raw = text[start:i]
+            tokens.append(Token("str" if q == '"' else "chr",
+                                decode_literal(raw), raw, line, col, start))
+            advance(raw)
+            continue
+        if c in "'\"":
+            q = c
+            start = i
+            i += 1
+            while i < n:
+                if text[i] == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if text[i] == q:
+                    i += 1
+                    break
+                i += 1
+            raw = text[start:i]
+            tokens.append(Token("str" if q == '"' else "chr",
+                                decode_literal(raw), raw, line, col, start))
+            advance(raw)
+            continue
+        if c.isalpha() or c == "_":
+            start = i
+            i += 1
+            while i < n and (text[i].isalnum() or text[i] == "_"):
+                i += 1
+            raw = text[start:i]
+            tokens.append(Token("id", raw, raw, line, col, start))
+            advance(raw)
+            continue
+        if c.isdigit():
+            m = num_re.match(text, i)
+            if m:
+                raw = m.group(0)
+                tokens.append(Token("num", raw, raw, line, col, i))
+                advance(raw)
+                i = m.end()
+                continue
+        matched = None
+        for op in multi_ops:
+            if text.startswith(op, i):
+                matched = op
+                break
+        if matched is None:
+            matched = c
+        tokens.append(Token("punct", matched, matched, line, col, i))
+        advance(matched)
+        i += len(matched)
+    return tokens
+
+
+def join_tokens(tokens: Sequence[Token]) -> str:
+    """Compact source-like text for evidence, not for re-parsing."""
+    out = ""
+    prev = ""
+    for t in tokens:
+        v = t.raw
+        if not out:
+            out = v
+        elif v in (")", "]", ",", ";", ":", "->", ".") or prev in ("(", "[", "->", "."):
+            out += v
+        elif v == "(" and prev and (prev[-1].isalnum() or prev[-1] in "_*]"):
+            out += v
+        else:
+            out += " " + v
+        prev = v
+    return out
+
+
+def find_matching(tokens: Sequence[Token], start: int, open_v: str, close_v: str) -> int | None:
+    depth = 0
+    for i in range(start, len(tokens)):
+        if tokens[i].value == open_v:
+            depth += 1
+        elif tokens[i].value == close_v:
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def find_matching_back(tokens: Sequence[Token], end: int, open_v: str, close_v: str) -> int | None:
+    depth = 0
+    for i in range(end, -1, -1):
+        if tokens[i].value == close_v:
+            depth += 1
+        elif tokens[i].value == open_v:
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def split_top_level(tokens: Sequence[Token], sep: str = ",") -> list[list[Token]]:
+    out: list[list[Token]] = []
+    cur: list[Token] = []
+    depth = 0
+    for t in tokens:
+        if t.value in ("(", "[", "{"):
+            depth += 1
+        elif t.value in (")", "]", "}"):
+            depth = max(0, depth - 1)
+        if t.value == sep and depth == 0:
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    if cur:
+        out.append(cur)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Structural parsing
+
+
+def looks_like_function(tokens: Sequence[Token], start: int, brace: int) -> bool:
+    p = brace - 1
+    if p < start or tokens[p].value != ")":
+        return False
+    q = find_matching_back(tokens, p, "(", ")")
+    if q is None or q <= start:
+        return False
+    name_idx = q - 1
+    if tokens[name_idx].kind != "id":
+        return False
+    if tokens[name_idx].value in KEYWORDS:
+        return False
+    # A declaration with an initializer is handled before this point.  If a
+    # top-level array/struct declaration reaches here, its token before '('
+    # would not be a plain function name in practice.
+    return True
+
+
+def scan_to_semicolon(tokens: Sequence[Token], start: int) -> int | None:
+    depth = 0
+    for i in range(start, len(tokens)):
+        v = tokens[i].value
+        if v in ("(", "[", "{"):
+            depth += 1
+        elif v in (")", "]", "}"):
+            depth = max(0, depth - 1)
+        elif v == ";" and depth == 0:
+            return i
+    return None
+
+
+def parse_decl_lhs(tokens: Sequence[Token]) -> tuple[str, str, str | None]:
+    if not tokens:
+        return "", "", None
+    seg = list(tokens)
+    while seg and seg[0].value in QUALIFIERS:
+        seg.pop(0)
+    name_idx = None
+    array = None
+    for i, t in enumerate(seg):
+        if t.value == "[":
+            if i > 0 and seg[i - 1].kind == "id":
+                name_idx = i - 1
+                close = find_matching(seg, i, "[", "]")
+                if close is not None:
+                    array = join_tokens(seg[i + 1:close])
+            break
+    if name_idx is None:
+        for i in range(len(seg) - 1, -1, -1):
+            if seg[i].kind == "id":
+                name_idx = i
+                break
+    if name_idx is None:
+        return "", "", array
+    name = seg[name_idx].value
+    type_tokens = [t for t in seg[:name_idx] if t.value not in QUALIFIERS]
+    if len(type_tokens) >= 2 and type_tokens[0].value == "struct":
+        typ = "struct " + type_tokens[1].value
+    elif type_tokens:
+        typ = type_tokens[-1].value
+        # Keep "*" out of the type name; the registration table only needs
+        # the base interface type.
+    else:
+        typ = ""
+    return typ, name, array
+
+
+def extract_structs(tokens: Sequence[Token], path: str) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    i = 0
+    while i < len(tokens):
+        if tokens[i].value != "struct":
+            i += 1
+            continue
+        if i + 2 >= len(tokens) or tokens[i + 1].kind != "id" or tokens[i + 2].value != "{":
+            i += 1
+            continue
+        name = tokens[i + 1].value
+        close = find_matching(tokens, i + 2, "{", "}")
+        if close is None:
+            break
+        body = tokens[i + 3:close]
+        fields: list[str] = []
+        for member in split_top_level(body, ";"):
+            if not member:
+                continue
+            member_ids = [t for t in member if t.kind == "id"]
+            if not member_ids:
+                continue
+            fp = re.search(r"\(\s*\*\s*([A-Za-z_]\w*)\s*\)", join_tokens(member))
+            if fp:
+                field = fp.group(1)
+            else:
+                # Array member: the name is before '['.
+                cut = len(member)
+                for j, t in enumerate(member):
+                    if t.value == "[":
+                        cut = j
+                        break
+                ids = [t.value for t in member[:cut] if t.kind == "id"]
+                if not ids:
+                    ids = [t.value for t in member_ids]
+                field = ids[-1] if ids else ""
+            if field and field not in fields:
+                fields.append(field)
+        if fields:
+            result.setdefault(name, fields)
+        i = close + 1
+    return result
+
+
+def parse_top_level(
+    tokens: Sequence[Token],
+    path: str,
+    conditions: Sequence[tuple[str, ...]],
+) -> tuple[list[Function], list[dict[str, Any]], list[str]]:
+    functions: list[Function] = []
+    initializers: list[dict[str, Any]] = []
+    unsupported: list[str] = []
+    i = 0
+    n = len(tokens)
+    while i < n:
+        if tokens[i].value in (";", "}"):
+            i += 1
+            continue
+        start = i
+        j = i
+        paren = brack = 0
+        while j < n:
+            v = tokens[j].value
+            if v == "(":
+                paren += 1
+            elif v == ")":
+                paren = max(0, paren - 1)
+            elif v == "[":
+                brack += 1
+            elif v == "]":
+                brack = max(0, brack - 1)
+            elif paren == 0 and brack == 0 and v in (";", "=", "{", "}"):
+                break
+            j += 1
+        if j >= n:
+            break
+        v = tokens[j].value
+        if v == "}":
+            i = j + 1
+            continue
+        if v == ";":
+            i = j + 1
+            continue
+        if v == "=":
+            end = scan_to_semicolon(tokens, j + 1)
+            if end is None:
+                raise ParseError(f"unterminated initializer at line {tokens[start].line}")
+            # Find the initializer brace, if any, after the '='.
+            brace = None
+            for k in range(j + 1, end):
+                if tokens[k].value == "{":
+                    brace = k
+                    break
+                if tokens[k].value == ";":
+                    break
+            typ, name, array = parse_decl_lhs(tokens[start:j])
+            init: dict[str, Any] = {
+                "type": typ,
+                "name": name,
+                "array": array,
+                "line": tokens[start].line,
+                "start": start,
+                "eq": j,
+                "end": end,
+                "brace": brace,
+                "body": tokens[brace + 1:find_matching(tokens, brace, "{", "}")]
+                if brace is not None and find_matching(tokens, brace, "{", "}") is not None
+                else [],
+                "conditions": tuple(conditions[tokens[start].line]) if tokens[start].line < len(conditions) else (),
+            }
+            initializers.append(init)
+            i = end + 1
+            continue
+        if v == "{":
+            close = find_matching(tokens, j, "{", "}")
+            if close is None:
+                raise ParseError(f"unterminated brace at line {tokens[j].line}")
+            if looks_like_function(tokens, start, j):
+                q = find_matching_back(tokens, j - 1, "(", ")")
+                assert q is not None
+                name_idx = q - 1
+                name = tokens[name_idx].value
+                static = any(t.value == "static" for t in tokens[start:name_idx])
+                params = join_tokens(tokens[q + 1:j - 1])
+                source_end = close + 1
+                func = Function(
+                    id=f"func:{path}#{name}",
+                    name=name,
+                    path=path,
+                    line=tokens[start].line,
+                    end_line=tokens[close].line,
+                    static=static,
+                    params=params,
+                    body=list(tokens[j + 1:close]),
+                    source_start=start,
+                    source_end=source_end,
+                    conditions=tuple(conditions[tokens[start].line])
+                    if tokens[start].line < len(conditions) else (),
+                    text=join_tokens(tokens[start:source_end]),
+                )
+                functions.append(func)
+            else:
+                # enum/struct/union blocks and any other non-function block.
+                pass
+            i = close + 1
+            continue
+        unsupported.append(
+            f"{path}:{tokens[start].line}: unsupported top-level token {tokens[start].raw!r}"
+        )
+        i = j + 1
+    return functions, initializers, unsupported
+
+
+# ---------------------------------------------------------------------------
+# Calls, switches and command text
+
+
+def call_args(tokens: Sequence[Token], open_idx: int) -> list[list[Token]]:
+    close = find_matching(tokens, open_idx, "(", ")")
+    if close is None:
+        return []
+    return split_top_level(tokens[open_idx + 1:close], ",")
+
+
+def backward_expr(tokens: Sequence[Token], idx: int, limit: int = 10) -> str:
+    pieces: list[Token] = []
+    j = idx
+    while j >= 0 and len(pieces) < limit:
+        v = tokens[j].value
+        if v in (";", "{", "}", ",", "=", "?", ":"):
+            break
+        pieces.append(tokens[j])
+        if v in ("(",):
+            break
+        j -= 1
+    pieces.reverse()
+    return join_tokens(pieces)
+
+
+def extract_calls(
+    tokens: Sequence[Token],
+    start: int,
+    end: int,
+    function: Function,
+) -> list[Call]:
+    calls: list[Call] = []
+    i = start
+    while i < end:
+        t = tokens[i]
+        # Form (*expr)(...)
+        if t.value == "(" and i + 1 < end and tokens[i + 1].value == "*":
+            close = find_matching(tokens, i, "(", ")")
+            if close is not None and close + 1 < end and tokens[close + 1].value == "(":
+                expr = join_tokens(tokens[i + 2:close])
+                field = None
+                for k in range(close - 1, i, -1):
+                    if tokens[k].kind == "id" and tokens[k - 1].value in ("->", "."):
+                        field = tokens[k].value
+                        break
+                calls.append(Call("pointer", expr, field, "(*" + expr + ")",
+                                  t.line, t.offset))
+                i = close + 2
+                continue
+        if t.kind == "id" and i + 1 < end and tokens[i + 1].value == "(":
+            name = t.value
+            if name in NON_CALL_IDENTIFIERS:
+                i += 1
+                continue
+            # Plan 9 macros are conventionally all-uppercase and are often
+            # written in call form (DPRINT, BUSBDF, PACK64, ...).  There are no
+            # all-uppercase function definitions in the scanned kernel tree.
+            if len(name) > 1 and name.isupper():
+                i += 1
+                continue
+            prev = tokens[i - 1].value if i > start else ""
+            if prev in ("->", "."):
+                expr = backward_expr(tokens, i)
+                calls.append(Call("member", name, name, expr, t.line, t.offset))
+                i += 1
+                continue
+            if name in function.local_function_pointers:
+                calls.append(Call("local-pointer", name, None, name, t.line, t.offset))
+                i += 1
+                continue
+            args = call_args(tokens, i + 1)
+            args_text = [join_tokens(a) for a in args]
+            calls.append(Call("direct", name, None, name, t.line, t.offset, args_text))
+            i += 1
+            continue
+        i += 1
+    return calls
+
+
+def extract_switches(tokens: Sequence[Token], start: int, end: int) -> list[Switch]:
+    switches: list[Switch] = []
+    i = start
+    while i < end:
+        if tokens[i].value != "switch":
+            i += 1
+            continue
+        if i + 1 >= end or tokens[i + 1].value != "(":
+            i += 1
+            continue
+        pclose = find_matching(tokens, i + 1, "(", ")")
+        if pclose is None or pclose + 1 >= end or tokens[pclose + 1].value != "{":
+            i += 1
+            continue
+        bclose = find_matching(tokens, pclose + 1, "{", "}")
+        if bclose is None:
+            i += 1
+            continue
+        condition = join_tokens(tokens[i + 2:pclose])
+        body_start = pclose + 2
+        body_end = bclose
+        labels: list[tuple[str, int, int]] = []
+        j = body_start
+        while j < body_end:
+            v = tokens[j].value
+            # Skip nested switch bodies here; they are parsed as their own
+            # Switch objects.  Case labels may legally sit inside ordinary
+            # blocks within this switch (for example `if(0){ case X: ... }`).
+            if v == "switch" and j + 1 < body_end and tokens[j + 1].value == "(":
+                pclose = find_matching(tokens, j + 1, "(", ")")
+                if pclose is not None and pclose + 1 < body_end and tokens[pclose + 1].value == "{":
+                    nclose = find_matching(tokens, pclose + 1, "{", "}")
+                    if nclose is not None:
+                        j = nclose + 1
+                        continue
+            if v in ("case", "default"):
+                label_line = tokens[j].line
+                k = j + 1
+                if v == "default":
+                    label = "default"
+                else:
+                    label_tokens: list[Token] = []
+                    while k < body_end:
+                        if tokens[k].value == ":":
+                            break
+                        if tokens[k].value in ("{", "}"):
+                            break
+                        label_tokens.append(tokens[k])
+                        k += 1
+                    label = join_tokens(label_tokens)
+                while k < body_end and tokens[k].value != ":":
+                    k += 1
+                if k < body_end and tokens[k].value == ":":
+                    labels.append((label, label_line, k + 1))
+                j = k
+            j += 1
+        cases: list[CaseLabel] = []
+        for idx, (label, line, case_start) in enumerate(labels):
+            case_end = labels[idx + 1][2] - 1 if idx + 1 < len(labels) else body_end
+            # The next label's start includes its `case` keyword; trim back to
+            # the keyword itself so the previous case does not claim it.
+            if idx + 1 < len(labels):
+                # find the next `case`/`default` token at or before case_end
+                k = case_start
+                while k < case_end and tokens[k].value not in ("case", "default"):
+                    k += 1
+                case_end = k
+            cases.append(CaseLabel(label, line, case_start, case_end))
+        switches.append(Switch(condition, tokens[i].line, body_start, body_end, cases))
+        # Continue scanning inside the switch body so nested switches (for
+        # example a Qid case containing a Cmdtab index switch) are captured.
+        i += 1
+    return switches
+
+
+def extract_if_qid_branches(tokens: Sequence[Token], start: int, end: int) -> list[CaseLabel]:
+    """Recognise simple `if(c->qid... == Qfoo)` branches as file operations."""
+    out: list[CaseLabel] = []
+    i = start
+    while i < end:
+        if tokens[i].value != "if" or i + 1 >= end or tokens[i + 1].value != "(":
+            i += 1
+            continue
+        close = find_matching(tokens, i + 1, "(", ")")
+        if close is None or close + 1 >= end:
+            i += 1
+            continue
+        cond = join_tokens(tokens[i + 2:close])
+        low = cond.lower()
+        if "qid" not in low or "==" not in cond or "!=" in cond:
+            i += 1
+            continue
+        label = None
+        for t in tokens[i + 2:close]:
+            if t.kind == "id" and t.value.startswith("Q"):
+                label = t.value
+            elif t.kind == "num":
+                label = t.value
+        if not label:
+            i += 1
+            continue
+        body_start = close + 1
+        if tokens[body_start].value == "{":
+            body_end = find_matching(tokens, body_start, "{", "}")
+            if body_end is None:
+                i += 1
+                continue
+            op_start, op_end = body_start + 1, body_end
+        else:
+            op_start = body_start
+            k = body_start
+            depth = 0
+            while k < end:
+                if tokens[k].value in ("(", "[", "{"):
+                    depth += 1
+                elif tokens[k].value in (")", "]", "}"):
+                    depth = max(0, depth - 1)
+                if tokens[k].value == ";" and depth == 0:
+                    break
+                k += 1
+            if k >= end:
+                i += 1
+                continue
+            op_end = k + 1
+        out.append(CaseLabel(label, tokens[i].line, op_start, op_end))
+        i = close + 1
+    return out
+
+
+def extract_local_function_pointers(tokens: Sequence[Token], start: int, end: int) -> set[str]:
+    names: set[str] = set()
+    for i in range(start, end):
+        if tokens[i].value != "(":
+            continue
+        close = find_matching(tokens, i, "(", ")")
+        if close is None or close >= end:
+            continue
+        inner = tokens[i + 1:close]
+        if len(inner) >= 2 and inner[0].value == "*" and inner[1].kind == "id":
+            names.add(inner[1].value)
+    # A local variable assigned from a function-pointer field is also an
+    # indirect call when it is later called.  Only retain names that actually
+    # appear in call position, so ordinary scalar assignments stay scalar.
+    assigned: set[str] = set()
+    for i in range(start, end - 2):
+        if tokens[i].kind != "id" or tokens[i + 1].value != "=":
+            continue
+        j = i + 2
+        has_member = False
+        while j < end and tokens[j].value not in (";", ","):
+            if tokens[j].value in ("->", "."):
+                has_member = True
+            j += 1
+        if has_member:
+            assigned.add(tokens[i].value)
+    for name in assigned:
+        for i in range(start, end - 1):
+            if tokens[i].value == name and tokens[i + 1].value == "(":
+                names.add(name)
+                break
+    return names
+
+
+def extract_manual_commands(tokens: Sequence[Token], start: int, end: int) -> list[tuple[str, int]]:
+    commands: list[tuple[str, int]] = []
+    for i in range(start, end):
+        if tokens[i].kind != "id" or tokens[i].value not in ("strcmp", "strncmp", "cistrcmp"):
+            continue
+        if i + 1 >= end or tokens[i + 1].value != "(":
+            continue
+        args = call_args(tokens, i + 1)
+        if len(args) < 2:
+            continue
+        left = re.sub(r"\s+", "", join_tokens(args[0]))
+        if "f[0]" not in left and not re.search(r"(^|->)f\[0\]$", left):
+            continue
+        right = args[1]
+        if len(right) == 1 and right[0].kind == "str":
+            commands.append((right[0].value, tokens[i].line))
+    return commands
+
+
+# ---------------------------------------------------------------------------
+# Build configuration
+
+
+def parse_target_file(path: Path) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return data
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", line)
+        if not m:
+            continue
+        key, val = m.group(1), m.group(2).strip()
+        if val.startswith("(") and val.endswith(")"):
+            data[key] = [x for x in val[1:-1].split() if x]
+        else:
+            data[key] = val
+    return data
+
+
+def parse_mk_assignment(text: str, name: str) -> list[str]:
+    lines = text.splitlines()
+    out: list[str] = []
+    capture = False
+    for line in lines:
+        if not capture:
+            if re.match(rf"^{re.escape(name)}\s*=\s*\\?\s*$", line):
+                capture = True
+                continue
+            if re.match(rf"^{re.escape(name)}\s*=", line):
+                # Single-line assignment.
+                rest = line.split("=", 1)[1]
+                out.extend(re.findall(r"(?<![\w.$])([A-Za-z0-9_.]+)\.\$O", rest))
+                continue
+        else:
+            if not line.strip():
+                break
+            out.extend(re.findall(r"(?<![\w.$])([A-Za-z0-9_.]+)\.\$O", line))
+            if not line.rstrip().endswith("\\"):
+                break
+    return out
+
+
+def parse_config_sections(text: str) -> tuple[list[str], list[str], list[str]]:
+    """Return (object stems, bootdir entries, notes) using mkdevlist rules."""
+    stems: list[str] = []
+    bootdir: list[str] = []
+    notes: list[str] = []
+    section = None
+    isdev = False
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if not raw[0].isspace():
+            fields = raw.split()
+            section = fields[0]
+            isdev = section.startswith("dev")
+            if section == "bootdir":
+                for field in fields[1:]:
+                    bootdir.append(field)
+            continue
+        if section not in ("dev", "link", "misc", "ip"):
+            if section == "bootdir":
+                fields = raw.split()
+                if len(fields) >= 2:
+                    bootdir.append(fields[1])
+                elif fields:
+                    bootdir.append(fields[0])
+            continue
+        fields = raw.split()
+        if not fields:
+            continue
+        if isdev:
+            stems.append("dev" + fields[0])
+            fields = fields[1:]
+        for field in fields:
+            if re.match(r"^[+=-].*", field):
+                continue
+            stems.append(field)
+    # Deduplicate, keep first occurrence then sort for deterministic output.
+    stems = sorted(set(stems))
+    bootdir = [x for x in bootdir if x]
+    return stems, bootdir, notes
+
+
+def parse_config_sections_exact(text: str) -> list[dict[str, Any]]:
+    """Return config section rows for documentation/debugging."""
+    rows: list[dict[str, Any]] = []
+    section = None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if not raw[0].isspace():
+            section = raw.split()[0]
+            rows.append({"section": section, "entries": []})
+            continue
+        if section is None or not rows:
+            continue
+        rows[-1]["entries"].append(raw.strip())
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Analyser
+
+
+def slug(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"[^A-Za-z0-9_.+-]+", "-", text)
+    return text.strip("-") or "x"
+
+
+def file_kind(path: Path) -> str:
+    name = path.name
+    if name.endswith(".c"):
+        return "c"
+    if name.endswith(".h"):
+        return "header"
+    if name.endswith(".s"):
+        return "assembly"
+    if name in ("mkfile",) or name.startswith("mk") or name.endswith(".rc"):
+        return "build-tool"
+    if path.suffix == "":
+        return "config"
+    return "other"
+
+
+def expr_info(tokens: Sequence[Token]) -> dict[str, Any]:
+    text = join_tokens(tokens)
+    info: dict[str, Any] = {"text": text, "symbol": None, "nil": False, "literal": None}
+    if not tokens or text in ("nil", "0", "NULL"):
+        info["nil"] = True
+        return info
+    if len(tokens) == 1 and tokens[0].kind in ("str", "chr"):
+        info["literal"] = tokens[0].value
+        return info
+    ids = [t.value for t in tokens if t.kind == "id" and t.value not in KEYWORDS]
+    if ids:
+        # A cast may contain type identifiers; the function/value identifier is
+        # conventionally the last non-keyword identifier in these initialisers.
+        info["symbol"] = ids[-1]
+    return info
+
+
+def char_value(tokens: Sequence[Token]) -> str | None:
+    for t in tokens:
+        if t.kind == "chr":
+            return t.value
+    return None
+
+
+def is_service_call(name: str) -> bool:
+    """Kernel helpers and logging macros that must not be followed as devices."""
+    return name in KERNEL_SERVICES or name.endswith("print")
+
+
+class Analyzer:
+    def __init__(self, root: Path):
+        self.root = root
+        self.kernel = root / KERNEL_REL
+        self.files: list[SourceFile] = []
+        self.file_by_path: dict[str, SourceFile] = {}
+        self.struct_fields: dict[str, list[str]] = dict(FALLBACK_STRUCTS)
+        self.struct_sources: dict[str, dict[str, Any]] = {}
+        self.functions: list[Function] = []
+        self.function_by_id: dict[str, Function] = {}
+        self.global_by_name: dict[str, list[Function]] = defaultdict(list)
+        self.configs: list[dict[str, Any]] = []
+        self.registration_records: list[dict[str, Any]] = []
+        self.interface_candidates: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+        self.initializer_records: list[dict[str, Any]] = []
+        self.dirtab_records: list[dict[str, Any]] = []
+        self.cmdtab_records: list[dict[str, Any]] = []
+        self.operations: list[dict[str, Any]] = []
+        self.chains: dict[str, dict[str, Any]] = {}
+        self._chain_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self.native_records: list[dict[str, Any]] = []
+        self.representative: list[dict[str, Any]] = []
+        self.parse_issues: list[dict[str, Any]] = []
+        self.unsupported_declarations: list[dict[str, Any]] = []
+        self.source_revision: dict[str, Any] = {}
+        self.fingerprint = ""
+
+    # -- source and parsing -------------------------------------------------
+
+    def discover_files(self) -> None:
+        if not self.kernel.is_dir():
+            raise SystemExit(f"kernel tree not found: {self.kernel}")
+        for p in sorted(self.kernel.rglob("*")):
+            if not p.is_file():
+                continue
+            rel = p.relative_to(self.root).as_posix()
+            kind = file_kind(p)
+            raw = p.read_bytes()
+            text = raw.decode("utf-8", errors="replace")
+            masked = mask_comments(text)
+            conditions = compute_line_conditions(masked)
+            includes = re.findall(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]', masked, re.M)
+            sf = SourceFile(
+                path=rel,
+                abs_path=p,
+                text=text,
+                masked=masked,
+                kind=kind,
+                conditions=conditions,
+                includes=includes,
+                sha256=hashlib.sha256(raw).hexdigest(),
+            )
+            self.files.append(sf)
+            self.file_by_path[rel] = sf
+        # Fingerprint the complete scanned source tree.
+        h = hashlib.sha256()
+        for sf in self.files:
+            h.update(sf.path.encode("utf-8"))
+            h.update(b"\0")
+            h.update(sf.sha256.encode("ascii"))
+            h.update(b"\n")
+        self.fingerprint = h.hexdigest()
+        self.source_revision = self._git_revision()
+
+    def _git_revision(self) -> dict[str, Any]:
+        try:
+            commit = subprocess.check_output(
+                ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+                text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+            status = subprocess.check_output(
+                ["git", "-C", str(self.root), "status", "--porcelain", "--", KERNEL_REL],
+                text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+            return {"commit": commit, "kernel_tree_dirty": bool(status)}
+        except (OSError, subprocess.CalledProcessError):
+            return {"commit": None, "kernel_tree_dirty": None}
+
+    def parse_all(self) -> None:
+        for sf in self.files:
+            if sf.kind not in ("c", "header"):
+                continue
+            try:
+                sf.tokens = tokenize(sf.text)
+                sf.structs = extract_structs(sf.tokens, sf.path)
+                for name, fields in sf.structs.items():
+                    old = self.struct_fields.get(name)
+                    if old is None or len(fields) > len(old):
+                        self.struct_fields[name] = fields
+                        self.struct_sources[name] = {"path": sf.path, "line": None}
+                if sf.kind == "c":
+                    funcs, inits, unsupported = parse_top_level(
+                        sf.tokens, sf.path, sf.conditions
+                    )
+                    sf.functions = funcs
+                    sf.initializers = inits
+                    for item in unsupported:
+                        self.unsupported_declarations.append({
+                            "path": sf.path,
+                            "detail": item,
+                            "reason": "unsupported top-level declaration",
+                        })
+                    for f in funcs:
+                        f.local_function_pointers = extract_local_function_pointers(
+                            f.body, 0, len(f.body)
+                        )
+                        f.local_function_pointers.update(
+                            re.findall(r"\(\s*\*\s*([A-Za-z_]\w*)\s*\)", f.params)
+                        )
+                        f.calls = extract_calls(f.body, 0, len(f.body), f)
+                        f.switches = extract_switches(f.body, 0, len(f.body))
+                        f.text = join_tokens(sf.tokens[f.source_start:f.source_end])
+                    for init in inits:
+                        init["path"] = sf.path
+                        self.initializer_records.append(init)
+                    self.functions.extend(funcs)
+            except ParseError as exc:
+                sf.parse_status = "error"
+                sf.parse_error = str(exc)
+                m = re.search(r"line (\d+)", str(exc))
+                sf.parse_error_line = int(m.group(1)) if m else None
+                self.parse_issues.append({
+                    "path": sf.path,
+                    "status": "error",
+                    "reason": str(exc),
+                    "line": sf.parse_error_line,
+                })
+            except Exception as exc:  # keep the rest of the tree analysable
+                sf.parse_status = "error"
+                sf.parse_error = f"{type(exc).__name__}: {exc}"
+                self.parse_issues.append({
+                    "path": sf.path,
+                    "status": "error",
+                    "reason": sf.parse_error,
+                    "line": None,
+                })
+        # Stable function identifiers even if two definitions share a name in
+        # one file (not expected, but do not silently merge them).
+        counts: dict[tuple[str, str], int] = defaultdict(int)
+        for f in self.functions:
+            counts[(f.path, f.name)] += 1
+        for f in self.functions:
+            if counts[(f.path, f.name)] > 1:
+                f.id = f"{f.id}@{f.line}"
+            self.function_by_id[f.id] = f
+            self.global_by_name[f.name].append(f)
+        for name in self.global_by_name:
+            self.global_by_name[name].sort(key=lambda f: (f.path, f.line))
+
+    # -- build configuration ------------------------------------------------
+
+    def discover_configs(self) -> None:
+        targets: dict[str, dict[str, Any]] = {}
+        tdir = self.root / "tools" / "targets"
+        if tdir.is_dir():
+            for p in sorted(tdir.iterdir()):
+                if p.is_file() and p.name != "README":
+                    targets[p.name] = parse_target_file(p)
+
+        config_specs: list[dict[str, Any]] = []
+        if targets:
+            for tname, target in sorted(targets.items()):
+                kdir = target.get("kdir")
+                if not kdir:
+                    continue
+                mkfile = self.kernel / kdir / "mkfile"
+                if not mkfile.is_file():
+                    config_specs.append({
+                        "name": target.get("kconf") or kdir,
+                        "arch": kdir,
+                        "target": tname,
+                        "status": target.get("status", "unknown"),
+                        "mkfile": None,
+                        "config_path": None,
+                        "roots": [],
+                        "skip_reason": "target source tree is absent",
+                    })
+                    continue
+                text = mkfile.read_text(encoding="utf-8", errors="replace")
+                conflist = re.search(r"^CONFLIST\s*=\s*(.+)$", text, re.M)
+                confs = conflist.group(1).split() if conflist else []
+                if target.get("kconf") and target["kconf"] not in confs:
+                    confs.insert(0, target["kconf"])
+                if target.get("testkconf") and target["testkconf"] not in confs:
+                    confs.append(target["testkconf"])
+                for conf in confs:
+                    kind = "normal-amd64" if (
+                        tname == "amd64" and conf == target.get("kconf")
+                    ) else "test-only" if conf == target.get("testkconf") else "other"
+                    config_specs.append({
+                        "name": conf,
+                        "arch": kdir,
+                        "target": tname,
+                        "status": target.get("status", "unknown"),
+                        "mkfile": mkfile,
+                        "config_path": self.kernel / kdir / conf,
+                        "roots": [self.kernel / r for r in target.get("ksrc", [])],
+                        "kind": kind,
+                        "conflist": confs,
+                    })
+        else:
+            for mkfile in sorted(self.kernel.glob("*/mkfile")):
+                text = mkfile.read_text(encoding="utf-8", errors="replace")
+                m = re.search(r"^CONFLIST\s*=\s*(.+)$", text, re.M)
+                if not m:
+                    continue
+                for conf in m.group(1).split():
+                    config_specs.append({
+                        "name": conf,
+                        "arch": mkfile.parent.name,
+                        "target": None,
+                        "status": "unknown",
+                        "mkfile": mkfile,
+                        "config_path": mkfile.parent / conf,
+                        "roots": [mkfile.parent, self.kernel / "port", self.kernel / "ip"],
+                        "kind": "other",
+                    })
+
+        # Deduplicate config names, keeping the first specification.
+        seen: set[str] = set()
+        for spec in config_specs:
+            if spec["name"] in seen:
+                continue
+            seen.add(spec["name"])
+            self.configs.append(self._resolve_config(spec))
+        self.configs.sort(key=lambda c: ({
+            "normal-amd64": 0, "test-only": 1, "other": 2
+        }.get(c.get("kind", "other"), 3), c["name"]))
+
+    def _resolve_config(self, spec: dict[str, Any]) -> dict[str, Any]:
+        cfg: dict[str, Any] = {
+            "name": spec["name"],
+            "arch": spec["arch"],
+            "target": spec.get("target"),
+            "status": spec.get("status", "unknown"),
+            "kind": spec.get("kind", "other"),
+            "config_path": spec["config_path"].relative_to(self.root).as_posix()
+            if spec.get("config_path") else None,
+            "mkfile": spec["mkfile"].relative_to(self.root).as_posix()
+            if spec.get("mkfile") else None,
+            "roots": [p.relative_to(self.root).as_posix() for p in spec.get("roots", [])
+                      if p.is_dir()],
+            "object_stems": [],
+            "active_files": [],
+            "unresolved_objects": [],
+            "shadowed_objects": [],
+            "bootdir": [],
+            "whole_archives": [],
+            "notes": [],
+        }
+        if spec.get("skip_reason"):
+            cfg["notes"].append(spec["skip_reason"])
+            cfg["unresolved_objects"].append({"stem": "*", "reason": spec["skip_reason"]})
+            return cfg
+        config_path: Path = spec["config_path"]
+        mkfile: Path = spec["mkfile"]
+        roots: list[Path] = []
+        for p in spec.get("roots", []):
+            if p.is_dir() and p not in roots:
+                roots.append(p)
+        # The architecture directory is always searchable first.
+        arch_root = mkfile.parent
+        if arch_root not in roots:
+            roots.insert(0, arch_root)
+        cfg["roots"] = [p.relative_to(self.root).as_posix() for p in roots]
+
+        text = ""
+        if config_path.is_file():
+            text = config_path.read_text(encoding="utf-8", errors="replace")
+        else:
+            cfg["notes"].append("configuration file is absent")
+            cfg["unresolved_objects"].append({
+                "stem": "*", "reason": "configuration file is absent",
+            })
+        stems, bootdir, _ = parse_config_sections(text)
+        cfg["bootdir"] = sorted(set(bootdir))
+
+        mktext = mkfile.read_text(encoding="utf-8", errors="replace")
+        extra: list[str] = []
+        extra.extend(parse_mk_assignment(mktext, "PORT"))
+        extra.extend(parse_mk_assignment(mktext, "OBJ"))
+        for m in re.finditer(r"(?<![\w.$])([A-Za-z0-9_.]+)\.\$O", mktext):
+            extra.append(m.group(1))
+        for m in re.finditer(r"(?<![\w.$])([A-Za-z0-9_.]+)\.(?:c|s)\b", mktext):
+            extra.append(m.group(1))
+        # GEFS is an archive of every .c in a sibling directory in the pc64
+        # mkfile.  Mark the whole archive, not a hand-picked file list.
+        if "gefs.a$O" in mktext:
+            archive = (mkfile.parent / ".." / "gefs").resolve()
+            if archive.is_dir():
+                cfg["whole_archives"].append(archive.relative_to(self.root).as_posix())
+                for p in sorted(archive.glob("*.c")):
+                    rel = p.relative_to(self.root).as_posix()
+                    if rel not in cfg["active_files"]:
+                        cfg["active_files"].append(rel)
+        stems = sorted(set(stems + extra))
+        cfg["object_stems"] = stems
+
+        for stem in stems:
+            found: list[Path] = []
+            for root in roots:
+                for suffix in (".c", ".s"):
+                    candidate = root / (stem + suffix)
+                    if candidate.is_file():
+                        found.append(candidate)
+                        break
+            if found:
+                chosen = found[0]
+                rel = chosen.relative_to(self.root).as_posix()
+                if rel not in cfg["active_files"]:
+                    cfg["active_files"].append(rel)
+                if len(found) > 1:
+                    cfg["shadowed_objects"].append({
+                        "stem": stem,
+                        "chosen": rel,
+                        "shadowed": [p.relative_to(self.root).as_posix() for p in found[1:]],
+                    })
+            else:
+                # Ignore obvious generated/expanded variables that the regex
+                # may still have caught.  Everything else is an unresolved
+                # build inclusion and is reported.
+                if stem in ("root", "rootc", "CONF.root", "CONF.rootc",
+                            "CONF", "O", "c", "s", "a") or stem.isdigit() or "$" in stem:
+                    continue
+                cfg["unresolved_objects"].append({
+                    "stem": stem,
+                    "reason": "no source file found in the configuration's search roots",
+                })
+        cfg["active_files"] = sorted(set(cfg["active_files"]))
+        cfg["unresolved_objects"].sort(key=lambda x: (x["stem"], x["reason"]))
+        cfg["shadowed_objects"].sort(key=lambda x: x["stem"])
+        return cfg
+
+    def normal_config_name(self) -> str:
+        for cfg in self.configs:
+            if cfg.get("kind") == "normal-amd64":
+                return cfg["name"]
+        for cfg in self.configs:
+            if cfg.get("kind") == "other":
+                return cfg["name"]
+        return self.configs[0]["name"] if self.configs else "pc64"
+
+    def file_build_map(self) -> dict[str, dict[str, str]]:
+        out: dict[str, dict[str, str]] = {sf.path: {} for sf in self.files}
+        for cfg in self.configs:
+            active = set(cfg.get("active_files", []))
+            roots = cfg.get("roots", [])
+            for sf in self.files:
+                if sf.kind not in ("c", "header", "assembly"):
+                    out[sf.path][cfg["name"]] = "not-applicable"
+                elif sf.path in active:
+                    out[sf.path][cfg["name"]] = "active"
+                elif sf.kind == "header" and any(sf.path.startswith(r + "/") for r in roots):
+                    out[sf.path][cfg["name"]] = "support"
+                elif any(sf.path.startswith(r + "/") for r in roots):
+                    out[sf.path][cfg["name"]] = "not-selected"
+                else:
+                    out[sf.path][cfg["name"]] = "outside-config-roots"
+        return out
+
+    def active_configs_for(self, path: str) -> list[str]:
+        return [c["name"] for c in self.configs if path in c.get("active_files", [])]
+
+    # -- registrations ------------------------------------------------------
+
+    def parse_struct_initializer(self, init: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        fields = self.struct_fields.get(init["type"], [])
+        elements = split_top_level(init.get("body", []), ",")
+        mapping: dict[str, dict[str, Any]] = {}
+        pos = 0
+        for el in elements:
+            if not el:
+                continue
+            if len(el) >= 3 and el[0].value == "." and el[1].kind == "id" and el[2].value == "=":
+                field = el[1].value
+                mapping[field] = expr_info(el[3:])
+                if field in fields:
+                    pos = max(pos, fields.index(field) + 1)
+            else:
+                while pos < len(fields) and fields[pos] in mapping:
+                    pos += 1
+                field = fields[pos] if pos < len(fields) else f"arg{pos}"
+                mapping[field] = expr_info(el)
+                pos += 1
+        return mapping
+
+    def flat_records(self, init: dict[str, Any], width: int) -> tuple[list[list[Token]], str | None]:
+        elements = split_top_level(init.get("body", []), ",")
+        # Some tables use { ... } around each record; accept both forms.
+        if elements and all(e and e[0].value == "{" and e[-1].value == "}" for e in elements):
+            inner: list[list[Token]] = []
+            for e in elements:
+                inner.extend(split_top_level(e[1:-1], ","))
+            elements = inner
+        if len(elements) % width != 0:
+            return elements, f"record count {len(elements)} is not a multiple of {width}"
+        return elements, None
+
+    def parse_dirtab(self, init: dict[str, Any]) -> dict[str, Any]:
+        elements, error = self.flat_records(init, 4)
+        entries: list[dict[str, Any]] = []
+        if error is None:
+            for i in range(0, len(elements), 4):
+                group = elements[i:i + 4]
+                name = group[0][0].value if group[0] and group[0][0].kind == "str" else join_tokens(group[0])
+                qid_tokens = group[1]
+                qid_expr = join_tokens(qid_tokens)
+                qid_symbol = None
+                for t in qid_tokens:
+                    if t.kind == "id" and t.value != "Qid":
+                        qid_symbol = t.value
+                        break
+                line = group[0][0].line if group[0] else init["line"]
+                sf = self.file_by_path.get(init["path"])
+                cond = tuple(sf.conditions[line]) if (sf and line < len(sf.conditions)) else tuple(init["conditions"])
+                entries.append({
+                    "name": name,
+                    "qid": qid_expr,
+                    "qid_symbol": qid_symbol,
+                    "length": join_tokens(group[2]),
+                    "perm": join_tokens(group[3]),
+                    "line": line,
+                    "conditions": list(cond),
+                })
+        rec = {
+            "id": f"dirtab:{init['path']}#{init['name']}",
+            "path": init["path"],
+            "name": init["name"],
+            "line": init["line"],
+            "array": init.get("array"),
+            "conditions": list(init["conditions"]),
+            "entries": entries,
+            "status": "resolved" if error is None else "unresolved",
+            "reason": error,
+        }
+        self.dirtab_records.append(rec)
+        return rec
+
+    def parse_cmdtab(self, init: dict[str, Any]) -> dict[str, Any]:
+        elements, error = self.flat_records(init, 3)
+        entries: list[dict[str, Any]] = []
+        if error is None:
+            for i in range(0, len(elements), 3):
+                group = elements[i:i + 3]
+                index = join_tokens(group[0])
+                cmd = group[1][0].value if group[1] and group[1][0].kind == "str" else join_tokens(group[1])
+                narg = join_tokens(group[2])
+                line = group[0][0].line if group[0] else init["line"]
+                sf = self.file_by_path.get(init["path"])
+                cond = tuple(sf.conditions[line]) if (sf and line < len(sf.conditions)) else tuple(init["conditions"])
+                entries.append({
+                    "index": index,
+                    "cmd": cmd,
+                    "narg": narg,
+                    "line": line,
+                    "conditions": list(cond),
+                })
+        rec = {
+            "id": f"cmdtab:{init['path']}#{init['name']}",
+            "path": init["path"],
+            "name": init["name"],
+            "line": init["line"],
+            "conditions": list(init["conditions"]),
+            "entries": entries,
+            "status": "resolved" if error is None else "unresolved",
+            "reason": error,
+        }
+        self.cmdtab_records.append(rec)
+        return rec
+
+    def build_registrations(self) -> None:
+        # Dirtab/Cmdtab first: they are data, not lower-level interfaces.
+        for init in self.initializer_records:
+            if init["type"] == "Dirtab":
+                self.parse_dirtab(init)
+            elif init["type"] == "Cmdtab":
+                self.parse_cmdtab(init)
+
+        for init in self.initializer_records:
+            typ = init["type"]
+            if typ not in ("Dev", "SDifc", "PhysUart", "VGAdev", "VGAcur", "PCArch", "ADifc"):
+                continue
+            mapping = self.parse_struct_initializer(init)
+            record_id = f"reg:{typ}:{init['path']}#{init['name']}"
+            if typ == "Dev":
+                dc = None
+                if "dc" in mapping:
+                    dc = mapping["dc"].get("literal")
+                    if dc is None:
+                        first = split_top_level(init["body"], ",")
+                        if first:
+                            dc = char_value(first[0])
+                name = mapping.get("name", {}).get("literal") or init["name"]
+                callbacks = {
+                    k: v for k, v in mapping.items() if k not in ("dc", "name")
+                }
+                rec = {
+                    "id": record_id,
+                    "type": "Dev",
+                    "name": name,
+                    "identifier": init["name"],
+                    "dc": dc,
+                    "path": init["path"],
+                    "line": init["line"],
+                    "conditions": list(init["conditions"]),
+                    "fields": mapping,
+                    "callbacks": callbacks,
+                    "active_configs": self.active_configs_for(init["path"]),
+                }
+            else:
+                name = mapping.get("name", {}).get("literal") or init["name"]
+                callbacks = {
+                    k: v for k, v in mapping.items() if k not in ("name",)
+                }
+                rec = {
+                    "id": record_id,
+                    "type": typ,
+                    "name": name,
+                    "identifier": init["name"],
+                    "path": init["path"],
+                    "line": init["line"],
+                    "conditions": list(init["conditions"]),
+                    "fields": mapping,
+                    "callbacks": callbacks,
+                    "active_configs": self.active_configs_for(init["path"]),
+                }
+            self.registration_records.append(rec)
+            for field, value in rec["callbacks"].items():
+                sym = value.get("symbol")
+                if sym and not value.get("nil"):
+                    self.interface_candidates[typ][field].append(sym)
+        for typ in self.interface_candidates:
+            for field in self.interface_candidates[typ]:
+                self.interface_candidates[typ][field] = sorted(
+                    set(self.interface_candidates[typ][field])
+                )
+
+        self._add_ether_cards()
+        self._add_hci_linkages()
+        self.registration_records.sort(key=lambda r: (r["path"], r["line"], r["id"]))
+
+    def _add_ether_cards(self) -> None:
+        for f in self.functions:
+            for call in f.calls:
+                if call.kind != "direct" or call.name != "addethercard":
+                    continue
+                args = call.args_text
+                if len(args) < 2:
+                    continue
+                m = re.match(r'"(.*)"$', args[0].strip())
+                if not m:
+                    continue
+                card = m.group(1)
+                pnp = args[1].strip()
+                pnp_func = next(
+                    (x for x in self.global_by_name.get(pnp, []) if x.path == f.path),
+                    None,
+                )
+                fields: dict[str, dict[str, Any]] = {}
+                if pnp_func is not None:
+                    fields = self._collect_assignments(pnp_func, depth=1)
+                callbacks = {
+                    k: v for k, v in fields.items()
+                    if k in ("attach", "transmit", "ctl", "power", "shutdown")
+                }
+                rec = {
+                    "id": f"reg:Ether:{f.path}#{card}",
+                    "type": "Ether",
+                    "name": card,
+                    "identifier": card,
+                    "path": f.path,
+                    "line": call.line,
+                    "conditions": list(f.conditions),
+                    "fields": fields,
+                    "callbacks": callbacks,
+                    "active_configs": self.active_configs_for(f.path),
+                    "registration_call": "addethercard",
+                    "pnp": pnp,
+                }
+                self.registration_records.append(rec)
+                for field, value in callbacks.items():
+                    sym = value.get("symbol")
+                    if sym:
+                        self.interface_candidates["Ether"][field].append(sym)
+        for field in self.interface_candidates["Ether"]:
+            self.interface_candidates["Ether"][field] = sorted(
+                set(self.interface_candidates["Ether"][field])
+            )
+
+    def _collect_assignments(self, func: Function, depth: int = 1) -> dict[str, dict[str, Any]]:
+        out: dict[str, dict[str, Any]] = {}
+        body = func.body
+        for i in range(len(body) - 3):
+            if body[i].value in ("->", ".") and body[i + 1].kind == "id":
+                field = body[i + 1].value
+                if body[i + 2].value == "=" and body[i + 3].kind == "id":
+                    out[field] = expr_info(body[i + 3:i + 4])
+        if depth > 0:
+            for call in func.calls:
+                if call.kind != "direct":
+                    continue
+                callee = self.resolve(call, func)[0]
+                if callee is not None and callee.path == func.path and callee.id != func.id:
+                    for k, v in self._collect_assignments(callee, depth - 1).items():
+                        out.setdefault(k, v)
+        return out
+
+
+    def _add_hci_linkages(self) -> None:
+        """USB HCI implementations are installed by *linkage() functions."""
+        fields_wanted = {
+            "init", "interrupt", "epopen", "epstop", "epclose", "epread",
+            "epwrite", "seprintep", "devclose", "portenable", "portreset",
+            "bhportreset", "portpower", "portstatus", "shutdown", "debug",
+        }
+        for f in self.functions:
+            if not f.name.endswith("linkage"):
+                continue
+            fields = self._collect_assignments(f, depth=0)
+            callbacks = {
+                k: v for k, v in fields.items()
+                if k in fields_wanted and v.get("symbol")
+            }
+            if len(callbacks) < 3:
+                continue
+            name = (fields.get("type") or {}).get("literal") or f.name
+            rec = {
+                "id": f"reg:Hciimpl:{f.path}#{f.name}",
+                "type": "Hciimpl",
+                "name": name,
+                "identifier": f.name,
+                "path": f.path,
+                "line": f.line,
+                "conditions": list(f.conditions),
+                "fields": fields,
+                "callbacks": callbacks,
+                "active_configs": self.active_configs_for(f.path),
+                "registration_call": "linkage assignment",
+            }
+            self.registration_records.append(rec)
+            for field, value in callbacks.items():
+                sym = value.get("symbol")
+                if sym:
+                    self.interface_candidates["Hciimpl"][field].append(sym)
+        for field in self.interface_candidates["Hciimpl"]:
+            self.interface_candidates["Hciimpl"][field] = sorted(
+                set(self.interface_candidates["Hciimpl"][field])
+            )
+
+    # -- call graph and chains ---------------------------------------------
+
+    def resolve(self, call: Call, from_func: Function) -> tuple[Function | None, str | None]:
+        if call.kind != "direct":
+            return None, "indirect"
+        candidates = self.global_by_name.get(call.name, [])
+        local = [f for f in candidates if f.path == from_func.path]
+        if len(local) == 1:
+            return local[0], None
+        if len(local) > 1:
+            return None, "ambiguous-local-symbol"
+        if len(candidates) == 1:
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, "ambiguous-global-symbol"
+        return None, "external"
+
+    def calls_in_scope(self, func: Function, start: int, end: int) -> list[Call]:
+        return extract_calls(func.body, start, end, func)
+
+    def indirect_candidates(self, call: Call) -> list[str]:
+        expr = (call.expr or "").lower()
+        field = call.field or call.name
+        typ = None
+        if "ifc" in expr:
+            typ = "SDifc"
+        elif "phys" in expr:
+            typ = "PhysUart"
+        elif "ether" in expr or "edev" in expr:
+            typ = "Ether"
+        elif "hp" in expr or "hci" in expr:
+            typ = "Hciimpl"
+        elif re.search(r"(^|[^a-z])cur($|[^a-z])", expr):
+            typ = "VGAcur"
+        elif "scr" in expr and "dev" in expr:
+            typ = "VGAdev"
+        elif "devtab" in expr or "->dev" in expr or re.search(r"(^|[^a-z])dev($|[^a-z])", expr):
+            typ = "Dev"
+        if typ is not None:
+            cands = self.interface_candidates.get(typ, {}).get(field, [])
+            if cands:
+                return cands
+        all_cands: set[str] = set()
+        for t in self.interface_candidates.values():
+            all_cands.update(t.get(field, []))
+        return sorted(all_cands)
+
+    def classify_external(self, name: str) -> str:
+        if name in HARDWARE_CALLS or re.match(r"^(in|out)[bwl]$", name):
+            return "hardware"
+        if name.startswith(CONTROLLER_PREFIXES):
+            return "controller"
+        if (
+            is_service_call(name)
+            or name.startswith(("q", "str", "mem", "fmt", "sprint", "seprint", "snprint"))
+        ):
+            return "service"
+        return "external-unknown"
+
+    def build_chain(
+        self,
+        start_func: Function | None,
+        calls: list[Call],
+        scope_key: Any,
+    ) -> dict[str, Any]:
+        cache_key = (start_func.id if start_func else None, json.dumps(scope_key, sort_keys=True))
+        if cache_key in self._chain_cache:
+            return self._chain_cache[cache_key]
+        if start_func is None:
+            chain = {
+                "id": "chain:missing",
+                "nodes": [],
+                "edges": [],
+                "terminal": {"kind": "handler-missing", "symbol": None, "line": None},
+                "status": "unresolved",
+                "reason": "handler definition was not found",
+                "responsibilities": [],
+                "services": [],
+            }
+            self._chain_cache[cache_key] = chain
+            return chain
+
+        terminals: list[dict[str, Any]] = []
+        services: list[dict[str, Any]] = []
+        visited_depth: dict[str, int] = {start_func.id: 0}
+        queue: deque[tuple[Function, list[Call], list[str], list[dict[str, Any]], int]] = deque()
+        queue.append((start_func, calls, [start_func.id], [], 0))
+        explored = 0
+        while queue and explored < MAX_CHAIN_NODES and len(terminals) < MAX_CHAIN_TERMINALS:
+            func, f_calls, path, edges, depth = queue.popleft()
+            explored += 1
+            for call in sorted(f_calls, key=lambda c: (c.line, c.offset, c.name)):
+                if call.kind in ("member", "pointer", "local-pointer"):
+                    cands = self.indirect_candidates(call) if call.kind != "local-pointer" else []
+                    kind = "interface" if cands else "indirect-unresolved"
+                    terminals.append({
+                        "kind": kind,
+                        "symbol": call.field or call.name,
+                        "expr": call.expr,
+                        "line": call.line,
+                        "path": func.path,
+                        "depth": depth,
+                        "candidates": cands,
+                        "path_nodes": list(path),
+                        "path_edges": edges + [{
+                            "from": func.id,
+                            "to": "indirect:" + (call.field or call.name),
+                            "kind": "indirect",
+                            "symbol": call.field or call.name,
+                            "expr": call.expr,
+                            "line": call.line,
+                            "path": func.path,
+                            "candidates": cands,
+                        }],
+                    })
+                    continue
+                if is_service_call(call.name):
+                    services.append({
+                        "symbol": call.name,
+                        "line": call.line,
+                        "path": func.path,
+                        "from": func.id,
+                    })
+                    continue
+                callee, reason = self.resolve(call, func)
+                if callee is not None:
+                    if callee.id in path:
+                        continue
+                    if depth + 1 > MAX_CHAIN_DEPTH:
+                        terminals.append({
+                            "kind": "depth-limit",
+                            "symbol": call.name,
+                            "line": call.line,
+                            "path": func.path,
+                            "depth": depth + 1,
+                            "candidates": [],
+                            "path_nodes": list(path),
+                            "path_edges": edges + [{
+                                "from": func.id, "to": "depth-limit:" + call.name,
+                                "kind": "depth-limit", "symbol": call.name,
+                                "line": call.line, "path": func.path,
+                                "candidates": [],
+                            }],
+                        })
+                        continue
+                    nd = depth + 1
+                    if visited_depth.get(callee.id, 10**9) <= nd:
+                        continue
+                    visited_depth[callee.id] = nd
+                    newpath = path + [callee.id]
+                    newedges = edges + [{
+                        "from": func.id,
+                        "to": callee.id,
+                        "kind": "direct",
+                        "symbol": call.name,
+                        "line": call.line,
+                        "path": func.path,
+                    }]
+                    queue.append((callee, callee.calls, newpath, newedges, nd))
+                else:
+                    if reason == "external":
+                        ext_kind = self.classify_external(call.name)
+                    else:
+                        ext_kind = "ambiguous-symbol"
+                    if ext_kind == "service":
+                        services.append({
+                            "symbol": call.name,
+                            "line": call.line,
+                            "path": func.path,
+                            "from": func.id,
+                        })
+                        continue
+                    terminals.append({
+                        "kind": ext_kind,
+                        "symbol": call.name,
+                        "line": call.line,
+                        "path": func.path,
+                        "depth": depth,
+                        "candidates": [],
+                        "reason": reason,
+                        "path_nodes": list(path),
+                        "path_edges": edges + [{
+                            "from": func.id, "to": "external:" + call.name,
+                            "kind": "terminal", "symbol": call.name,
+                            "line": call.line, "path": func.path,
+                        }],
+                    })
+        priority = {
+            "hardware": 0,
+            "controller": 1,
+            "interface": 2,
+            "external-unknown": 3,
+            "ambiguous-symbol": 5,
+            "indirect-unresolved": 6,
+            "depth-limit": 7,
+        }
+        if terminals:
+            terminals.sort(key=lambda t: (
+                priority.get(t["kind"], 9), t.get("depth", 99), t.get("line") or 0,
+                t.get("symbol") or "",
+            ))
+            chosen = terminals[0]
+        else:
+            chosen = {
+                "kind": "service-only" if services else "no-primitive",
+                "symbol": None,
+                "line": None,
+                "path": start_func.path,
+                "depth": None,
+                "candidates": [],
+            }
+        if chosen["kind"] in ("hardware",):
+            status = "resolved"
+            reason = None
+        elif chosen["kind"] in ("controller",):
+            status = "partial"
+            reason = "external controller/register primitive; semantics not established by this scanner"
+        elif chosen["kind"] == "interface":
+            status = "partial"
+            reason = "indirect callback edge retained; concrete target not statically resolved"
+        elif chosen["kind"] == "service-only":
+            status = "partial"
+            reason = "chain reached only kernel services/generic Dev helpers"
+        elif chosen["kind"] == "no-primitive":
+            status = "partial"
+            reason = "no device or service primitive identified within the bounded chain"
+        elif chosen["kind"] == "external-unknown":
+            status = "partial"
+            reason = "external call without a recognised device/service classification"
+        elif chosen["kind"] == "ambiguous-symbol":
+            status = "unresolved"
+            reason = chosen.get("reason") or "symbol has multiple definitions"
+        elif chosen["kind"] == "indirect-unresolved":
+            status = "unresolved"
+            reason = "indirect call with no known candidates"
+        else:
+            status = "unresolved"
+            reason = "chain depth limit reached before a primitive"
+
+        # The chosen terminal carries the exact bounded path that produced it.
+        # Do not re-search the graph here: a second search could find the same
+        # field name through an unrelated branch and fabricate a plausible but
+        # wrong chain.
+        nodes: list[str] = list(chosen.get("path_nodes") or [start_func.id])
+        edges: list[dict[str, Any]] = list(chosen.get("path_edges") or [])
+        if not nodes:
+            nodes = [start_func.id]
+        responsibilities = self._responsibilities(nodes, start_func, calls)
+        behavior = self._behavior(nodes, start_func, calls)
+        chain = {
+            "id": "",
+            "start": start_func.id,
+            "nodes": nodes,
+            "edges": edges,
+            "terminal": chosen,
+            "service_symbols": sorted({x["symbol"] for x in services})[:40],
+            "service_edge_count": len(services),
+            "status": status,
+            "reason": reason,
+            "responsibilities": responsibilities,
+            "return_behavior": behavior["return_behavior"],
+            "async": behavior["async"],
+        }
+        digest = hashlib.sha256(
+            json.dumps({
+                "start": chain["start"], "nodes": nodes, "edges": edges,
+                "terminal": chosen, "status": status,
+            }, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()[:16]
+        chain["id"] = "chain:" + digest
+        self.chains[chain["id"]] = chain
+        self._chain_cache[cache_key] = chain
+        return chain
+
+    def _find_terminal_path(
+        self,
+        start_func: Function,
+        calls: list[Call],
+        chosen: dict[str, Any],
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        target = chosen.get("symbol")
+        queue: deque[tuple[Function, list[Call], list[str], list[dict[str, Any]], int]] = deque()
+        queue.append((start_func, calls, [start_func.id], [], 0))
+        seen: set[str] = {start_func.id}
+        while queue:
+            func, f_calls, path, edges, depth = queue.popleft()
+            if depth > MAX_CHAIN_DEPTH:
+                continue
+            for call in sorted(f_calls, key=lambda c: (c.line, c.offset, c.name)):
+                if call.kind == "direct" and call.name == target:
+                    return path, edges + [{
+                        "from": func.id,
+                        "to": "external:" + target,
+                        "kind": "terminal",
+                        "symbol": target,
+                        "line": call.line,
+                        "path": func.path,
+                    }]
+                if call.kind == "direct":
+                    callee, _ = self.resolve(call, func)
+                    if callee is not None and callee.id not in seen:
+                        seen.add(callee.id)
+                        queue.append((callee, callee.calls, path + [callee.id],
+                                      edges + [{
+                                          "from": func.id, "to": callee.id,
+                                          "kind": "direct", "symbol": call.name,
+                                          "line": call.line, "path": func.path,
+                                      }], depth + 1))
+        return [start_func.id], []
+
+    def _find_indirect_path(
+        self,
+        start_func: Function,
+        calls: list[Call],
+        chosen: dict[str, Any],
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        target = chosen.get("symbol")
+        queue: deque[tuple[Function, list[Call], list[str], list[dict[str, Any]], int]] = deque()
+        queue.append((start_func, calls, [start_func.id], [], 0))
+        seen: set[str] = {start_func.id}
+        while queue:
+            func, f_calls, path, edges, depth = queue.popleft()
+            if depth > MAX_CHAIN_DEPTH:
+                continue
+            for call in sorted(f_calls, key=lambda c: (c.line, c.offset, c.name)):
+                if call.kind in ("member", "pointer", "local-pointer") and (call.field or call.name) == target:
+                    return path, edges + [{
+                        "from": func.id,
+                        "to": "indirect:" + (call.field or call.name),
+                        "kind": "indirect",
+                        "symbol": call.field or call.name,
+                        "expr": call.expr,
+                        "line": call.line,
+                        "path": func.path,
+                        "candidates": self.indirect_candidates(call),
+                    }]
+                if call.kind == "direct":
+                    callee, _ = self.resolve(call, func)
+                    if callee is not None and callee.id not in seen:
+                        seen.add(callee.id)
+                        queue.append((callee, callee.calls, path + [callee.id],
+                                      edges + [{
+                                          "from": func.id, "to": callee.id,
+                                          "kind": "direct", "symbol": call.name,
+                                          "line": call.line, "path": func.path,
+                                      }], depth + 1))
+        return [start_func.id], []
+
+    def _behavior(self, node_ids: list[str], start_func: Function, calls: list[Call]) -> dict[str, Any]:
+        names: list[str] = [c.name for c in calls]
+        texts: list[str] = [start_func.text]
+        for nid in node_ids:
+            f = self.function_by_id.get(nid)
+            if f is None:
+                continue
+            names.extend(c.name for c in f.calls)
+            texts.append(f.text)
+        joined = " ".join(texts)
+        error_calls = [n for n in names if n in ("error", "nexterror", "waserror", "poperror")]
+        async_calls = [
+            n for n in names
+            if n in ("sleep", "tsleep", "wakeup", "rendezvous", "qread", "qwrite",
+                     "qwait", "qio", "qpass", "qproduce", "qconsume")
+        ]
+        if error_calls:
+            error_behavior = (
+                "may raise a Plan 9 error; waserror/poperror rollback is present"
+                if any(n in ("waserror", "poperror") for n in error_calls)
+                else "may raise a Plan 9 error; rollback was not observed in the selected path"
+            )
+        else:
+            error_behavior = "returns through C return paths; error escalation not observed in the selected path"
+        async_behavior = (
+            "queue/wait/sleep/wakeup primitives observed"
+            if async_calls else "no asynchronous completion primitive identified"
+        )
+        return {
+            "return_behavior": error_behavior,
+            "async": async_behavior,
+        }
+
+    def _responsibilities(self, node_ids: list[str], start_func: Function, calls: list[Call]) -> list[str]:
+        flags: set[str] = set()
+        texts: list[str] = []
+        all_calls: list[str] = [c.name for c in calls]
+        for nid in node_ids:
+            f = self.function_by_id.get(nid)
+            if f is None:
+                continue
+            texts.append(f.text)
+            all_calls.extend(c.name for c in f.calls)
+        joined = " ".join(texts)
+        names = " ".join(all_calls)
+
+        if re.search(r"\b(namec|copen|cclose|cmount|devattach|devopen)\b", names):
+            flags.add("path/Chan handling")
+        if re.search(r"\bdevwalk\b|\bwalk\b", names):
+            flags.add("walk")
+        if re.search(r"\b(parsecmd|lookupcmd|strcmp|strncmp|strtol|tokenize|atoi)\b", names):
+            flags.add("textual parsing")
+        if re.search(r"\b(snprint|seprint|sprint|print|readstr|readnum)\b", names):
+            flags.add("formatting")
+        if re.search(r"\b(iseve|eve|validaddr|validnamedup|Eperm|Ebadarg)\b", joined):
+            flags.add("access/bounds validation")
+        if re.search(r"\b(qlock|qunlock|ilock|iunlock|lock|unlock|rlock|wlock)\b", names):
+            flags.add("locking")
+        if re.search(r"\b(incref|decref|kstrdup|free|malloc|smalloc|cclose)\b", names):
+            flags.add("lifetime/reference management")
+        if re.search(r"\b(sleep|tsleep|wakeup|rendezvous|qread|qwrite|qwait|sleep)\b", names):
+            flags.add("waiting/blocking")
+        if re.search(r"\b(dma|DMAT|dmat|pcimap|intrenable|intrdisable|Vctl)\b", joined):
+            flags.add("DMA/interrupt/controller interaction")
+        if re.search(r"\b(inb|inw|inl|outb|outw|outl|ins|outs|rdmsr|wrmsr)\b", names):
+            flags.add("hardware register/port interaction")
+        if re.search(r"\b(qio|qpass|qproduce|qconsume|Block|allocb|freeb)\b", joined):
+            flags.add("queue/framing/transport")
+        if re.search(r"\boff\b|\boffset\b|\bdevoffset\b", joined):
+            flags.add("offset translation")
+        if start_func.switches:
+            flags.add("Qid/command dispatch")
+        return sorted(flags)
+
+    # -- operations ---------------------------------------------------------
+
+    def _find_function(self, symbol: str | None, path: str | None = None) -> Function | None:
+        if not symbol:
+            return None
+        candidates = self.global_by_name.get(symbol, [])
+        if path:
+            local = [f for f in candidates if f.path == path]
+            if local:
+                return local[0]
+        if len(candidates) == 1:
+            return candidates[0]
+        return candidates[0] if candidates else None
+
+    def _qid_path_map(self, path: str) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = defaultdict(list)
+        for tab in self.dirtab_records:
+            if tab["path"] != path:
+                continue
+            for entry in tab["entries"]:
+                sym = entry.get("qid_symbol")
+                if sym:
+                    out[sym].append(entry["name"])
+        return out
+
+    def _operation(
+        self,
+        *,
+        op_id: str,
+        kind: str,
+        subsystem: str,
+        driver: str,
+        registration_id: str,
+        source_path: str,
+        source_line: int,
+        entry: dict[str, Any],
+        handler: Function | None,
+        calls: list[Call],
+        input_output: dict[str, Any],
+        conditions: Sequence[str] = (),
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        chain = self.build_chain(handler, calls, scope_key=(
+            handler.id if handler else None,
+            [c.offset for c in calls],
+            [c.name for c in calls],
+        ))
+        active = self.active_configs_for(source_path)
+        rec: dict[str, Any] = {
+            "id": op_id,
+            "kind": kind,
+            "subsystem": subsystem,
+            "driver": driver,
+            "registration_id": registration_id,
+            "source": {"path": source_path, "line": source_line},
+            "entry": entry,
+            "input_output": input_output,
+            "handler": {
+                "symbol": handler.name if handler else None,
+                "path": handler.path if handler else None,
+                "line": handler.line if handler else None,
+            },
+            "chain_id": chain["id"],
+            "status": chain["status"],
+            "reason": chain["reason"],
+            "return_behavior": chain.get("return_behavior"),
+            "async": chain.get("async"),
+            "active_configs": active,
+            "conditions": list(conditions),
+        }
+        if extra:
+            rec.update(extra)
+        self.operations.append(rec)
+        return rec
+
+    def _shape(self, callback: str, branch: str | None = None) -> dict[str, Any]:
+        if callback in ("read",):
+            return {"shape": "byte stream or textual value", "units": "offset, length"}
+        if callback in ("write",):
+            return {"shape": "byte stream or textual control", "units": "offset, length"}
+        if callback in ("bread", "bwrite"):
+            return {"shape": "block-oriented data", "units": "block, length"}
+        if callback in ("stat", "wstat"):
+            return {"shape": "Plan 9 Dir metadata", "units": "serialised Dir bytes"}
+        if callback in ("walk",):
+            return {"shape": "path components/Qids", "units": "name list"}
+        if callback in ("open", "create", "close", "remove", "attach"):
+            return {"shape": "Chan lifecycle/state transition", "units": "mode/flags"}
+        if callback in ("power",):
+            return {"shape": "device power state", "units": "on/off"}
+        if callback in ("config",):
+            return {"shape": "device configuration record", "units": "DevConf"}
+        return {"shape": "control/lifecycle", "units": "unspecified"}
+
+    def build_operations(self) -> None:
+        for reg in self.registration_records:
+            if reg["type"] != "Dev":
+                continue
+            path = reg["path"]
+            driver = reg["name"]
+            qidpaths = self._qid_path_map(path)
+            subsystem = subsystem_for(path, driver)
+            devchar = reg.get("dc")
+            for callback, value in reg["callbacks"].items():
+                sym = value.get("symbol")
+                if value.get("nil") or not sym:
+                    continue
+                handler = self._find_function(sym, path)
+                qid_switches = [
+                    sw for sw in (handler.switches if handler else [])
+                    if "qid" in sw.condition.lower()
+                ]
+                qid_ifs = extract_if_qid_branches(
+                    handler.body, 0, len(handler.body)
+                ) if handler and not qid_switches else []
+                if qid_switches or qid_ifs:
+                    seen_labels: set[str] = set()
+                    branch_specs: list[tuple[CaseLabel, str]] = []
+                    for sw in qid_switches:
+                        for case in sw.cases:
+                            if case.label == "default":
+                                continue
+                            branch_specs.append((case, sw.condition))
+                    for case in qid_ifs:
+                        branch_specs.append((case, "if qid comparison"))
+                    for case, dispatch in branch_specs:
+                        label = case.label
+                        if label in seen_labels:
+                            continue
+                        seen_labels.add(label)
+                        branch_calls = self.calls_in_scope(handler, case.start, case.end) if handler else []
+                        op_id = f"op:{reg['id']}:{callback}:{slug(label)}"
+                        qpaths = qidpaths.get(case.label, [])
+                        self._operation(
+                            op_id=op_id,
+                            kind="file-operation",
+                            subsystem=subsystem,
+                            driver=driver,
+                            registration_id=reg["id"],
+                            source_path=path,
+                            source_line=case.line,
+                            entry={
+                                "device": devchar,
+                                "device_syntax": f"#{devchar}" if devchar else None,
+                                "callback": callback,
+                                "qid": case.label,
+                                "path": qpaths[0] if qpaths else None,
+                                "paths": qpaths,
+                                "dispatch": dispatch,
+                                "command": None,
+                            },
+                            handler=handler,
+                            calls=branch_calls,
+                            input_output=self._shape(callback, case.label),
+                            conditions=handler.conditions if handler else (),
+                            extra={"branch": case.label},
+                        )
+                else:
+                    op_id = f"op:{reg['id']}:{callback}"
+                    self._operation(
+                        op_id=op_id,
+                        kind="file-operation",
+                        subsystem=subsystem,
+                        driver=driver,
+                        registration_id=reg["id"],
+                        source_path=path,
+                        source_line=value.get("line") or reg["line"],
+                        entry={
+                            "device": devchar,
+                            "device_syntax": f"#{devchar}" if devchar else None,
+                            "callback": callback,
+                            "qid": None,
+                            "path": None,
+                            "paths": [],
+                            "dispatch": "direct Dev callback",
+                            "command": None,
+                        },
+                        handler=handler,
+                        calls=handler.calls if handler else [],
+                        input_output=self._shape(callback),
+                        conditions=handler.conditions if handler else (),
+                    )
+
+            # Commands implemented with Cmdtab and lookupcmd.
+            for tab in self.cmdtab_records:
+                if tab["path"] != path:
+                    continue
+                dispatcher = self._find_dispatcher(tab)
+                index_switch = self._find_index_switch(dispatcher, tab) if dispatcher else None
+                for entry in tab["entries"]:
+                    idx = entry["index"]
+                    idx_sym = self._last_symbol(idx) or idx
+                    case = None
+                    if index_switch is not None:
+                        for c in index_switch.cases:
+                            if self._same_index(c.label, idx, idx_sym):
+                                case = c
+                                break
+                    calls = self.calls_in_scope(dispatcher, case.start, case.end) if (dispatcher and case) else (
+                        dispatcher.calls if dispatcher else []
+                    )
+                    op_id = f"cmd:{tab['id']}:{slug(idx_sym)}:{slug(entry['cmd'])}"
+                    chain = self.build_chain(dispatcher, calls, scope_key=(
+                        dispatcher.id if dispatcher else None,
+                        case.start if case else "whole-function",
+                        case.end if case else None,
+                    ))
+                    status = chain["status"]
+                    reason = chain["reason"]
+                    if dispatcher is None:
+                        status, reason = "unresolved", "Cmdtab dispatcher not found"
+                    elif case is None:
+                        status = "partial" if chain["status"] != "unresolved" else "unresolved"
+                        reason = ("command dispatched by the function outside a directly matched "
+                                  "switch case; branch-specific scope is not established")
+                    self.operations.append({
+                        "id": op_id,
+                        "kind": "control-command",
+                        "subsystem": subsystem,
+                        "driver": driver,
+                        "registration_id": reg["id"],
+                        "source": {"path": path, "line": entry["line"]},
+                        "entry": {
+                            "device": devchar,
+                            "device_syntax": f"#{devchar}" if devchar else None,
+                            "callback": "write/ctl",
+                            "qid": None,
+                            "path": None,
+                            "paths": [],
+                            "dispatch": index_switch.condition if index_switch else "Cmdtab lookup",
+                            "command": entry["cmd"],
+                            "command_index": idx,
+                            "narg": entry["narg"],
+                            "table": tab["name"],
+                            "dispatch_scope": "case" if case else "whole-dispatcher",
+                        },
+                        "input_output": {"shape": "textual control command", "units": "command name and arguments"},
+                        "handler": {
+                            "symbol": dispatcher.name if dispatcher else None,
+                            "path": dispatcher.path if dispatcher else None,
+                            "line": dispatcher.line if dispatcher else None,
+                        },
+                        "chain_id": chain["id"],
+                        "status": status,
+                        "reason": reason,
+                        "return_behavior": chain.get("return_behavior"),
+                        "async": chain.get("async"),
+                        "active_configs": self.active_configs_for(path),
+                        "conditions": [],
+                    })
+
+            # Commands implemented without Cmdtab: first-field strcmp tests in
+            # a Dev write handler.
+            write_value = reg["callbacks"].get("write", {})
+            write_handler = self._find_function(write_value.get("symbol"), path)
+            if write_handler is not None:
+                for command, line in extract_manual_commands(
+                    write_handler.body, 0, len(write_handler.body)
+                ):
+                    op_id = f"cmd:{reg['id']}:manual:{slug(write_handler.name)}:{slug(command)}"
+                    chain = self.build_chain(
+                        write_handler, write_handler.calls,
+                        scope_key=(write_handler.id, "manual", command),
+                    )
+                    self.operations.append({
+                        "id": op_id,
+                        "kind": "manual-control-command",
+                        "subsystem": subsystem,
+                        "driver": driver,
+                        "registration_id": reg["id"],
+                        "source": {"path": path, "line": line},
+                        "entry": {
+                            "device": devchar,
+                            "device_syntax": f"#{devchar}" if devchar else None,
+                            "callback": "write/ctl",
+                            "qid": None,
+                            "path": None,
+                            "paths": [],
+                            "dispatch": f"strcmp in {write_handler.name}",
+                            "command": command,
+                            "table": None,
+                        },
+                        "input_output": {"shape": "textual control command", "units": "command name and arguments"},
+                        "handler": {
+                            "symbol": write_handler.name,
+                            "path": write_handler.path,
+                            "line": write_handler.line,
+                        },
+                        "chain_id": chain["id"],
+                        "status": "partial" if chain["status"] == "resolved" else chain["status"],
+                        "reason": "manual command branch isolated only to the containing function"
+                        if chain["status"] == "resolved" else chain["reason"],
+                        "return_behavior": chain.get("return_behavior"),
+                        "async": chain.get("async"),
+                        "active_configs": self.active_configs_for(path),
+                        "conditions": [],
+                    })
+
+        # Lower-level interface callbacks (SDifc, PhysUart, VGA, PCArch, Ether).
+        for reg in self.registration_records:
+            if reg["type"] in ("Dev", "Dirtab", "Cmdtab"):
+                continue
+            path = reg["path"]
+            for callback, value in reg["callbacks"].items():
+                sym = value.get("symbol")
+                if value.get("nil") or not sym:
+                    continue
+                handler = self._find_function(sym, path)
+                op_id = f"iface:{reg['id']}:{callback}"
+                chain = self.build_chain(handler, handler.calls if handler else [], scope_key=(
+                    handler.id if handler else None, "full",
+                ))
+                self.operations.append({
+                    "id": op_id,
+                    "kind": "interface-operation",
+                    "subsystem": subsystem_for(path, reg["name"]),
+                    "driver": reg["name"],
+                    "registration_id": reg["id"],
+                    "source": {"path": path, "line": value.get("line") or reg["line"]},
+                    "entry": {
+                        "device": None,
+                        "device_syntax": None,
+                        "callback": callback,
+                        "qid": None,
+                        "path": None,
+                        "paths": [],
+                        "dispatch": f"{reg['type']} callback",
+                        "command": None,
+                        "interface": reg["type"],
+                        "registration": reg["name"],
+                    },
+                    "input_output": {"shape": "interface callback", "units": "interface-specific"},
+                    "handler": {
+                        "symbol": handler.name if handler else sym,
+                        "path": handler.path if handler else None,
+                        "line": handler.line if handler else None,
+                    },
+                    "chain_id": chain["id"],
+                    "status": chain["status"],
+                    "reason": chain["reason"],
+                    "return_behavior": chain.get("return_behavior"),
+                    "async": chain.get("async"),
+                    "active_configs": self.active_configs_for(path),
+                    "conditions": list(reg.get("conditions", [])),
+                })
+
+        self.operations.sort(key=lambda o: (o["subsystem"], o["driver"], o["id"]))
+
+    def _last_symbol(self, text: str) -> str | None:
+        ids = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text)
+        return ids[-1] if ids else None
+
+    def _same_index(self, case_label: str, entry_index: str, symbol: str) -> bool:
+        norm = lambda s: re.sub(r"\s+", "", s)
+        a, b, c = norm(case_label), norm(entry_index), norm(symbol)
+        return a == b or a == c or (c and re.search(rf"(^|[^A-Za-z0-9_]){re.escape(c)}($|[^A-Za-z0-9_])", a) is not None)
+
+    def _index_vars(self, func: Function) -> set[str]:
+        names: set[str] = {"index"}
+        body = func.body
+        for i, t in enumerate(body):
+            if t.kind != "id" or i + 1 >= len(body) or body[i + 1].value != "=":
+                continue
+            for j in range(i + 2, min(len(body), i + 16)):
+                if body[j].value == ";":
+                    break
+                if body[j].value == "index" and j > 0 and body[j - 1].value in ("->", "."):
+                    names.add(t.value)
+                    break
+        return names
+
+    def _is_index_switch(self, sw: Switch, func: Function) -> bool:
+        cond = re.sub(r"\s+", "", sw.condition)
+        if "index" in cond:
+            return True
+        for name in self._index_vars(func):
+            if name == "index":
+                continue
+            if re.search(rf"(^|[^A-Za-z0-9_]){re.escape(name)}($|[^A-Za-z0-9_])", cond):
+                return True
+        return False
+
+    def _find_index_switch(self, dispatcher: Function | None, tab: dict[str, Any]) -> Switch | None:
+        if dispatcher is None:
+            return None
+        candidates = [sw for sw in dispatcher.switches if self._is_index_switch(sw, dispatcher)]
+        if not candidates:
+            return None
+        best = None
+        best_score = -1
+        entries = tab.get("entries", [])
+        for sw in candidates:
+            score = 0
+            for entry in entries:
+                idx = entry.get("index", "")
+                sym = self._last_symbol(idx) or idx
+                if any(self._same_index(c.label, idx, sym) for c in sw.cases):
+                    score += 1
+            if score > best_score:
+                best, best_score = sw, score
+        return best or candidates[0]
+
+    def _find_dispatcher(self, tab: dict[str, Any]) -> Function | None:
+        direct: list[Function] = []
+        for f in self.functions:
+            if f.path != tab["path"]:
+                continue
+            for call in f.calls:
+                if call.kind == "direct" and call.name == "lookupcmd":
+                    if tab["name"] in " ".join(call.args_text):
+                        direct.append(f)
+                        break
+        candidates: list[Function] = list(direct)
+        # Helpers (for example devfs parseconfig) return the Cmdtab to a
+        # caller that performs the substantive switch.  Include direct callers
+        # of the lookupcmd helper when they have an index-like switch.
+        for helper in list(direct):
+            for f in self.functions:
+                if f.path != helper.path:
+                    continue
+                if any(call.kind == "direct" and call.name == helper.name for call in f.calls):
+                    if any(self._is_index_switch(sw, f) for sw in f.switches):
+                        candidates.append(f)
+        # Also accept a function that names the table and has an index switch.
+        for f in self.functions:
+            if f.path != tab["path"]:
+                continue
+            if tab["name"] in f.text and any(self._is_index_switch(sw, f) for sw in f.switches):
+                candidates.append(f)
+        # Deduplicate and score by how many table entries the best switch covers.
+        uniq: dict[str, Function] = {f.id: f for f in candidates}
+        best = None
+        best_score = -1
+        candidate_ids = set(uniq)
+        for f in uniq.values():
+            sw = self._find_index_switch(f, tab)
+            score = 0
+            if sw is not None:
+                for entry in tab.get("entries", []):
+                    idx = entry.get("index", "")
+                    sym = self._last_symbol(idx) or idx
+                    if any(self._same_index(c.label, idx, sym) for c in sw.cases):
+                        score += 1
+            # Prefer the caller that performs the substantive switch when a
+            # parse/helper function returns the Cmdtab to it.
+            for call in f.calls:
+                if call.kind == "direct":
+                    callee, _ = self.resolve(call, f)
+                    if callee is not None and callee.id in candidate_ids and callee.id != f.id:
+                        score += 50
+            if score > best_score or (score == best_score and best is not None and f.line < best.line):
+                best, best_score = f, score
+        return best
+
+    # -- native syscall entries --------------------------------------------
+
+    def build_native_entries(self) -> None:
+        systab_path = "sys/src/9/port/systab.h"
+        sf = self.file_by_path.get(systab_path)
+        if sf is None:
+            self.native_records.append({
+                "id": "native:unresolved",
+                "name": None,
+                "handler": None,
+                "status": "unresolved",
+                "reason": "sys/src/9/port/systab.h was not found",
+            })
+            return
+        text = sf.masked
+        numbers: dict[str, str] = {}
+        sysh = self.file_by_path.get("sys/src/libc/9syscall/sys.h")
+        if sysh is None:
+            try:
+                sysh_path = self.root / "sys/src/libc/9syscall/sys.h"
+                if sysh_path.is_file():
+                    sysh_text = sysh_path.read_text(encoding="utf-8", errors="replace")
+                else:
+                    sysh_text = ""
+            except OSError:
+                sysh_text = ""
+        else:
+            sysh_text = sysh.text
+        for m in re.finditer(r"#define\s+([A-Za-z0-9_]+)\s+([0-9]+)", sysh_text):
+            numbers[m.group(1)] = m.group(2)
+
+        def array_entries(array_name: str, pattern: str) -> list[re.Match[str]]:
+            m = re.search(rf"{array_name}\s*\[\s*\]\s*=\s*\{{(.*?)\}}\s*;", text, re.S)
+            if not m:
+                return []
+            return list(re.finditer(pattern, m.group(1)))
+
+        names: dict[str, str] = {}
+        for m in array_entries("sysctab", r'\[([A-Z0-9_]+)\]\s*"([^"]+)"'):
+            names[m.group(1)] = m.group(2)
+        entries = array_entries("systab", r"\[([A-Z0-9_]+)\]\s*(sys[A-Za-z0-9_]+)")
+        registered_handlers: set[str] = set()
+        for m in entries:
+            macro, handler_name = m.group(1), m.group(2)
+            registered_handlers.add(handler_name)
+            handler = self._find_function(handler_name)
+            chain = self.build_chain(handler, handler.calls if handler else [], scope_key=(
+                handler.id if handler else None, "syscall",
+            ))
+            self.native_records.append({
+                "id": f"native:{macro}",
+                "syscall": macro,
+                "number": numbers.get(macro),
+                "display_name": names.get(macro),
+                "handler": handler_name,
+                "handler_path": handler.path if handler else None,
+                "handler_line": handler.line if handler else None,
+                "source": {
+                    "path": handler.path if handler else systab_path,
+                    "line": handler.line if handler else None,
+                },
+                "systab_source": {"path": systab_path},
+                "chain_id": chain["id"],
+                "status": chain["status"],
+                "reason": chain["reason"],
+                "return_behavior": chain.get("return_behavior"),
+                "async": chain.get("async"),
+                "native_o": macro in {
+                    "OVOLOPEN", "OSPACEOPEN", "OSPACEGET", "OSPACEPUT",
+                    "OSPACECOMMIT", "OSPACECLOSE", "OEXECUTE",
+                },
+            })
+        # Functions that look like native O entry points but are not wired to
+        # systab[] are reported rather than omitted.
+        for f in self.functions:
+            if not re.match(r"^syso[a-z0-9_]*$", f.name):
+                continue
+            if f.name in registered_handlers:
+                continue
+            chain = self.build_chain(f, f.calls, scope_key=(f.id, "unregistered-syscall"))
+            self.native_records.append({
+                "id": f"native:unregistered:{f.name}",
+                "syscall": None,
+                "number": None,
+                "display_name": None,
+                "handler": f.name,
+                "handler_path": f.path,
+                "handler_line": f.line,
+                "source": {"path": f.path, "line": f.line},
+                "chain_id": chain["id"],
+                "status": "unresolved",
+                "reason": "native syscall-like function is defined but has no systab[] entry",
+                "return_behavior": chain.get("return_behavior"),
+                "async": chain.get("async"),
+                "native_o": True,
+            })
+        self.native_records.sort(key=lambda r: (r["id"],))
+
+    # -- representatives ----------------------------------------------------
+
+    def build_representatives(self) -> None:
+        specs = [
+            {
+                "id": "rep:ge-o-volopen",
+                "title": "GE/O native volume open through the storage backend",
+                "start": "sysovolopen",
+                "focus": ["gevolume", "namec", "oopen", "geopen"],
+                "note": "OVOLOPEN remains a native syscall but still discovers/opens a Chan through #S/devsd before oopen/geopen.",
+            },
+            {
+                "id": "rep:sd-partition",
+                "title": "Block partition read through SDifc to a storage backend",
+                "start": "sdbio",
+                "focus": [],
+                "prefer_interface": "bio",
+                "note": "sdbio is reached from devsd read/write Qpart; the concrete controller is selected by unit->dev->ifc->bio.",
+            },
+            {
+                "id": "rep:kbd",
+                "title": "Keyboard scancode read path",
+                "start": "kbdread",
+                "focus": ["kbdpoll", "i8042intr"],
+                "note": "The Qscancode branch polls the i8042 controller; inb/outb are the hardware endpoint.",
+            },
+            {
+                "id": "rep:console-serial",
+                "title": "Kernel console write and serial backend",
+                "start": "conswrite",
+                "focus": ["putstrn0", "uartputs"],
+                "prefer_interface": "putc",
+                "note": "Qcons writes go through the console ring and either screenputs or the PhysUart putc callback.",
+            },
+            {
+                "id": "rep:ether-data",
+                "title": "Ethernet data write path",
+                "start": "etherwrite",
+                "focus": ["etheroq", "ethermux"],
+                "prefer_interface": "transmit",
+                "note": "The data branch is framed through etheroq/ethermux; the queue kick ultimately invokes Ether.transmit.",
+            },
+            {
+                "id": "rep:dynamic-qid",
+                "title": "Dynamically generated directory and Qid dispatch",
+                "start": "sdgen",
+                "focus": [],
+                "switch_start": True,
+                "note": "devsd has no static Dirtab array for units/partitions; sdgen builds Qids from QID(dev, unit, part, type) and sdread/sdwrite switch on TYPE().",
+            },
+        ]
+        for spec in specs:
+            start = self._best_function(spec["start"])
+            nodes: list[str] = []
+            edges: list[dict[str, Any]] = []
+            notes: list[str] = [spec["note"]]
+            if start is None:
+                self.representative.append({
+                    "id": spec["id"], "title": spec["title"], "status": "unresolved",
+                    "reason": f"start function {spec['start']} not found",
+                    "nodes": [], "edges": [], "notes": notes,
+                })
+                continue
+            current = start
+            nodes.append(current.id)
+            pool: list[Function] = [start]
+            for target in spec.get("focus", []):
+                found = None
+                # Prefer the current function, then earlier functions in the
+                # selected path.  This handles sequential calls such as
+                # sysovolopen -> gevolume, then oopen, then geopen.
+                for candidate in [current] + list(reversed(pool)):
+                    for call in candidate.calls:
+                        if call.kind == "direct" and call.name == target:
+                            callee, _ = self.resolve(call, candidate)
+                            found = (candidate, call, callee)
+                            break
+                    if found:
+                        break
+                if found is None:
+                    notes.append(f"focused call {target} not found in the selected path")
+                    continue
+                frm, call, callee = found
+                if callee is not None:
+                    if callee.id not in nodes:
+                        nodes.append(callee.id)
+                    edges.append({
+                        "from": frm.id, "to": callee.id, "kind": "direct",
+                        "symbol": call.name, "line": call.line, "path": frm.path,
+                    })
+                    current = callee
+                    if callee not in pool:
+                        pool.append(callee)
+                else:
+                    edges.append({
+                        "from": frm.id, "to": "external:" + target, "kind": "direct",
+                        "symbol": call.name, "line": call.line, "path": frm.path,
+                    })
+            terminal = None
+            if spec.get("prefer_interface"):
+                field = spec["prefer_interface"]
+                for f in [current] + list(reversed(pool)):
+                    for call in f.calls:
+                        if call.kind in ("member", "pointer") and (call.field == field or call.name == field):
+                            terminal = {
+                                "kind": "interface", "symbol": field, "expr": call.expr,
+                                "line": call.line, "path": f.path,
+                                "candidates": self.indirect_candidates(call),
+                            }
+                            edges.append({
+                                "from": f.id, "to": "indirect:" + field,
+                                "kind": "indirect", "symbol": field,
+                                "expr": call.expr, "line": call.line, "path": f.path,
+                                "candidates": terminal["candidates"],
+                            })
+                            break
+                    if terminal:
+                        break
+                if terminal is None:
+                    # A field such as Ether.transmit is installed as a queue
+                    # kick in a probe/attach function rather than called
+                    # directly from the data path.  Keep that assignment edge
+                    # visible with its candidates.
+                    for f in self.functions:
+                        if f.path != start.path:
+                            continue
+                        for i, tok in enumerate(f.body[:-1]):
+                            if tok.value == "->" and f.body[i + 1].value == field:
+                                expr = join_tokens(f.body[max(0, i - 3):i + 2])
+                                terminal = {
+                                    "kind": "interface", "symbol": field,
+                                    "expr": expr, "line": tok.line, "path": f.path,
+                                    "candidates": self.interface_candidates.get("Ether", {}).get(field, []),
+                                    "assignment": True,
+                                }
+                                edges.append({
+                                    "from": f.id, "to": "indirect:" + field,
+                                    "kind": "indirect-assignment", "symbol": field,
+                                    "expr": expr, "line": tok.line, "path": f.path,
+                                    "candidates": terminal["candidates"],
+                                })
+                                notes.append(
+                                    f"{field} is installed as a callback/queue kick in "
+                                    f"{f.name}; the data path itself reaches it indirectly."
+                                )
+                                break
+                        if terminal:
+                            break
+            if spec.get("switch_start"):
+                qid_cases = []
+                for sw in start.switches:
+                    if "qid" in sw.condition.lower():
+                        for c in sw.cases:
+                            qid_cases.append({"case": c.label, "line": c.line})
+                if qid_cases:
+                    terminal = {
+                        "kind": "qid-dispatch", "symbol": None, "line": start.line,
+                        "path": start.path, "cases": qid_cases,
+                    }
+            elif spec["id"] == "rep:ge-o-volopen":
+                terminal = {
+                    "kind": "engine-entry", "symbol": current.name,
+                    "line": current.line, "path": current.path,
+                    "candidates": [],
+                }
+                notes.append(
+                    "The selected path reaches the GE engine entry; controller "
+                    "hardware is reached later through the storage backend, not "
+                    "by this bounded focus path."
+                )
+            elif terminal is None:
+                chain = self.build_chain(current, current.calls, scope_key=(current.id, "representative"))
+                terminal = chain["terminal"]
+                if len(chain["nodes"]) > len(nodes):
+                    nodes = chain["nodes"]
+                    edges = chain["edges"]
+                else:
+                    for e in chain["edges"]:
+                        if e not in edges:
+                            edges.append(e)
+            status = "resolved" if terminal.get("kind") in ("hardware", "qid-dispatch") else "partial"
+            if terminal.get("kind") in ("indirect-unresolved", "ambiguous-symbol", "depth-limit"):
+                status = "unresolved"
+            self.representative.append({
+                "id": spec["id"],
+                "title": spec["title"],
+                "status": status,
+                "start": start.id,
+                "nodes": nodes,
+                "edges": edges,
+                "terminal": terminal,
+                "notes": notes,
+            })
+
+    def _best_function(self, name: str) -> Function | None:
+        candidates = self.global_by_name.get(name, [])
+        if not candidates:
+            return None
+        candidates = sorted(candidates, key=lambda f: (f.path, f.line))
+        return candidates[0]
+
+    # -- coverage and data assembly ----------------------------------------
+
+    def build_file_records(self, build_map: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+        regs_by_file: dict[str, list[str]] = defaultdict(list)
+        for r in self.registration_records:
+            regs_by_file[r["path"]].append(r["id"])
+        records: list[dict[str, Any]] = []
+        normal = self.normal_config_name()
+        for sf in self.files:
+            if sf.kind == "c":
+                if regs_by_file.get(sf.path):
+                    classification = "kernel driver/interface source"
+                elif sf.functions:
+                    classification = "kernel support source"
+                else:
+                    classification = "scanned C source (no functions found)"
+            elif sf.kind == "header":
+                classification = "kernel header"
+            elif sf.kind == "assembly":
+                classification = "assembly support"
+            elif sf.kind == "config":
+                classification = "kernel build configuration"
+            elif sf.kind == "build-tool":
+                classification = "build helper"
+            else:
+                classification = "other scanned file"
+            rec = {
+                "path": sf.path,
+                "kind": sf.kind,
+                "classification": classification,
+                "sha256": sf.sha256,
+                "bytes": len(sf.text.encode("utf-8")),
+                "functions": len(sf.functions),
+                "initializers": len(sf.initializers),
+                "registrations": sorted(regs_by_file.get(sf.path, [])),
+                "build": build_map.get(sf.path, {}),
+                "normal_amd64": build_map.get(sf.path, {}).get(normal, "not-applicable"),
+                "parse": {
+                    "status": sf.parse_status,
+                    "reason": sf.parse_error,
+                    "line": sf.parse_error_line,
+                },
+                "conditions": sorted(self._file_conditions(sf)),
+            }
+            records.append(rec)
+        return records
+
+    def _file_conditions(self, sf: SourceFile) -> set[str]:
+        out: set[str] = set()
+        for c in sf.conditions:
+            out.update(c)
+        return out
+
+    def coverage(self, file_records: list[dict[str, Any]], build_map: dict[str, dict[str, str]]) -> dict[str, Any]:
+        by_kind: dict[str, int] = defaultdict(int)
+        for sf in self.files:
+            by_kind[sf.kind] += 1
+        by_dir: dict[str, int] = defaultdict(int)
+        for sf in self.files:
+            parts = sf.path.split("/")
+            by_dir["/".join(parts[:4]) if len(parts) >= 4 else sf.path] += 1
+        regs_by_type: dict[str, int] = defaultdict(int)
+        for r in self.registration_records:
+            regs_by_type[r["type"]] += 1
+        ops_by_kind: dict[str, int] = defaultdict(int)
+        ops_by_status: dict[str, int] = defaultdict(int)
+        for op in self.operations:
+            ops_by_kind[op["kind"]] += 1
+            ops_by_status[op["status"]] += 1
+        native_by_status: dict[str, int] = defaultdict(int)
+        for n in self.native_records:
+            native_by_status[n["status"]] += 1
+        chain_status: dict[str, int] = defaultdict(int)
+        for ch in self.chains.values():
+            chain_status[ch["status"]] += 1
+        per_config: list[dict[str, Any]] = []
+        for cfg in self.configs:
+            active_c = [p for p in cfg.get("active_files", []) if p in self.file_by_path and self.file_by_path[p].kind == "c"]
+            per_config.append({
+                "name": cfg["name"],
+                "kind": cfg.get("kind"),
+                "arch": cfg.get("arch"),
+                "target": cfg.get("target"),
+                "status": cfg.get("status"),
+                "config_path": cfg.get("config_path"),
+                "active_c_files": len(active_c),
+                "active_files_total": len(cfg.get("active_files", [])),
+                "unresolved_objects": len(cfg.get("unresolved_objects", [])),
+                "shadowed_objects": len(cfg.get("shadowed_objects", [])),
+            })
+        files_with_regs = sum(1 for r in file_records if r["registrations"])
+        c_files = sum(1 for sf in self.files if sf.kind == "c")
+        return {
+            "scanned_files": len(self.files),
+            "by_kind": dict(sorted(by_kind.items())),
+            "by_directory": dict(sorted(by_dir.items())),
+            "c_files": c_files,
+            "parsed_c_files": sum(1 for sf in self.files if sf.kind == "c" and sf.parse_status == "ok"),
+            "parse_failures": sum(1 for sf in self.files if sf.parse_status != "ok"),
+            "files_with_registrations": files_with_regs,
+            "registrations": len(self.registration_records),
+            "registrations_by_type": dict(sorted(regs_by_type.items())),
+            "dirtab_tables": len(self.dirtab_records),
+            "cmdtab_tables": len(self.cmdtab_records),
+            "exposed_operations": len(self.operations),
+            "operations_by_kind": dict(sorted(ops_by_kind.items())),
+            "operations_by_status": dict(sorted(ops_by_status.items())),
+            "mapped_hardware_primitives": sum(1 for op in self.operations if self.chains.get(op["chain_id"], {}).get("terminal", {}).get("kind") == "hardware"),
+            "mapped_controller_primitives": sum(1 for op in self.operations if self.chains.get(op["chain_id"], {}).get("terminal", {}).get("kind") == "controller"),
+            "partial_mappings": sum(1 for op in self.operations if op["status"] == "partial"),
+            "unresolved_operations": sum(1 for op in self.operations if op["status"] == "unresolved"),
+            "unique_chains": len(self.chains),
+            "chains_by_status": dict(sorted(chain_status.items())),
+            "native_entry_points": len(self.native_records),
+            "native_by_status": dict(sorted(native_by_status.items())),
+            "per_config": per_config,
+            "unresolved_build_objects": sum(len(c.get("unresolved_objects", [])) for c in self.configs),
+            "unsupported_declarations": len(self.unsupported_declarations),
+        }
+
+    def unresolved_work(self) -> dict[str, Any]:
+        ops = []
+        for op in self.operations:
+            if op["status"] == "resolved":
+                continue
+            ch = self.chains.get(op["chain_id"], {})
+            term = ch.get("terminal", {})
+            ops.append({
+                "operation": op["id"],
+                "kind": op["kind"],
+                "driver": op["driver"],
+                "status": op["status"],
+                "reason": op["reason"],
+                "terminal_kind": term.get("kind"),
+                "terminal_symbol": term.get("symbol"),
+                "candidates": term.get("candidates", []),
+                "source": op["source"],
+            })
+        parse = list(self.parse_issues)
+        build = []
+        for cfg in self.configs:
+            for item in cfg.get("unresolved_objects", []):
+                build.append({
+                    "config": cfg["name"],
+                    "stem": item.get("stem"),
+                    "reason": item.get("reason"),
+                })
+        conditional = []
+        for reg in self.registration_records:
+            if reg.get("conditions"):
+                conditional.append({
+                    "registration": reg["id"],
+                    "conditions": reg["conditions"],
+                    "source": {"path": reg["path"], "line": reg["line"]},
+                })
+        conditional_entries = []
+        for tab in self.dirtab_records:
+            for entry in tab.get("entries", []):
+                if entry.get("conditions"):
+                    conditional_entries.append({
+                        "table": tab["name"],
+                        "kind": "Dirtab",
+                        "entry": entry["name"],
+                        "qid": entry.get("qid_symbol") or entry.get("qid"),
+                        "conditions": entry["conditions"],
+                        "source": {"path": tab["path"], "line": entry["line"]},
+                    })
+        for tab in self.cmdtab_records:
+            for entry in tab.get("entries", []):
+                if entry.get("conditions") or tab.get("conditions"):
+                    conditional_entries.append({
+                        "table": tab["name"],
+                        "kind": "Cmdtab",
+                        "entry": entry["cmd"],
+                        "qid": entry["index"],
+                        "conditions": entry.get("conditions") or tab["conditions"],
+                        "source": {"path": tab["path"], "line": entry["line"]},
+                    })
+        return {
+            "operations": ops,
+            "parse_failures": parse,
+            "unresolved_build_objects": build,
+            "conditional_registrations": conditional,
+            "conditional_entries": conditional_entries,
+            "unsupported_declarations": list(self.unsupported_declarations),
+        }
+
+    def analyze(self) -> dict[str, Any]:
+        self.discover_files()
+        self.parse_all()
+        self.discover_configs()
+        build_map = self.file_build_map()
+        self.build_registrations()
+        self.build_operations()
+        self.build_native_entries()
+        self.build_representatives()
+        file_records = self.build_file_records(build_map)
+        coverage = self.coverage(file_records, build_map)
+        unresolved = self.unresolved_work()
+        function_index: list[dict[str, Any]] = []
+        indirect_edges: list[dict[str, Any]] = []
+        dynamic_directories: list[dict[str, Any]] = []
+        direct_edge_count = 0
+        external_edge_count = 0
+        for f in sorted(self.functions, key=lambda x: (x.path, x.line, x.name)):
+            function_index.append({
+                "id": f.id,
+                "name": f.name,
+                "path": f.path,
+                "line": f.line,
+                "end_line": f.end_line,
+                "static": f.static,
+                "params": f.params,
+                "conditions": list(f.conditions),
+                "call_count": len(f.calls),
+                "switch_count": len(f.switches),
+            })
+            qid_cases = []
+            for sw in f.switches:
+                if "qid" in sw.condition.lower():
+                    qid_cases.extend(
+                        {"case": c.label, "line": c.line} for c in sw.cases
+                    )
+            if qid_cases and (f.name.endswith("gen") or f.name in (
+                "sdgen", "rootgen", "ipgen", "drawgen", "pnpgen",
+            )):
+                dynamic_directories.append({
+                    "function": f.id,
+                    "name": f.name,
+                    "path": f.path,
+                    "line": f.line,
+                    "cases": qid_cases,
+                })
+            for c in f.calls:
+                if c.kind == "direct":
+                    callee, reason = self.resolve(c, f)
+                    if callee is not None:
+                        direct_edge_count += 1
+                    else:
+                        external_edge_count += 1
+                else:
+                    indirect_edges.append({
+                        "from": f.id, "kind": c.kind,
+                        "symbol": c.field or c.name, "expr": c.expr,
+                        "line": c.line, "path": f.path,
+                        "candidates": self.indirect_candidates(c),
+                    })
+        indirect_edges.sort(key=lambda e: (e["from"], e["line"], e["symbol"]))
+        dynamic_directories.sort(key=lambda x: (x["path"], x["line"]))
+        data = {
+            "schema": SCHEMA,
+            "generator": {
+                "name": GENERATOR,
+                "version": GENERATOR_VERSION,
+                "command": "python3 tools/kernel_opmap.py --write",
+                "limitations": [
+                    "lexical/structural scanner for Plan 9 C; not a compiler",
+                    "Qid and command branches are split only where a switch case is visible",
+                    "indirect callbacks are retained as edges with candidates, not resolved as facts",
+                    "preprocessor expressions are reported as conditions; no macro expansion is performed",
+                    "call chains are bounded and do not prove behavioural equivalence or safe removability",
+                    "duplicate non-static symbols across architecture trees remain ambiguous unless a local definition resolves them",
+                ],
+            },
+            "source": {
+                "root": KERNEL_REL,
+                "fingerprint_sha256": self.fingerprint,
+                "fingerprint_algorithm": "sha256 over sorted 'path\\0file-sha256\\n' records",
+                "files": file_records,
+            },
+            "configs": [
+                {
+                    "name": c["name"],
+                    "kind": c.get("kind"),
+                    "arch": c.get("arch"),
+                    "target": c.get("target"),
+                    "status": c.get("status"),
+                    "config_path": c.get("config_path"),
+                    "mkfile": c.get("mkfile"),
+                    "roots": c.get("roots", []),
+                    "object_stems": c.get("object_stems", []),
+                    "active_files": c.get("active_files", []),
+                    "unresolved_objects": c.get("unresolved_objects", []),
+                    "shadowed_objects": c.get("shadowed_objects", []),
+                    "whole_archives": c.get("whole_archives", []),
+                    "bootdir": c.get("bootdir", []),
+                    "notes": c.get("notes", []),
+                }
+                for c in self.configs
+            ],
+            "structs": {
+                name: {
+                    "fields": self.struct_fields[name],
+                    "source": self.struct_sources.get(name),
+                }
+                for name in sorted(self.struct_fields)
+            },
+            "functions": function_index,
+            "dynamic_directories": dynamic_directories,
+            "graph": {
+                "function_nodes": len(function_index),
+                "resolved_direct_edges": direct_edge_count,
+                "external_or_unresolved_direct_edges": external_edge_count,
+                "indirect_edges": indirect_edges,
+                "note": "Selected operation chains are stored once in chains[] and referenced by operations[].chain_id; full direct-edge lists are not duplicated here.",
+            },
+            "dirtab": sorted(self.dirtab_records, key=lambda r: (r["path"], r["line"], r["name"])),
+            "cmdtab": sorted(self.cmdtab_records, key=lambda r: (r["path"], r["line"], r["name"])),
+            "registrations": self.registration_records,
+            "interface_candidates": {
+                typ: {field: sorted(vals) for field, vals in sorted(fields.items())}
+                for typ, fields in sorted(self.interface_candidates.items())
+            },
+            "operations": self.operations,
+            "chains": {k: self.chains[k] for k in sorted(self.chains)},
+            "native_entry_points": self.native_records,
+            "representative_chains": self.representative,
+            "coverage": coverage,
+            "unresolved_work": unresolved,
+        }
+        return data
+
+
+# ---------------------------------------------------------------------------
+# Report rendering
+
+
+def subsystem_for(path: str, name: str | None) -> str:
+    p = path.lower()
+    n = (name or "").lower()
+    base = p.rsplit("/", 1)[-1]
+    stem = base.rsplit(".", 1)[0]
+    if "/gefs/" in p or n == "gefs" or stem == "devgefs":
+        return "ge-o"
+    if (
+        "/ip/" in p or n in ("ether", "ip", "wg")
+        or stem.startswith(("ether", "netif", "wifi"))
+    ):
+        return "network"
+    if (
+        n == "sd" or stem.startswith(("sd", "nvme", "ahci"))
+        or "virtio10" in stem and "ether" not in stem
+    ):
+        return "storage"
+    if n in ("cons", "uart", "kbd") or stem.startswith(("uart", "devcons", "devkbd")):
+        return "console-and-input"
+    if (
+        n in ("draw", "mouse", "vga")
+        or stem.startswith(("vga", "screen", "swcursor", "devdraw", "devmouse"))
+    ):
+        return "display-and-input"
+    if n == "usb" or stem.startswith("usb"):
+        return "usb"
+    if n in ("cap", "tls", "kprof") or stem in ("devcap", "devtls", "devkprof"):
+        return "security-and-tracing"
+    if n in (
+        "root", "env", "pipe", "proc", "mnt", "srv", "shr", "dup", "swap",
+        "fs", "segment",
+    ) or stem in (
+        "devroot", "devenv", "devpipe", "devproc", "devmnt", "devsrv",
+        "devshr", "devdup", "devswap", "devfs", "devsegment",
+    ):
+        return "process-and-memory"
+    if "/pc64/" in p or "/arm64/" in p or "/pc/" in p:
+        return "platform"
+    return "other"
+
+
+def md_cell(text: Any) -> str:
+    s = "" if text is None else str(text)
+    s = s.replace("|", "\\|").replace("\n", " ")
+    return s
+
+
+def short_source(obj: dict[str, Any] | None) -> str:
+    if not obj:
+        return ""
+    return f"{obj.get('path', '')}:{obj.get('line', '')}"
+
+
+def op_label(op: dict[str, Any]) -> str:
+    e = op.get("entry", {})
+    if op["kind"] == "file-operation":
+        s = f"{op['driver']}:{e.get('callback')}"
+        if e.get("qid"):
+            s += f" {e['qid']}"
+        if e.get("path"):
+            s += f" ({e['path']})"
+        return s
+    if op["kind"] in ("control-command", "manual-control-command"):
+        return f"{op['driver']}:cmd {e.get('command')}"
+    if op["kind"] == "interface-operation":
+        return f"{op['driver']}/{e.get('interface')}:{e.get('callback')}"
+    return op["id"]
+
+
+def terminal_text(chain: dict[str, Any] | None) -> str:
+    if not chain:
+        return "unknown"
+    t = chain.get("terminal", {})
+    kind = t.get("kind") or "unknown"
+    sym = t.get("symbol")
+    cands = t.get("candidates") or []
+    s = kind + (f" {sym}" if sym else "")
+    if cands:
+        s += f" ({len(cands)} candidates)"
+    return s
+
+
+def render_markdown(data: dict[str, Any]) -> str:
+    cov = data["coverage"]
+    funcs = {f["id"]: f for f in data.get("functions", [])}
+    chains = data.get("chains", {})
+    normal_name = next((c["name"] for c in data["configs"] if c.get("kind") == "normal-amd64"), None)
+    other_names = [c["name"] for c in data["configs"] if c["name"] != normal_name]
+    lines: list[str] = []
+    add = lines.append
+
+    add("# Kernel driver operation map (generated)")
+    add("")
+    add("<!-- This file is generated by tools/kernel_opmap.py; do not edit by hand. -->")
+    add("")
+    add("Regenerate both this report and the machine-readable map from the repository root:")
+    add("")
+    add("```sh")
+    add("python3 tools/kernel_opmap.py --write")
+    add("```")
+    add("")
+    add("Verify that the checked-in artifacts are current:")
+    add("")
+    add("```sh")
+    add("python3 tools/kernel_opmap.py --check")
+    add("```")
+    add("")
+    add(f"- Source tree: `{data['source']['root']}`")
+    add(f"- Source fingerprint (SHA-256): `{data['source']['fingerprint_sha256']}`")
+    add("- Source revision is recorded in `docs/STATUS.md`; the generated files "
+        "intentionally depend on the source fingerprint, not on the commit "
+        "that happens to contain these artifacts.")
+    add(f"- Schema: `{data['schema']}`; generator: `{data['generator']['name']}` v{data['generator']['version']}")
+    add("")
+    add("This is a source-level inventory, not a runtime claim.  A resolved chain "
+        "means only that a direct C call path reached a recognisable hardware or "
+        "controller primitive.  It does not establish semantic equivalence, "
+        "permission sufficiency, or safe removability.")
+    add("")
+    add("## Method and limitations")
+    add("")
+    add("The analyser is a lightweight lexical/structural scanner for the Plan 9 C "
+        "dialect, not a compiler.  It follows observed direct C calls, splits "
+        "visible Qid and Cmdtab branches, and retains indirect callback edges with "
+        "known candidates.  It does not expand macros, prove reachability, or "
+        "resolve a callback that is selected at runtime.")
+    add("")
+    for limitation in data["generator"].get("limitations", []):
+        add(f"- {limitation}")
+    add("")
+    add("## What the counts mean")
+    add("")
+    add("| Term | Definition |")
+    add("| --- | --- |")
+    add("| Scanned file | Every regular file under `sys/src/9`, including headers, assembly, mkfiles/scripts and configuration files. |")
+    add("| Registration | One `Dev`, `SDifc`, `PhysUart`, `VGAdev`, `VGAcur`, `PCArch`, `ADifc`, `addethercard` or USB `Hciimpl` linkage registration found in source. |")
+    add("| Exposed operation | One leaf file callback, Qid branch, Cmdtab command, manual first-field command, or lower-level interface callback. A callback split into Qid cases is counted as its cases, not also as a base callback. |")
+    add("| Mapped hardware primitive | Operation whose selected chain terminates at an exact hardware/port/MSR call such as `inb`/`outb`/`rdmsr`. |")
+    add("| Mapped controller primitive | Chain terminates at an external controller-prefixed service; the scanner does not know its internal behaviour. |")
+    add("| Partial mapping | Chain reached an indirect callback, a controller API, only kernel services, or an unclassified external call. |")
+    add("| Unresolved | Handler, dispatcher case, symbol resolution or bounded chain could not be established. |")
+    add("| Unique chain | Shared chain node referenced by operations (`op.chain_id` in JSON); duplicate graph paths are not recounted per operation. |")
+    add("")
+
+    add("## Coverage totals")
+    add("")
+    add("| Measure | Count |")
+    add("| --- | ---: |")
+    for key in (
+        "scanned_files", "c_files", "parsed_c_files", "parse_failures",
+        "files_with_registrations", "registrations", "dirtab_tables",
+        "cmdtab_tables", "exposed_operations", "mapped_hardware_primitives",
+        "mapped_controller_primitives", "partial_mappings",
+        "unresolved_operations", "unique_chains", "native_entry_points",
+        "unresolved_build_objects", "unsupported_declarations",
+    ):
+        add(f"| `{key}` | {cov.get(key, 0)} |")
+    add("")
+    add("Files by kind: " + ", ".join(f"`{k}` {v}" for k, v in cov["by_kind"].items()) + ".")
+    add("")
+    add("Operations by kind: " + ", ".join(f"`{k}` {v}" for k, v in cov["operations_by_kind"].items()) + ".")
+    add("")
+    add("Operations by status: " + ", ".join(f"`{k}` {v}" for k, v in cov["operations_by_status"].items()) + ".")
+    add("")
+    add("Unique chains by status: " + ", ".join(f"`{k}` {v}" for k, v in cov["chains_by_status"].items()) + ".")
+    add("")
+
+    add("## Build inclusion")
+    add("")
+    add("Inclusion is derived from each configuration file using the `mkdevlist` rules "
+        "and the corresponding mkfile object lists.  Source presence is not activity.")
+    add("")
+    add("| Configuration | Kind | Arch | Status | Active C files | Unresolved objects | Shadowed objects |")
+    add("| --- | --- | --- | --- | ---: | ---: | ---: |")
+    for c in cov["per_config"]:
+        add(f"| `{md_cell(c['name'])}` | {md_cell(c['kind'])} | {md_cell(c['arch'])} | "
+            f"{md_cell(c['status'])} | {c['active_c_files']} | {c['unresolved_objects']} | "
+            f"{c['shadowed_objects']} |")
+    add("")
+    add("The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only "
+        "configuration with the same selected source objects; `arm64/qemu` is a "
+        "different, planned architecture.  `riscv64` is a future target with no "
+        "source tree in this snapshot.  There is no separate `sys/src/9/pc` "
+        "configuration file here: `pc/` sources are selected through `pc64`.  "
+        "Objects not present in this source snapshot remain explicit below.")
+    add("")
+    unresolved_build = data["unresolved_work"]["unresolved_build_objects"]
+    if unresolved_build:
+        add("### Unresolved or ambiguous build objects")
+        add("")
+        add("| Configuration | Object stem | Reason |")
+        add("| --- | --- | --- |")
+        for item in unresolved_build:
+            add(f"| `{md_cell(item['config'])}` | `{md_cell(item['stem'])}` | {md_cell(item['reason'])} |")
+        add("")
+    shadowed = []
+    for cfg in data["configs"]:
+        for item in cfg.get("shadowed_objects", []):
+            shadowed.append((cfg["name"], item))
+    if shadowed:
+        add("### Same object stem found in more than one search root")
+        add("")
+        add("| Configuration | Object stem | Chosen | Shadowed |")
+        add("| --- | --- | --- | --- |")
+        for cfgname, item in shadowed:
+            add(f"| `{cfgname}` | `{item['stem']}` | `{item['chosen']}` | "
+                f"{md_cell(', '.join(item['shadowed']))} |")
+        add("")
+
+    add("## Registrations")
+    add("")
+    add("| ID | Type | Name | Device char | Source | Active configs | Callbacks |")
+    add("| --- | --- | --- | --- | --- | --- | ---: |")
+    for r in data["registrations"]:
+        dc = r.get("dc")
+        if dc is not None:
+            dc = repr(dc)
+        callbacks = sum(1 for v in r.get("callbacks", {}).values() if not v.get("nil") and v.get("symbol"))
+        add(f"| `{md_cell(r['id'])}` | {md_cell(r['type'])} | {md_cell(r['name'])} | "
+            f"{md_cell(dc)} | {md_cell(short_source(r))} | "
+            f"{md_cell(', '.join(r.get('active_configs', [])))} | {callbacks} |")
+    add("")
+
+    add("## Per-subsystem summary")
+    add("")
+    add("Subsystem labels are a source/name grouping heuristic for navigation; they "
+        "are not a proposed object schema.")
+    add("")
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for op in data["operations"]:
+        groups[op["subsystem"]].append(op)
+    add("| Subsystem | Operations | Resolved | Partial | Unresolved | Registrations |")
+    add("| --- | ---: | ---: | ---: | ---: | ---: |")
+    for sub in sorted(groups):
+        ops = groups[sub]
+        regs = [r for r in data["registrations"] if subsystem_for(r["path"], r["name"]) == sub]
+        add(f"| `{sub}` | {len(ops)} | {sum(1 for o in ops if o['status'] == 'resolved')} | "
+            f"{sum(1 for o in ops if o['status'] == 'partial')} | "
+            f"{sum(1 for o in ops if o['status'] == 'unresolved')} | {len(regs)} |")
+    add("")
+
+    add("## Operations by subsystem")
+    add("")
+    add("Build legend: `N` active in the normal amd64 configuration, `O` active "
+        "only in another discovered configuration, `-` not selected by a "
+        "resolved configuration.  Behavior legend: `E` a Plan 9 error escalation "
+        "was observed in the selected path, `A` queue/wait/sleep/wakeup primitives "
+        "were observed, `-` neither.  Non-default architecture sources are included "
+        "in the tables even when `O`/`-`.")
+    add("")
+    for sub in sorted(groups):
+        add(f"### {sub}")
+        add("")
+        by_driver: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for op in groups[sub]:
+            by_driver[op["driver"]].append(op)
+        for driver in sorted(by_driver):
+            add(f"#### `{driver}`")
+            add("")
+            add("| Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |")
+            add("| --- | --- | --- | --- | --- | --- | --- | --- |")
+            for op in sorted(by_driver[driver], key=lambda o: o["id"]):
+                ch = chains.get(op["chain_id"])
+                handler = op.get("handler", {}).get("symbol") or ""
+                acts = op.get("active_configs", [])
+                bmark = "N" if normal_name in acts else ("O" if acts else "-")
+                beh = ""
+                if op.get("return_behavior") and "may raise" in op["return_behavior"]:
+                    beh += "E"
+                if op.get("async") and "observed" in op["async"]:
+                    beh += "A"
+                beh = beh or "-"
+                add(f"| `{md_cell(op_label(op))}` | {md_cell(op['entry'].get('dispatch'))} | "
+                    f"`{md_cell(handler)}` | {md_cell(terminal_text(ch))} | "
+                    f"{md_cell(op['status'])} | {beh} | {bmark} | {md_cell(short_source(op['source']))} |")
+            add("")
+
+    add("## Qid and command dispatch")
+    add("")
+    add("### Static Dirtab/Qid tables")
+    add("")
+    add("| Table | Source | Entries (name -> qid symbol) | Status |")
+    add("| --- | --- | --- | --- |")
+    for tab in data["dirtab"]:
+        entries = ", ".join(
+            f"{e['name']} -> {e.get('qid_symbol') or e['qid']}"
+            for e in tab.get("entries", [])
+        )
+        add(f"| `{md_cell(tab['name'])}` | {md_cell(tab['path'] + ':' + str(tab['line']))} | "
+            f"{md_cell(entries)} | {md_cell(tab.get('status'))} |")
+    add("")
+    add("### Cmdtab control tables")
+    add("")
+    add("| Table | Source | Commands (index: command/narg) |")
+    add("| --- | --- | --- |")
+    for tab in data["cmdtab"]:
+        entries = ", ".join(
+            f"{e['index']}: {e['cmd']}/{e['narg']}" for e in tab.get("entries", [])
+        )
+        add(f"| `{md_cell(tab['name'])}` | {md_cell(tab['path'] + ':' + str(tab['line']))} | "
+            f"{md_cell(entries)} |")
+    add("")
+    dynamic = data.get("dynamic_directories", [])
+    if dynamic:
+        add("### Dynamically generated directories")
+        add("")
+        add("| Generator | Source | Qid cases observed |")
+        add("| --- | --- | --- |")
+        for f in dynamic:
+            cases = ", ".join(c["case"] for c in f.get("cases", []))
+            add(f"| `{md_cell(f['name'])}` | {md_cell(f['path'] + ':' + str(f['line']))} | "
+                f"{md_cell(cases)} |")
+        add("")
+
+    add("## Lower-level interfaces")
+    add("")
+    add("| Interface | Name | Source | Callback candidates |")
+    add("| --- | --- | --- | --- |")
+    for r in data["registrations"]:
+        if r["type"] in ("Dev", "Dirtab", "Cmdtab"):
+            continue
+        cbs = [f"{k}={v.get('symbol')}" for k, v in r.get("callbacks", {}).items()
+               if not v.get("nil") and v.get("symbol")]
+        add(f"| `{md_cell(r['type'])}` | `{md_cell(r['name'])}` | {md_cell(short_source(r))} | "
+            f"{md_cell(', '.join(cbs))} |")
+    add("")
+    add("Indirect-call candidates are retained by field name.  For example, every "
+        "operation that reaches `unit->dev->ifc->bio` records the known `SDifc.bio` "
+        "implementations rather than pretending one was selected.")
+    add("")
+
+    add("## Native entry points")
+    add("")
+    add("### GE/O and other non-file syscalls")
+    add("")
+    add("| Syscall | Number | Handler | Status | Source |")
+    add("| --- | ---: | --- | --- | --- |")
+    for n in data["native_entry_points"]:
+        if not n.get("native_o"):
+            continue
+        add(f"| `{md_cell(n.get('syscall') or '(unregistered)')}` | {md_cell(n.get('number'))} | "
+            f"`{md_cell(n.get('handler'))}` | {md_cell(n.get('status'))} | "
+            f"{md_cell(short_source(n.get('source') or {'path': n.get('handler_path'), 'line': n.get('handler_line')}))} |")
+    add("")
+    add("All syscall-table entries discovered: "
+        + ", ".join(f"`{n.get('syscall')}`" for n in data["native_entry_points"] if n.get("syscall"))
+        + ".")
+    add("")
+
+    add("## Representative chains")
+    add("")
+    add("These are selected source paths, not proofs of complete behaviour.  Each "
+        "edge below is a direct C call observed in source or an explicitly "
+        "labelled indirect callback.  The separate manual cross-check notes are "
+        "kept in `docs/KERNEL-OPMAP-NOTES.md`.")
+    add("")
+    for rep in data["representative_chains"]:
+        add(f"### {rep['title']}")
+        add("")
+        add(f"- Status: **{rep['status']}**")
+        for note in rep.get("notes", []):
+            add(f"- {note}")
+        if rep.get("terminal"):
+            add(f"- Terminal: `{terminal_text({'terminal': rep['terminal']})}`")
+        add("")
+        if rep.get("nodes"):
+            add("| Step | Function | Source |")
+            add("| ---: | --- | --- |")
+            for i, nid in enumerate(rep["nodes"], 1):
+                f = funcs.get(nid)
+                if f:
+                    add(f"| {i} | `{md_cell(f['name'])}` | {md_cell(f['path'] + ':' + str(f['line']))} |")
+                else:
+                    add(f"| {i} | `{md_cell(nid)}` | |")
+            add("")
+        if rep.get("edges"):
+            add("| Edge | From | To | Evidence |")
+            add("| ---: | --- | --- | --- |")
+            for i, e in enumerate(rep["edges"], 1):
+                frm = funcs.get(e.get("from"), {})
+                add(f"| {i} | `{md_cell(frm.get('name', e.get('from')))}` | "
+                    f"`{md_cell(e.get('to'))}` | {md_cell(e.get('path', '') + ':' + str(e.get('line', '')))} |")
+            add("")
+
+    add("## File coverage appendix")
+    add("")
+    add("Status legend: `A` active object, `S` header/support file in that "
+        "configuration's search roots, `-` not selected, `o` outside that "
+        "configuration's search roots, `n/a` not a compilable source.  Every "
+        "scanned file is present in the JSON `source.files` array with its "
+        "SHA-256 and classification.")
+    add("")
+    normal = normal_name
+    other = other_names[0] if other_names else None
+    add(f"| File | Kind | Class | {md_cell(normal) or 'normal'} | {md_cell(other) or 'other'} | Parse | Registrations |")
+    add("| --- | --- | --- | --- | --- | --- | ---: |")
+    for f in data["source"]["files"]:
+        def st(cfg: str | None) -> str:
+            if not cfg:
+                return ""
+            return {
+                "active": "A", "support": "S", "not-selected": "-",
+                "outside-config-roots": "o", "not-applicable": "n/a",
+            }.get(f["build"].get(cfg), "")
+        parse = f["parse"]["status"]
+        if parse != "ok":
+            parse += f": {f['parse'].get('reason') or ''}"
+        add(f"| `{md_cell(f['path'])}` | {f['kind']} | {md_cell(f['classification'])} | "
+            f"{st(normal)} | {st(other)} | {md_cell(parse)} | {len(f['registrations'])} |")
+    add("")
+
+    add("## Unresolved work")
+    add("")
+    uw = data["unresolved_work"]
+    add("### Parse and declaration issues")
+    add("")
+    add("| File | Line | Reason |")
+    add("| --- | ---: | --- |")
+    for item in uw["parse_failures"]:
+        add(f"| `{md_cell(item['path'])}` | {md_cell(item.get('line'))} | {md_cell(item.get('reason'))} |")
+    for item in uw["unsupported_declarations"]:
+        add(f"| `{md_cell(item['path'])}` | | {md_cell(item['detail'])} |")
+    if not uw["parse_failures"] and not uw["unsupported_declarations"]:
+        add("| none | | |")
+    add("")
+    add("### Conditional registrations")
+    add("")
+    if uw["conditional_registrations"]:
+        add("| Registration | Condition | Source |")
+        add("| --- | --- | --- |")
+        for item in uw["conditional_registrations"]:
+            add(f"| `{md_cell(item['registration'])}` | {md_cell(' && '.join(item['conditions']))} | "
+                f"{md_cell(short_source(item['source']))} |")
+    else:
+        add("None found.")
+    add("")
+    add("### Conditional Dirtab/Cmdtab entries")
+    add("")
+    ces = uw.get("conditional_entries", [])
+    if ces:
+        add("| Kind | Table | Entry | Condition | Source |")
+        add("| --- | --- | --- | --- | --- |")
+        for item in ces:
+            add(f"| {md_cell(item['kind'])} | `{md_cell(item['table'])}` | "
+                f"`{md_cell(item['entry'])}` | {md_cell(' && '.join(item['conditions']))} | "
+                f"{md_cell(short_source(item['source']))} |")
+    else:
+        add("None found.")
+    add("")
+    add("### Partial and unresolved operations")
+    add("")
+    add("The machine-readable list is `unresolved_work.operations` in the JSON.  "
+        "Reasons are grouped here so that a reviewer can see the unresolved edge "
+        "rather than a false claim of completeness.")
+    add("")
+    by_reason: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in uw["operations"]:
+        by_reason[item.get("reason") or "(unspecified)"].append(item)
+    add("| Reason | Count | Example operations | Terminal evidence |")
+    add("| --- | ---: | --- | --- |")
+    for reason in sorted(by_reason):
+        items = by_reason[reason]
+        examples = ", ".join(f"`{i['operation']}`" for i in items[:4])
+        if len(items) > 4:
+            examples += f", ... ({len(items) - 4} more)"
+        terms = sorted({
+            f"{i.get('terminal_kind')}:{i.get('terminal_symbol')}"
+            for i in items if i.get("terminal_kind")
+        })
+        add(f"| {md_cell(reason)} | {len(items)} | {md_cell(examples)} | {md_cell(', '.join(terms))} |")
+    add("")
+
+    add("## User-space kbdfs boundary")
+    add("")
+    add("`kbdfs` is a user-space 9P server used as the console helper.  The `pc64` "
+        "configuration embeds its binary in the kernel image (`bootdir`), but the "
+        "binary is not a kernel-mode driver and its own 9P server is outside this "
+        "kernel inventory.  The relevant kernel endpoints are the console and "
+        "input devices and the serial/display output callbacks: `#c` (`devcons`), "
+        "`#b` (`devkbd`, pc64 only), `#t` (`devuart`), the `screenputs` hook and "
+        "the `PhysUart.putc`/`getc` callbacks.  The embedded `kbdfs` entry is "
+        "recorded in the configuration table only; it is not counted as a driver.")
+    add("")
+
+    add("## Manual cross-check notes")
+    add("")
+    add("The source-checked manual notes (separate from this generated report) are "
+        "in `docs/KERNEL-OPMAP-NOTES.md`.")
+    add("")
+    add("## Evidence-based next extraction targets")
+    add("")
+    add("These are bounded candidates suggested by the generated chains.  They are "
+        "not transformations performed by this task, and the list does not "
+        "prescribe a universal syscall ABI or harmonise the drivers.")
+    add("")
+    add("1. **Keyboard scancode read/write (`devkbd`, `#b`).** The Qscancode read "
+        "branch reaches `kbdpoll` -> `i8042intr` -> `inb`; the Qleds write branch "
+        "reaches `setleds` -> `outdata` -> `outb`.  Prerequisite: preserve the "
+        "input queue, IRQ/polling mode, access check in `kbdopen`, and the exact "
+        "lock/acknowledgement sequence.")
+    add("2. **RTC/CMOS read/write (`devrtc`, `#r`).** The value paths are small and "
+        "reach port I/O directly.  Prerequisite: preserve binary/ASCII time formats, "
+        "NVRAM bounds and the `iseve`/permission checks.")
+    add("3. **Console write (`devcons`, `#c`, Qcons).** The path reaches "
+        "`putstrn0` and the `screenputs`/`PhysUart.putc` callbacks.  Prerequisite: "
+        "keep the kernel message ring, console ownership/locking and the serial "
+        "polling fallback; decide explicitly whether the callback indirection is "
+        "replaced by a plain C record.")
+    add("4. **Block partition data path (`devsd`, `#S`, Qpart/Qraw).** This is the "
+        "clearest storage backend boundary, but it is partial: `sdbio` reaches "
+        "`unit->dev->ifc->bio` with NVMe/AHCI/virtio/loop/RAM candidates.  "
+        "Prerequisite: select and carry a concrete controller handle instead of "
+        "relying on `SDifc` lookup at call time, without changing partition "
+        "offset/bounds or media-change semantics.")
+    add("5. **GE/O volume open (`OVOLOPEN`).** `sysovolopen` is already a native "
+        "syscall, but `gevolume` still uses `namec(\"#S\"...)`, `devtab[...]->read` "
+        "and a `Chan` before `oopen`/`geopen`.  Prerequisite: give the storage "
+        "backend a native block handle and preserve GPT discovery, O-profile "
+        "validation and the existing handle lifetime; the native O object calls "
+        "themselves already avoid Chan/Fid/Qid.")
+    add("6. **Ethernet transmit (`devether`, `#l`).** `etherwrite` -> `etheroq` -> "
+        "`ethermux` -> queue write reaches the `Ether.transmit` callback.  "
+        "Prerequisite: preserve framing, MTU checks, bypass/bridge modes and the "
+        "queue/kick ownership rules before replacing the callback.")
+    add("")
+
+    return "\n".join(lines) + "\n"
+
+
+def dumps_json(data: dict[str, Any]) -> str:
+    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Command line
+
+
+def default_paths(root: Path) -> tuple[Path, Path]:
+    return root / DEFAULT_JSON, root / DEFAULT_MD
+
+
+def write_artifacts(root: Path, data: dict[str, Any], json_path: Path | None = None, md_path: Path | None = None) -> tuple[Path, Path]:
+    jp, mp = default_paths(root)
+    jp = json_path or jp
+    mp = md_path or mp
+    jp.parent.mkdir(parents=True, exist_ok=True)
+    mp.parent.mkdir(parents=True, exist_ok=True)
+    jp.write_text(dumps_json(data), encoding="utf-8")
+    mp.write_text(render_markdown(data), encoding="utf-8")
+    return jp, mp
+
+
+def check_artifacts(root: Path, data: dict[str, Any], json_path: Path | None = None, md_path: Path | None = None) -> list[str]:
+    jp, mp = default_paths(root)
+    jp = json_path or jp
+    mp = md_path or mp
+    problems: list[str] = []
+    expected = {jp: dumps_json(data), mp: render_markdown(data)}
+    for path, content in expected.items():
+        if not path.is_file():
+            problems.append(f"missing generated artifact: {path}")
+        elif path.read_text(encoding="utf-8") != content:
+            problems.append(f"stale generated artifact: {path}")
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent,
+                    help="repository root (default: parent of tools/)")
+    ap.add_argument("--write", action="store_true", help="regenerate the checked-in JSON and Markdown artifacts")
+    ap.add_argument("--check", action="store_true", help="fail if the checked-in artifacts are stale")
+    ap.add_argument("--json", type=Path, default=None, help="override JSON output path")
+    ap.add_argument("--markdown", type=Path, default=None, help="override Markdown output path")
+    ap.add_argument("--stats", action="store_true", help="print coverage totals without writing files")
+    args = ap.parse_args(argv)
+    root = args.root.resolve()
+    data = Analyzer(root).analyze()
+    if args.stats and not (args.write or args.check):
+        print(json.dumps(data["coverage"], sort_keys=True, indent=2))
+        return 0
+    if args.check:
+        problems = check_artifacts(root, data, args.json, args.markdown)
+        if problems:
+            for p in problems:
+                print(p, file=sys.stderr)
+            return 1
+        print("kernel operation map: up to date")
+        return 0
+    if args.write:
+        jp, mp = write_artifacts(root, data, args.json, args.markdown)
+        cov = data["coverage"]
+        print(f"wrote {jp}")
+        print(f"wrote {mp}")
+        print(f"files={cov['scanned_files']} registrations={cov['registrations']} "
+              f"operations={cov['exposed_operations']} "
+              f"resolved={cov['operations_by_status'].get('resolved', 0)} "
+              f"partial={cov['operations_by_status'].get('partial', 0)} "
+              f"unresolved={cov['operations_by_status'].get('unresolved', 0)}")
+        return 0
+    # Default: print a short summary, do not modify the tree.
+    cov = data["coverage"]
+    print(f"files={cov['scanned_files']} registrations={cov['registrations']} "
+          f"operations={cov['exposed_operations']} "
+          f"resolved={cov['operations_by_status'].get('resolved', 0)} "
+          f"partial={cov['operations_by_status'].get('partial', 0)} "
+          f"unresolved={cov['operations_by_status'].get('unresolved', 0)}")
+    print("use --write to regenerate docs/KERNEL-OPMAP.json and docs/KERNEL-OPMAP.md")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
