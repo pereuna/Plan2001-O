@@ -16,6 +16,10 @@ boot-boundary result and does not replace the storage Level A baseline.
 **Boot Experiment B** was separately implemented at `ba6b8ab` plus
 `ddf9899` (23 October 2026); it is a distinct userspace-entry result and
 does not replace either storage Level A or Boot A.
+**Boot Experiment C** was implemented at `3374eb9` (23 October 2026);
+it combines Boot B's ring-3 entry with native O reads and an
+`OEXECUTE` image replacement, and does not rename the earlier Storage
+Levels A/B/C.
 
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -37,11 +41,96 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Pathless storage, Level A** | **PASS (23 October 2026):** a `PARTUUID=` O volume is discovered in GPT from enumerated SD units and used for GE block I/O, sync and driver flush with no new kernel `Chan`/`namec`/walk/mount/path-exec event in the measured window. Bootstrap and console remain legacy, so Levels B/C are **NOT YET**. See [O-BOOT-DEPENDENCIES.md](O-BOOT-DEPENDENCIES.md). |
 | **Boot Experiment A (kernel-only probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=probe`, the normal `9pc64` kernel initialized hardware and the scheduler, ran a minimal `kproc` (`pid=1`, `slash=nil`, `dot=nil`), produced two post-scheduler heartbeats, and did not execute `userinit`/`proc0`/`init0`/`startboot` or any `namec`/walk/mount/path-exec. The normal O boot remained PASS. This is not a storage or pathless-executable claim; see [O-BOOT-EXPERIMENT-A.md](O-BOOT-EXPERIMENT-A.md). |
 | **Boot Experiment B (ring-3 userspace probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=user`, the normal `9pc64` kernel built a user address space from a 113-byte embedded image, entered ring 3 at `0x200028` (`cs=0x2b`, `ss=0x23`), and observed user syscalls `alarm(0)` and `sleep(100)` with returns and continued execution. `userinit/proc0/init0=0`, all path counters `0`, `slash/dot=nil`, and the normal O and Boot A controls remained PASS. This is not Storage Level B and does not use GE/O or MicroPython; see [O-BOOT-EXPERIMENT-B.md](O-BOOT-EXPERIMENT-B.md). |
+| **Boot Experiment C (ring-3 OID executable)** | **PASS (23 October 2026):** with `plan9.ini oboot=oid` and a generated `obootvol=PARTUUID=...`, the embedded first user loader ran `OVOLOPEN` (ret 1), `OSPACEOPEN` (h=1) and `OEXECUTE` for OID `0x4f45584543000004`; the 2,088-byte O-resident target replaced the image and ran its own `ospaceget`, `alarm(0x42)` and `sleep` syscalls in ring 3. `userinit/proc0/init0=0` and every path counter stayed 0 before and after exec. Wrong-PARTUUID and missing-OID negatives passed. This is not Storage Level B/C and does not run MicroPython; see [O-BOOT-EXPERIMENT-C.md](O-BOOT-EXPERIMENT-C.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment C — 23 October 2026
+
+**Source state:** implementation commit
+`3374eb954638bae08131ac9099bf09f8e7c923ca`, plus this documentation
+follow-up. The build, selfroot and runtime evidence were produced from
+that committed source with disposable QEMU images. This is **Boot
+Experiment C**, distinct from the earlier top-down **Storage Level C**.
+
+**Implemented**
+
+- `plan9.ini oboot=oid` is a fourth branch at `main()`
+  (`sys/src/9/pc64/main.c:230`, `:279`). It reuses the Boot-B
+  `o_user_bootstrap()`/scheduler/ring-3 path but selects a second
+  embedded one-page loader image.
+- `sys/src/9/pc/obootoid.c` reads an argument block placed on the user
+  stack and calls the existing user syscalls `ovolopen`,
+  `ospaceopen(1,"init",4)` and `oexecute`. It has no pathname, FD,
+  console, filesystem or writable global data.
+- `sys/src/9/pc64/ouser.c` validates the loader image, creates a user
+  text page and 16 MiB stack, zeroes the `Tos` page, reads the bounded
+  `obootvol` value from `plan9.ini`, writes the `Oargs` block on the
+  user stack, and enters user mode through the new `otouser`
+  (`sys/src/9/pc64/l.s:873`), which delivers a user argument in BP.
+- The target `sys/src/cmd/obootctarget/obootctarget.c` is built by the
+  ordinary amd64 tools. `tools/mkovol RAWEXEC=FILE` seeds it verbatim
+  at fixture OID `0x4f45584543000004` through `tools/oseed.py` and
+  `sys/src/cmd/gefs/ream.c`; this is separate from the legacy
+  `NATIVEEXEC` header-patching path.
+- `tools/gefsdisk` now substitutes `@PARTUUID@` in arbitrary `INI`
+  lines as well as `INIT=`, allowing the fresh per-image GUID to be
+  handed to userspace. `tools/test-oboot-oid.sh` is the gate.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-c.log
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot \
+  2>&1 | tee build/verification/selfroot-experiment-c.log
+tools/test-oboot-oid.sh 2>&1 | tee build/verification/test-oboot-oid-experiment-c.log
+tools/test-oboot-user.sh
+tools/test-o-boot.sh
+tools/test-o-pathless.sh
+tools/test-o-exec.sh
+tools/test-o-exec-args.sh
+tools/test-o-handles.sh
+# Boot A: separate oboot=probe QEMU boot, see docs/O-BOOT-EXPERIMENT-A.md
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; `9pc64` md5 `11ca7cbf07f93484188df1f3456e60a1`, test-only `9pc64mp` md5 `46f782940da530a7e4f7d16285fad43f`. `build/verification/build-experiment-c.log` |
+| selfroot | **PASS** | clean selfroot at `3374eb9`, `gefs` and `obootctarget` present. `build/verification/selfroot-experiment-c.log` |
+| Boot C gate | **PASS** | `PASS: Boot Experiment C OID executable over native O, post-exec syscalls and negatives`. `build/verification/test-oboot-oid-experiment-c.log` |
+| Native O open | **PASS** | `OVOLOPEN spec=PARTUUID=<generated> dev=#S/sdF0/data off=68157440 size=201326592 ret=1`; `OSPACEOPEN-HANDLE h=1`. `build/verification/test-oboot-oid-positive-experiment-c.log` |
+| OID byte identity | **PASS** | `OEXECUTE oid=0x4f45584543000004 len=2088 sum=3f ver=0x1`; host target length 2,088 and 8-bit sum `0x3f`; seed log shows `seed: rawexec 2088 ... unchanged`. |
+| Ring-3 exec transition | **PASS** | `SYSCALL-RETURN nr=60 ... text=obootctarget pc=0x200098 cs=0x2b ss=0x23 user=1`; target then runs `ospaceget` (nr 56, `-1`), `alarm(0x42)` and two sleeps. |
+| Counters | **PASS** | Pre-entry and post-exec `AFTER-SYSCALLS` both show `userinit=proc0=init0=0` and `namec=newchan=walk=devwalk=mount=exec=0`. |
+| O handle lifecycle | **PASS** | `sysoexecute` releases its temporary handle; `execcommit` calls `oprocexec`/`odropall`; target `ospaceget(1, OID, ...)` returns `-1`. |
+| Wrong PARTUUID | **PASS** | `OVOLOPEN-ERROR ... no disk has that partition`, ret `-1`, no `OSPACEOPEN`/`OEXECUTE`, user `alarm(0xbad)`, no panic; log `test-oboot-oid-wrong-experiment-c.log`. |
+| Missing OID | **PASS** | `OEXECUTE` returns `-1`; query of the existing code OID returns `0xd1` (209 bytes) on the same handle; user `alarm(0xbaf)`; target never runs; log `test-oboot-oid-missing-experiment-c.log`. |
+| Boot A control | **PASS** | `oboot=probe` heartbeats and zero legacy/path counters. `build/verification/test-oboot-probe-experiment-c.log` |
+| Boot B control | **PASS** | `PASS: Boot Experiment B ring-3 user probe, two syscall round trips`. `build/verification/test-oboot-user-experiment-c.log` |
+| Normal O boot control | **PASS** | Three O-only boots, MicroPython from O, `run()` 1 -> 2 -> 3. `build/verification/test-o-boot-experiment-c.log` |
+| Native O storage control | **PASS** | Level A pathless native GE/O storage. `build/verification/test-o-pathless-experiment-c.log` |
+| Native exec/argv/handles controls | **PASS** | `test-o-exec`, `test-o-exec-args`, `test-o-handles`. Logs `build/verification/test-o-exec-*-experiment-c.log`, `test-o-handles-experiment-c.log`. |
+
+**Residual state:** the process has the `Pgrp` created by `kproc`;
+`slash`, `dot`, `fgrp`, `egrp` and `rgrp` are nil. `chandevreset` still
+runs before the branch (`rootreset` metadata, `sdreset` controller
+probe). GE/O engine/worker kprocs, traps, `execo`/`execcommit`,
+`execregs`, `oprocexec`, segment/page allocation and `otouser` execute;
+`namec`, `Chan`, `Dev` file operations, `devroot` path lookup, 9P,
+`bind`, `mount`, path `exec`, `/boot`, the console and the legacy
+bootstrap do not. The initial loader has no data/BSS; the O-resident
+target has ordinary libc data/BSS handled by `execo`.
+
+**Remaining limits:** one fixed fixture OID, one target program, one
+active native O volume and one Space handle. No general program catalog,
+permissions, remote access, MicroPython, Python Environment or pathless
+console is implemented. `chandevreset` and inherited linked code remain.
+On-disk GE/O format, `OID_MP_EXEC` and the default boot are unchanged.
 
 ## Boot Experiment B — 23 October 2026
 
