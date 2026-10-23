@@ -46,6 +46,22 @@ OID 42
     content = "hello\n"        # six bytes; a file
 ```
 
+The current native O path can also allocate a fresh local OID without any
+application name or metadata:
+
+```python
+import space
+a = space.oregister()             # empty payload
+b = space.oregister(b"hello\n")
+assert a != b
+assert space.oget(a) == b""
+assert space.oget(b) == b"hello\n"
+```
+
+This identifier is local to the active O volume and Space: it is not a
+UUID, content hash, host identity or globally unique number. There is no
+machine-wide allocator or remote OID transport.
+
 The file's data does **not** require a Unix/Plan 9 owner, mode, timestamps, pathname, inode or parent directory. Objects may separately have properties and relations, including provenance or original creation time when genuinely known. Those are not bytes in the file or universal filesystem metadata.
 
 **Stream** denotes a way to read or transfer bytes; it is not a file's identity. Random access by offset, handles, sequential streams and multiple parallel streams remain useful, while disk blocks and memory allocation stay implementation details. A file is not required to occupy one contiguous RAM or disk block.

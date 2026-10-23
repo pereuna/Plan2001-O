@@ -1,9 +1,12 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 23 October 2026. **Current runtime evidence baseline:**
-`main` at `bf2117e0c6a01310d5cfc7acaaeb06534ad10eca` (native O byte
-objects by OID), plus this STATUS/report documentation follow-up; the
-previous baselines were `016ccffebfe8c9baa93f09c7e6599315e65e4751`,
+`main` at implementation commits `a9c3247` and `077ba29`, with the
+registration gate rerun at clean test commit `09cb651` (local native OID
+registration). The previous baseline was
+`bf2117e0c6a01310d5cfc7acaaeb06534ad10eca` (native O byte objects by
+OID); earlier baselines were
+`016ccffebfe8c9baa93f09c7e6599315e65e4751`,
 `b41a102384efa81b17cdc5f923415b123341f8ca` and
 `4678fada0d66f83b310291320e57aba12068934d`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
@@ -177,6 +180,84 @@ native relationships or per-Python-object native records; the 1 MiB
 whole-object bound is a PoC limit; concurrent readers see a published
 version, not an immutable history API. OID 43/100's `implements`
 relations remain conceptual. The on-disk format is unchanged.
+
+## Local native OID registration — 23 October 2026
+
+**Source state:** implementation commits
+`a9c3247` (`ge/o: add local OID registration in native Space
+transactions`) and `077ba29` (`ge/o: serialize OID create/commit with
+their sync`), plus test-fixture commit `09cb651`. The ten pre-existing
+O-only gates below ran at `077ba29`; the dedicated registration gate was
+rerun from a clean tree at `09cb651`.
+
+**Implemented**
+
+- `space.oregister([data])` allocates a fresh local OID and publishes
+  its initial payload, including a real empty occurrence, through a new
+  native `ospacecreate` call. It returns only after native commit and
+  `gesync`.
+- The allocator high-water mark is appended to the existing Space header
+  `user[...]` part: legacy `env[64] | next[8]` (72 bytes) upgrades to
+  `env[64] | next[8] | "OALLOC01" | next[8]` (88 bytes). It is not an
+  OID, is unreachable by ordinary `oput`, and requires no v1 disk-layout
+  revision or separate database.
+- Candidate range is `64 <= oid < 0xffffffff00000000`, excluding the
+  native-exec OIDs `0x4f45584543000001`-`03`. Candidate selection checks
+  published records (including tombstones) and the current transaction,
+  so explicitly written future IDs and the seeded 42-49 PoC fixtures are
+  never overwritten. The high-water mark never decreases and exhaustion
+  fails instead of wrapping.
+- Creation and allocator advancement share one Space transaction.
+  Native `oalloclk` serializes a whole create including its sync and also
+  `ospacecommit`, so concurrent registrations queue rather than duplicate
+  an OID. Data is bytes-like only, `str`/non-bytes are rejected, and the
+  PoC whole-object limit remains 1 MiB.
+- The state is local to the active O volume and `init` Space. There is no
+  machine-wide allocator, global UUID, remote registration, copy-on-read
+  or OID migration.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+tools/test-o-register.sh
+for gate in test-o-bytefile test-o-boot-omp test-o-boot test-o-exec-args             test-o-exec test-o-handles test-ge test-o-volume             test-o-objects test-o-space; do
+    "tools/$gate.sh" 2>&1 | tee "build/verification/$gate-register.log"
+done
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; normal `9pc64` md5 `3ed5904573f19b223caee55b8ca3522d`, test-only `9pc64mp` md5 `35df51ff34f9acdcff296c34e71fba65`, UEFI loader present. `build/verification/build-register.log` |
+| selfroot | **PASS** | `build/selfroot` at `077ba29`; `gefs`, `micropython`, `oinit`, `oregister`-capable `ohandle` present. `build/verification/selfroot-register.log` |
+| Local OID registration | **PASS** | `PASS: local native OID registration, persistence and concurrency`. Four boots of one ESP + O disk covered empty, six-byte text, embedded-NUL binary, 2048-byte multi-chunk, equal bytes/distinct OIDs, `oput` revision without allocation, explicit IDs 64/70 skipped, a new OID after every reboot, and read-only calls not advancing the allocator. `build/verification/test-o-register-final.log`, `build/amd64/oregistervm/boots.log` |
+| Two-process contention | **PASS** | `/boot/ohandle -reg` on a separate disposable ESP + O disk: two processes with independent native handles each registered eight payloads; all 16 returned OIDs were distinct and readable. `build/verification/test-o-register-final.log`, `build/amd64/oregistervm/concurrency.log` |
+| Corrupt allocator state | **PASS** | `REGALLOC` fixture appended a malformed 16-byte extension; both registration attempts failed with `O: corrupt allocator state`, no reset-created OID 65 appeared, and the boot completed. `build/verification/test-o-register-final.log`, `build/amd64/oregistervm/corrupt.log` |
+| Unsupported mode | **PASS** | `tools/mkrepl` image with `-O` but no `-S`: `space.oregister()` failed with `space: no native O Space is open`, no filesystem fallback. `build/verification/test-o-register-final.log` |
+| Native byte objects by OID | **PASS** | Unmodified `tools/test-o-bytefile.sh`: `PASS: native O byte objects by OID, no FS or Python graph`. `build/verification/test-o-bytefile-register.log` |
+| O-loaded MicroPython/REPL | **PASS** | `PASS: MicroPython loaded from a native O object (no embedded mp)`. `build/verification/test-o-boot-omp-register.log` |
+| O init | **PASS** | `PASS: three O-only boots, persistent Counter and run() from O (no FS)`. `build/verification/test-o-boot-register.log` |
+| Native executable object | **PASS** | `PASS: native executable object from O, exec and rollback`. `build/verification/test-o-exec-register.log` |
+| Native argv bounds | **PASS** | `PASS: native O argv bounds, rollback and race`. `build/verification/test-o-exec-args-register.log` |
+| Process-local O handles | **PASS** | `PASS: process-local O handles, isolation/lifetime/cleanup`. `build/verification/test-o-handles-register.log` |
+| GE, O volume, O objects, Python/O | **PASS** | `PASS: GE volume, raw key/value, no FS`; `PASS: O volume, no FS`; `PASS: native O objects, no FS`; `PASS: Stage 4 Environment, code and Space graph from O (no FS)`. `build/verification/test-ge-register.log`, `test-o-volume-register.log`, `test-o-objects-register.log`, `test-o-space-register.log` |
+
+The documented `test-o-space` shutdown diagnostic
+(`panic: boot process died: unknown`) remains an observation, not a gate
+failure. The O-loaded MicroPython log also retains its expected
+exit-path diagnostic (`panic: boot process died: fail`); its gate
+assertions and exit status are **PASS**.
+
+**Remaining limits:** registration is local to one active native O
+volume/Space; it is not a machine-wide or cross-machine allocator. There
+is no remote registration, OID transport, copy-on-read, global
+uniqueness, deletion/GC or retention API. A malformed allocator header is
+rejected rather than repaired. The 1 MiB whole-object limit is a PoC
+bound. The underlying GE/O v1 disk layout is unchanged; the allocator is
+an additive interpretation of the existing Space header user part.
 
 ## Phase C validation record
 

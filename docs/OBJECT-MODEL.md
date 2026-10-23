@@ -67,7 +67,19 @@ assert space.oget(42) == b"hello\n"
 - The whole-object read/write limit is 1 MiB, a conservative PoC bound below the kernel's 64 MiB transaction limit.
 - `space.oid(x)` still returns a *Python logical graph OID*. Its number may coincide with a native OID, but the two identity spaces are independent: one names an object inside the serialized `OID_GRAPH`; the other names a separate native GE/O `Kobj` record.
 
-OIDs 42, 44-49 in the demonstration are **PoC identifiers**, not globally allocated identities, and there is no native allocator. The `implements`/`purpose`/`target` relations of OID 43/100 remain conceptual and are not implemented by this API. No `type=file` field, Python `File`/`object` class, directory, or on-disk v1 change is involved.
+OIDs 42, 44-49 in the earlier demonstration are **explicit PoC identifiers**, not global identities. A separate local registration call now allocates a fresh OID in the active native O volume and Space:
+
+```python
+import space
+a = space.oregister()            # empty payload, fresh local OID
+b = space.oregister(b"hello\n")  # different OID even for equal bytes
+assert a != b
+assert space.oget(a) == b""
+```
+
+The allocator's high-water mark lives in the native Space header transaction, not in the Python graph or `space.oid()`. It is **local**: another volume or machine may use the same number for an unrelated occurrence. Remote observation does not register a local OID, and copying bytes elsewhere would be a separate local registration. There is no machine-wide allocator, global UUID, remote protocol or OID migration. See [O-FORMAT.md](O-FORMAT.md) section 5.4 for the concrete encoding and reserved range.
+
+The `implements`/`purpose`/`target` relations of OID 43/100 remain conceptual and are not implemented by this API. No `type=file` field, Python `File`/`object` class, directory, or on-disk v1 change is involved.
 
 References: `sys/src/cmd/micropython/p9space.c`, `tools/obytefile.py`, `tools/test-o-bytefile.sh`.
 

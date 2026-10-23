@@ -77,6 +77,10 @@ visible value is the newest version `<= N`. `~version` means the
 bitwise-complemented encoded version, which sorts recent versions
 first in the key index.
 
+For a native O Space, the header's `user[...]` part may also carry the
+local OID allocator described in section 5.4. This is an application of
+the existing header value, not a new key type or a disk-format revision.
+
 For object data, chunk index 0 begins with a 4-byte length followed
 by payload bytes. A length of `0xffffffff` denotes a tombstone.
 Subsequent chunks continue the payload. Missing objects or
@@ -115,6 +119,7 @@ The GE/O kernel API in `sys/src/9/gefs/obj.c` is:
 ospaceopen(volume, "init")                 -> Ospace
 ospaceget(space, oid, buffer, len, &ver)   -> length or -1
 ospaceput(space, oid, buffer, len)
+ospacecreate(space, buffer, len, &oid)     -> allocate and publish
 ospacecommit(space)                        -> published version
 ospaceclose(space)
 ```
@@ -259,6 +264,12 @@ by the normal boot path. `NOMPEXEC=1` deliberately omits it for a
 missing-object diagnostic image; normal startup then prints the missing
 OID and does not fall back to an embedded interpreter. An existing
 persistent image is never migrated or reseeded implicitly.
+
+`REGALLOC=FILE` is a **test fixture**, not a runtime option: with
+`SOURCE`, it appends FILE's bytes after the seeded 72-byte Space header
+user part. `tools/test-o-register.sh` uses a 16-byte malformed allocator
+extension to verify that registration rejects corruption instead of
+resetting the counter.
 For the BSS boundary regression only, the host seeding path patches the
 `NATIVEEXEC` target's BSS header field to `0xffffffff`, so the BSS extent
 crosses 4 GiB and the program probes a high BSS page. The MicroPython
@@ -319,9 +330,99 @@ whole-object limit is **1 MiB**, conservative relative to the kernel's
 logical graph OID inside the `OID_GRAPH` payload, even when the number
 coincidentally matches a native OID.
 
-The demonstrated OIDs are PoC identifiers, not an allocation scheme.
+The explicitly numbered OIDs used by `oput` and `obytefile.py` remain
+PoC identifiers, not an allocation scheme.
 References: `sys/src/cmd/micropython/p9space.c`, `tools/obytefile.py`,
 `tools/test-o-bytefile.sh`.
+
+### 5.4 Local OID registration
+
+`space.oregister([data])` allocates one fresh local OID and publishes
+its initial payload (empty when no argument is given) through the native
+`ospacecreate` call. It returns a Python integer only after the native
+commit and GE sync succeed:
+
+```python
+import space
+a = space.oregister()
+b = space.oregister(b"hello\n")
+assert a != b
+assert space.oget(a) == b""
+assert space.oget(b) == b"hello\n"
+```
+
+The data argument follows `oput`: bytes-like data is accepted, `str`
+and other non-buffer objects are rejected, and the whole-object limit is
+1 MiB. An empty payload is a real retrievable occurrence, distinct from
+a missing OID (which still raises `OSError`). `oput` revises an existing
+OID and does not allocate.
+
+**Scope.** Registration is local to the active native O volume and its
+`init` Space. The identifier is a 64-bit number meaningful only in that
+native Space; it is not a UUID, content digest, host name, IP address or
+globally unique identifier. Another volume or machine may issue the
+same number for an unrelated occurrence. Remote observation, copying
+and import are not implemented; deliberately importing bytes elsewhere
+would be a separate registration there, not migration of this OID.
+Machine-wide allocation across all volumes, disks and Spaces is also
+**not** implemented.
+
+**Allocator state encoding.** The state is appended to the existing
+Space header `user[...]` part (the `N|K|W|user` value in section 3), so
+it is neither a Kobj object nor an addressable OID:
+
+```text
+legacy seed:   env_sha256[64] | next[8]                  (72 bytes)
+allocator:     env_sha256[64] | next[8] | "OALLOC01" | next[8]
+                                                         (88 bytes)
+value:         N[8] | K[8] | W[8] | 88-byte user part
+```
+
+The second `next` is the next candidate high-water mark, in the engine's
+packed integer encoding. It is independent of the Python graph's
+`sp.next` and of the 72-byte seed metadata that precedes it.
+
+- A header with no user part, or the pre-allocator 72-byte seed, starts
+  at candidate **64** on first use; a successful create rewrites the
+  header to the 88-byte form and preserves the first 72 bytes.
+- An 88-byte part with the `OALLOC01` marker is read normally.
+- A malformed length/marker or a `next` outside the allowed range is
+  rejected with `O: corrupt allocator state` or `O: unrecognized Space
+  allocator state`; it is never silently reset to zero.
+
+**Candidate range.** Allocator candidates are `64 <= oid <
+0xffffffff00000000` (`OID_CODE`), excluding the native-exec OIDs
+`0x4f45584543000001`-`03`. `OID_ROOTS`/`OID_FIRST` are below 64;
+`OID_ENV`, `OID_GRAPH`, upgrade metadata and code OIDs are at or above
+`OID_CODE`. Candidate selection also scans the published Space for any
+record naming the candidate, including a tombstone, and checks pending
+writes in the same transaction. Thus an explicitly written `oput` in
+the future candidate range is skipped and the high-water mark advances
+past it. The high-water mark never decreases, so a committed
+allocator-issued OID is not reused merely because its content was
+retired. Reaching the end of the range fails with `O: OID range
+exhausted`; it does not wrap.
+
+**Publication and concurrency.** `ospacecreate` begins one Space
+transaction, reads the published high-water mark, selects and checks a
+candidate, writes the initial payload and the new header user part, then
+commits and syncs. The occurrence and allocator advancement become
+visible together in the commit. A native lock (`oalloclk`) serializes a
+whole create, including its sync, and also `ospacecommit`; concurrent
+registration therefore queues rather than issuing duplicate IDs. A
+failed operation before publication aborts its transaction; the next
+begin sweeps unpublished versions (`W > N`). Because no OID was returned,
+an uncommitted candidate may be retried. Once a create has returned, its
+OID and high-water mark are durable for the tested volume.
+
+Reads (`oget`, size queries) never invoke registration and do not change
+the allocator state. The future remote rule is the same conceptually: an
+observation of content on another machine need not create a local OID or
+a durable local copy.
+
+References: `sys/src/9/gefs/obj.c` (`ospacecreate`), `spacecreate` in
+`sys/src/9/port/devgefs.c`, `sys/src/cmd/micropython/p9space.c`,
+`tools/oregister.py`, `tools/test-o-register.sh`.
 
 ## 6. Reserved OIDs and MicroPython payloads
 
@@ -333,6 +434,11 @@ OID_GRAPH   = 0xfffffffffffffffd   serialized Python graph stream
 OID_CODE    = 0xffffffff00000000   base of host-assigned code OIDs
 OID_MP_EXEC = 0x4f45584543000003   experimental MicroPython executable
 ```
+
+The local allocator state is not one of these OIDs: it lives in the
+Space header user part (section 5.4). Allocator-issued identifiers begin
+at 64 and are excluded from the code/Environment/graph region and the
+native-exec fixtures.
 
 The Environment manifest is an object containing text:
 
@@ -438,6 +544,9 @@ References: `sys/src/cmd/micropython/main.c`,
   graph specification.
 - The PoC relies on a fixed module seed, one native O volume, a small
   per-process Space-handle table and whole-value object reads.
+- OID allocation is local to the active native O volume and Space. It is
+  not a machine-wide or cross-machine allocator, and no remote protocol,
+  cache-to-O write or OID migration exists.
 - The normal boot uses a fixed `OID_MP_EXEC`; there is no program catalog
   or architecture selection. An older O image without that object is not
   migrated automatically: startup reports the missing OID and exits

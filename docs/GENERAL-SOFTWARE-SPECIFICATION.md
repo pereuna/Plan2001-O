@@ -186,7 +186,7 @@ This specification does **not** require an analogue computer, solve the philosop
 
 ## 13. Relationship to the existing proof of concept
 
-The repository's current O profile already provides the **preferred implementation base**: scoped OIDs, versioned opaque byte payloads, a functioning persistent execution experiment, and inherited kernel, device, console and network facilities. Reuse these before designing replacements. It does not yet have a general OID allocator, persistent native relation graphs, or an observation API with the semantics above. The existing Python persistence graph is not the proposed independent named-graph layer. **These gaps justify small experiments, not a kernel rewrite.**
+The repository's current O profile already provides the **preferred implementation base**: scoped OIDs, versioned opaque byte payloads, a functioning persistent execution experiment, and inherited kernel, device, console and network facilities. Reuse these before designing replacements. It now also has a **local** OID allocator for the active native O volume and Space; this is not a machine-wide or cross-machine namespace, and a number from one Space has no global meaning. Persistent native relation graphs and a general observation API with the semantics above remain unimplemented. The existing Python persistence graph is not the proposed independent named-graph layer. **These gaps justify small experiments, not a kernel rewrite.**
 
 Accordingly:
 
