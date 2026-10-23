@@ -462,6 +462,19 @@ consclose(Chan *c)
 	}
 }
 
+/*
+ * E2: shared Chan-free Qpid read body.  consread's Qpid branch and the
+ * generated native entry both call this; copyin/name/Qid dispatch stays in
+ * consread.
+ */
+long
+consqpidread(void *buf, long n, vlong off)
+{
+	if(n <= 0)
+		return n;
+	return readnum((ulong)off, buf, n, up->pid, NUMSIZE);
+}
+
 static long
 consread(Chan *c, void *buf, long n, vlong off)
 {
@@ -519,7 +532,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 		return qread(kprintoq, buf, n);
 
 	case Qpid:
-		return readnum((ulong)offset, buf, n, up->pid, NUMSIZE);
+		return consqpidread(buf, n, off);
 
 	case Qppid:
 		return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);

@@ -133,7 +133,7 @@ if not if(~ $what kernel){
 	mklog /sys/src/cmd/6c 6c install
 	# Plan2001: sys.h's O calls (docs/O-FORMAT.md)
 	mklog /sys/src/libc/9syscall 9syscall install
-	for(c in aux/kbdfs micropython oinit)
+	for(c in aux/kbdfs micropython oinit ohandle oexec)
 		mklog /sys/src/cmd/$c `{basename $c} install
 	cp /$objtype/bin/aux/kbdfs $out
 	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out

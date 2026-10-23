@@ -25,6 +25,33 @@
 
 **D2b negative evidence:** a failing `run()` produces no successful commit/done; missing `OID_MP_EXEC` returns an error without legacy fallback. The agent's QEMU logs were under `build/verification/` and are NOT assumed committed to Git. Original report and historical STATUS remain in Git history.
 
+## E2 native generator (linked and executed)
+
+**E2 GENERIC EXTRACTION PASS (agent-reported, 23 October 2026).**  The same
+`readnum` extractor/renderer now emits and links two real `pc64` read
+operations:
+
+- `devrtc.c` `Qrtc` read → shared `rtcqread`, generated
+  `native_rtc_qrtc_read`;
+- `devcons.c` `Qpid` read → shared `consqpidread`, generated
+  `native_cons_qpid_read`.
+
+Both inherited `Dev` branches delegate to those same helpers, so the
+algorithm is not duplicated.  The E1 RTC NVRAM `DIRECT` claims are explicitly
+downgraded to `MANUAL`; `devpipe` remains `MANUAL`.
+
+`NATIVE_PROBE=1 WHAT=kernel tools/build.sh` builds opt-in `9pc64native` by
+staging generated C from `build/generated/kernel-native/`.  The normal
+`pc64`/`pc64mp` builds link a stub and are unaffected.
+`tools/test-o-native-generator.sh` boots that kernel with `onativeprobe=1`
+and observed, in a real kernel process after `rtcinit()` (no
+`chandevinit`/namespace): `Qrtc` return 12 with a plausible time, `Qpid`
+return 12 with `up->pid`, correct size/offset/zero/negative behavior,
+unsupported-selector refusals, zero path counters in the measured window, and
+no panic/fault.  Logs: `build/verification/o-native-generator-*.log` (not
+committed).  This proves native dispatch, not all legacy modes or whole-kernel
+Chan independence.
+
 ## E1 native-operation generator (static, not a boot change)
 
 `tools/kernel_opmap.py --generate-native` now consumes the existing
@@ -45,15 +72,20 @@ OMAP `--write`/`--check`/`--stats` behaviour is unchanged.
   `docs/KERNEL-NATIVE-GENERATOR.md` for the exact claims and remaining
   dependencies.  No executable/kernel behaviour changed, so the D2b server
   gate was not rerun for E1.
-- **Checks (agent-reported):** `python3 tools/test_kernel_opmap.py` 18/18 PASS;
-  generated output reproduced byte-for-byte twice and
+- **Checks (E1 only, historical):** `python3 tools/test_kernel_opmap.py`
+  18/18 PASS; generated output reproduced byte-for-byte twice and
   `--generate-native --check` PASS; generated RTC C compiled with the VM's
-  Plan 9 `6c` against the repository kernel headers.  `WHAT=kernel
-  tools/build.sh` was NOT RUN because no kernel/executable source changed.
+  Plan 9 `6c` against the repository kernel headers.  E1 was not linked or
+  booted.
 
-Known baseline: `python3 tools/kernel_opmap.py --check` currently reports the
-checked-in `docs/KERNEL-OPMAP.{json,md}` stale against the kernel tree; that
-predates E1 and was not silently regenerated.
+**E2 checks (latest):** `python3 tools/test_kernel_opmap.py` 21/21 PASS;
+native `--generate-native --check` PASS; normal `--check` PASS after a
+deliberate `--write`; `NATIVE_PROBE=1 WHAT=kernel tools/build.sh` PASS;
+`tools/test-o-native-generator.sh` PASS; `WHAT=kernel tools/build.sh` PASS;
+`tools/test-oboot-server.sh`, `tools/test-oboot-output.sh`,
+`tools/test-o-boot.sh` and `tools/test-o-pathless.sh` PASS.  The unrelated
+`what=kernel` list now builds `ohandle`/`oexec` so a clean kernel build does
+not depend on a previous `WHAT=all`.
 
 ## Boundaries and limitations
 
@@ -92,7 +124,7 @@ Use **disposable** QEMU disk images only; never write to physical disks in routi
 - `docs/GENERAL-SOFTWARE-SPECIFICATION.md`, `docs/OLIO-OBJEKTI-MANIFESTI.md`, `docs/OBJECT-MODEL.md`: proposal and semantic distinctions, not claims that every concept is implemented.
 - `docs/O-FORMAT.md`: implemented O disk format.
 - `docs/KERNEL-OPMAP.md` and `.json`: **generated**, large structural inventory from `tools/kernel_opmap.py`; do not load wholesale into agent context unless specifically required. `docs/KERNEL-OPMAP-NOTES.md` is a human-readable review.
-- `docs/KERNEL-NATIVE-GENERATOR.md`: E1 generator CLI, RTC pilot evidence, refusals and remaining `Chan` dependencies.
+- `docs/KERNEL-NATIVE-GENERATOR.md`: E2 generator CLI, generic readnum rule, RTC/console probe evidence, refusals and remaining `Chan` dependencies.
 - `docs/O-BOOT-DEPENDENCIES.md`: **historical Level A snapshot**, includes B/C NOT YET as of that earlier experiment; it does not override the newer Boot A–D2b results.
 - Detailed completed boot reports are intentionally **not present at HEAD**. Read historical versions using the pinned Git commit `62564d1dea270b9f924cc4f7eebf466bf8798074`; do not re-create them merely because old links exist in past prompts.
 - `docs/to_opencode.md`: **current assignment only**; a completed assignment is not an active task.

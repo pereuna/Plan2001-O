@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `bacd6bc3245bb33ff47472f1ee80f6816625e8e2d10305bdff63a12197a0a071`
+- Source fingerprint (SHA-256): `c6394423ca77a7a5bf9bcb286c8e9557b5f9b500b70dc665a97067722df66067`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -49,9 +49,9 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 
 | Measure | Count |
 | --- | ---: |
-| `scanned_files` | 226 |
-| `c_files` | 167 |
-| `parsed_c_files` | 167 |
+| `scanned_files` | 232 |
+| `c_files` | 172 |
+| `parsed_c_files` | 172 |
 | `parse_failures` | 0 |
 | `files_with_registrations` | 49 |
 | `registrations` | 69 |
@@ -62,18 +62,18 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 | `mapped_controller_primitives` | 82 |
 | `partial_mappings` | 868 |
 | `unresolved_operations` | 63 |
-| `unique_chains` | 613 |
-| `native_entry_points` | 59 |
-| `unresolved_build_objects` | 3 |
+| `unique_chains` | 615 |
+| `native_entry_points` | 61 |
+| `unresolved_build_objects` | 4 |
 | `unsupported_declarations` | 0 |
 
-Files by kind: `assembly` 7, `build-tool` 11, `c` 167, `config` 4, `header` 37.
+Files by kind: `assembly` 7, `build-tool` 11, `c` 172, `config` 5, `header` 37.
 
 Operations by kind: `control-command` 81, `file-operation` 669, `interface-operation` 205, `manual-control-command` 21.
 
 Operations by status: `partial` 868, `resolved` 45, `unresolved` 63.
 
-Unique chains by status: `partial` 506, `resolved` 44, `unresolved` 63.
+Unique chains by status: `partial` 508, `resolved` 44, `unresolved` 63.
 
 ## Build inclusion
 
@@ -81,8 +81,9 @@ Inclusion is derived from each configuration file using the `mkdevlist` rules an
 
 | Configuration | Kind | Arch | Status | Active C files | Unresolved objects | Shadowed objects |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| `pc64` | normal-amd64 | pc64 | supported | 148 | 0 | 1 |
-| `pc64mp` | test-only | pc64 | supported | 148 | 0 | 1 |
+| `pc64` | normal-amd64 | pc64 | supported | 152 | 0 | 1 |
+| `pc64mp` | test-only | pc64 | supported | 152 | 0 | 1 |
+| `pc64native` | other | pc64 | supported | 152 | 1 | 1 |
 | `qemu` | other | arm64 | planned | 93 | 2 | 0 |
 | `riscv64` | other | riscv64 | future | 0 | 1 | 0 |
 
@@ -92,6 +93,7 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 
 | Configuration | Object stem | Reason |
 | --- | --- | --- |
+| `pc64native` | `kernel_native` | no source file found in the configuration's search roots |
 | `qemu` | `devbridge` | no source file found in the configuration's search roots |
 | `qemu` | `devpci` | no source file found in the configuration's search roots |
 | `riscv64` | `*` | target source tree is absent |
@@ -102,6 +104,7 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | --- | --- | --- | --- |
 | `pc64` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
 | `pc64mp` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64native` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
 
 ## Registrations
 
@@ -109,73 +112,73 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | --- | --- | --- | --- | --- | --- | ---: |
 | `reg:Dev:sys/src/9/arm64/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/arm64/devrtc.c:87 | qemu | 15 |
 | `reg:PhysUart:sys/src/9/arm64/uartqemu.c#qemuphysuart` | PhysUart | qemu |  | sys/src/9/arm64/uartqemu.c:318 | qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp | 15 |
-| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp | 11 |
-| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp | 12 |
-| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:267 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp | 15 |
-| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp | 3 |
-| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp | 12 |
-| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp | 16 |
-| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp | 1 |
-| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp | 4 |
-| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:792 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, qemu | 15 |
-| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, qemu | 1 |
-| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:836 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1768 | pc64, pc64mp, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp | 15 |
-| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, qemu | 16 |
-| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, qemu | 15 |
-| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp | 3 |
-| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, qemu | 2 |
-| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, qemu | 2 |
-| `reg:SDifc:sys/src/9/port/sdloop.c#sdloopifc` | SDifc | loop |  | sys/src/9/port/sdloop.c:380 | pc64, pc64mp | 11 |
-| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp | 8 |
-| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp | 6 |
-| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:720 | pc64, pc64mp, qemu | 7 |
-| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp | 12 |
-| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, qemu | 16 |
+| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp, pc64native | 15 |
+| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp, pc64native | 11 |
+| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp, pc64native | 12 |
+| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:279 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp, pc64native | 15 |
+| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp, pc64native | 3 |
+| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp, pc64native | 12 |
+| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native | 16 |
+| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native | 1 |
+| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native | 4 |
+| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:805 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, qemu | 1 |
+| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1986 | pc64, pc64mp, pc64native, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native | 15 |
+| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, qemu | 16 |
+| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native | 3 |
+| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, pc64native, qemu | 2 |
+| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, pc64native, qemu | 2 |
+| `reg:SDifc:sys/src/9/port/sdloop.c#sdloopifc` | SDifc | loop |  | sys/src/9/port/sdloop.c:380 | pc64, pc64mp, pc64native | 11 |
+| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp, pc64native | 8 |
+| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp, pc64native | 6 |
+| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:725 | pc64, pc64mp, pc64native, qemu | 7 |
+| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp, pc64native | 12 |
+| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, pc64native, qemu | 16 |
 
 ## Per-subsystem summary
 
@@ -214,54 +217,54 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `cons:cmd panic` | ct->index | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:38 |
 | `cons:cmd rdb` | ct->index | `conswrite` | external-unknown consdebug | partial | E | N | sys/src/9/port/devcons.c:39 |
 | `cons:cmd reboot` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:37 |
-| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:792 |
-| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:792 |
-| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:792 |
+| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:805 |
+| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:805 |
 | `cons:close Qkprint (kprint)` | (ulong) c->qid.path | `consclose` | service-only | partial | - | N | sys/src/9/port/devcons.c:456 |
-| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:792 |
-| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:792 |
+| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
+| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:805 |
 | `cons:open Qkprint (kprint)` | (ulong) c->qid.path | `consopen` | service-only | partial | E | N | sys/src/9/port/devcons.c:431 |
-| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:530 |
-| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:545 |
-| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:483 |
-| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:486 |
-| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:480 |
-| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:599 |
-| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:536 |
-| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:533 |
-| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:502 |
-| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:518 |
-| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:621 |
-| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | EA | N | sys/src/9/port/devcons.c:542 |
-| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:624 |
-| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:521 |
-| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:524 |
-| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:596 |
-| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:591 |
-| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:548 |
-| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:527 |
-| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:539 |
-| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:617 |
-| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:792 |
-| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:792 |
-| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:792 |
-| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:792 |
-| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:792 |
-| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:675 |
-| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:692 |
-| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:651 |
-| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:667 |
-| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:696 |
-| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:683 |
-| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:680 |
-| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:782 |
-| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:689 |
-| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:729 |
-| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:770 |
-| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:756 |
-| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:670 |
-| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:686 |
-| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:792 |
+| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:543 |
+| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:558 |
+| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:496 |
+| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:499 |
+| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:493 |
+| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:612 |
+| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:549 |
+| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:546 |
+| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:515 |
+| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:531 |
+| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:634 |
+| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | EA | N | sys/src/9/port/devcons.c:555 |
+| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:637 |
+| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:534 |
+| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:537 |
+| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:609 |
+| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:604 |
+| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:561 |
+| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:540 |
+| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:552 |
+| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:630 |
+| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
+| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:688 |
+| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:705 |
+| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:664 |
+| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:680 |
+| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:709 |
+| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:696 |
+| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:693 |
+| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:795 |
+| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:702 |
+| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:742 |
+| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:783 |
+| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:769 |
+| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:683 |
+| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:699 |
+| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
 
 #### `i8250`
 
@@ -471,21 +474,21 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 
 | Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gefs:attach` | direct Dev callback | `gefsattach` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:close` | direct Dev callback | `gefsclose` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:open` | direct Dev callback | `gefsopen` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:read` | direct Dev callback | `gefsread` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:shutdown` | direct Dev callback | `gefsdevshutdown` | service-only | partial | - | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:stat` | direct Dev callback | `gefsstat` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:walk` | direct Dev callback | `gefswalk` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:write` | direct Dev callback | `gefswrite` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
-| `gefs:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devgefs.c:836 |
+| `gefs:attach` | direct Dev callback | `gefsattach` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:close` | direct Dev callback | `gefsclose` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:open` | direct Dev callback | `gefsopen` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:read` | direct Dev callback | `gefsread` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:shutdown` | direct Dev callback | `gefsdevshutdown` | service-only | partial | - | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:stat` | direct Dev callback | `gefsstat` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:walk` | direct Dev callback | `gefswalk` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:write` | direct Dev callback | `gefswrite` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
+| `gefs:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devgefs.c:1135 |
 
 ### network
 
@@ -927,24 +930,24 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `rtc:walk` | direct Dev callback | `rtcwalk` | service-only | partial | - | O | sys/src/9/arm64/devrtc.c:87 |
 | `rtc:write` | direct Dev callback | `rtcwrite` | service-only | partial | E | O | sys/src/9/arm64/devrtc.c:87 |
 | `rtc:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | O | sys/src/9/arm64/devrtc.c:87 |
-| `rtc:attach` | direct Dev callback | `rtcattach` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:close` | direct Dev callback | `rtcclose` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:init` | direct Dev callback | `rtcinit` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:267 |
+| `rtc:attach` | direct Dev callback | `rtcattach` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:close` | direct Dev callback | `rtcclose` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:init` | direct Dev callback | `rtcinit` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:279 |
 | `rtc:open Qnvram (nvram)` | (ulong) c->qid.path | `rtcopen` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:91 |
 | `rtc:open Qrtc (rtc)` | (ulong) c->qid.path | `rtcopen` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:87 |
-| `rtc:read Qnvram (nvram)` | (ulong) c->qid.path | `rtcread` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:189 |
-| `rtc:read Qrtc (rtc)` | (ulong) c->qid.path | `rtcread` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:186 |
-| `rtc:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:stat` | direct Dev callback | `rtcstat` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:walk` | direct Dev callback | `rtcwalk` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:267 |
-| `rtc:write Qnvram (nvram)` | (ulong) c->qid.path | `rtcwrite` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:254 |
-| `rtc:write Qrtc (rtc)` | (ulong) c->qid.path | `rtcwrite` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:218 |
-| `rtc:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:267 |
+| `rtc:read Qnvram (nvram)` | (ulong) c->qid.path | `rtcread` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:201 |
+| `rtc:read Qrtc (rtc)` | (ulong) c->qid.path | `rtcread` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:199 |
+| `rtc:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:stat` | direct Dev callback | `rtcstat` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:walk` | direct Dev callback | `rtcwalk` | service-only | partial | - | N | sys/src/9/pc/devrtc.c:279 |
+| `rtc:write Qnvram (nvram)` | (ulong) c->qid.path | `rtcwrite` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:266 |
+| `rtc:write Qrtc (rtc)` | (ulong) c->qid.path | `rtcwrite` | hardware outb | resolved | E | N | sys/src/9/pc/devrtc.c:230 |
+| `rtc:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/pc/devrtc.c:279 |
 
 ### process-and-memory
 
@@ -1407,53 +1410,53 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 
 | Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sd:cmd delpart` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1452 |
-| `sd:cmd part` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1443 |
-| `sd:attach` | direct Dev callback | `sdattach` | interface enable (3 candidates) | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:close Qraw` | TYPE(c->qid) | `sdclose` | service-only | partial | - | N | sys/src/9/port/devsd.c:784 |
-| `sd:config` | direct Dev callback | `sdconfig` | interface probe (1 candidates) | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devsd.c:1768 |
-| `sd:open Qctl` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:745 |
-| `sd:open Qextra` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:746 |
-| `sd:open Qpart` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:759 |
-| `sd:open Qraw` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:749 |
-| `sd:power` | direct Dev callback | `devpower` | service-only | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:read Qctl` | TYPE(c->qid) | `sdread` | interface rctl (4 candidates) | partial | E | N | sys/src/9/port/devsd.c:1268 |
-| `sd:read Qextra` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1347 |
-| `sd:read Qpart` | TYPE(c->qid) | `sdread` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1345 |
-| `sd:read Qraw` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1310 |
-| `sd:read Qtopctl` | TYPE(c->qid) | `sdread` | interface rtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1235 |
-| `sd:read Qtopdir` | TYPE(c->qid) | `sdread` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1264 |
-| `sd:read Qunitdir` | TYPE(c->qid) | `sdread` | service-only | partial | E | N | sys/src/9/port/devsd.c:1265 |
-| `sd:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devsd.c:1768 |
-| `sd:reset` | direct Dev callback | `sdreset` | interface pnp (5 candidates) | partial | - | N | sys/src/9/port/devsd.c:1768 |
-| `sd:shutdown` | direct Dev callback | `sdshutdown` | interface disable (3 candidates) | partial | - | N | sys/src/9/port/devsd.c:1768 |
-| `sd:stat` | direct Dev callback | `sdstat` | service-only | partial | - | N | sys/src/9/port/devsd.c:1768 |
-| `sd:walk` | direct Dev callback | `sdwalk` | service-only | partial | - | N | sys/src/9/port/devsd.c:1768 |
-| `sd:write Qctl` | TYPE(c->qid) | `sdwrite` | interface wctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1429 |
-| `sd:write Qextra` | TYPE(c->qid) | `sdwrite` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1524 |
-| `sd:write Qpart` | TYPE(c->qid) | `sdwrite` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1522 |
-| `sd:write Qraw` | TYPE(c->qid) | `sdwrite` | service-only | partial | E | N | sys/src/9/port/devsd.c:1466 |
-| `sd:write Qtopctl` | TYPE(c->qid) | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1370 |
-| `sd:wstat Qctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1563 |
-| `sd:wstat Qpart` | TYPE(c->qid) | `sdwstat` | service-only | partial | E | N | sys/src/9/port/devsd.c:1569 |
-| `sd:wstat Qraw` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1566 |
-| `sd:wstat Qtopctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1562 |
+| `sd:cmd delpart` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1670 |
+| `sd:cmd part` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1661 |
+| `sd:attach` | direct Dev callback | `sdattach` | interface enable (3 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:close Qraw` | TYPE(c->qid) | `sdclose` | service-only | partial | - | N | sys/src/9/port/devsd.c:1002 |
+| `sd:config` | direct Dev callback | `sdconfig` | interface probe (1 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devsd.c:1986 |
+| `sd:open Qctl` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:963 |
+| `sd:open Qextra` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:964 |
+| `sd:open Qpart` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:977 |
+| `sd:open Qraw` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:967 |
+| `sd:power` | direct Dev callback | `devpower` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:read Qctl` | TYPE(c->qid) | `sdread` | interface rctl (4 candidates) | partial | E | N | sys/src/9/port/devsd.c:1486 |
+| `sd:read Qextra` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1565 |
+| `sd:read Qpart` | TYPE(c->qid) | `sdread` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1563 |
+| `sd:read Qraw` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1528 |
+| `sd:read Qtopctl` | TYPE(c->qid) | `sdread` | interface rtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1453 |
+| `sd:read Qtopdir` | TYPE(c->qid) | `sdread` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1482 |
+| `sd:read Qunitdir` | TYPE(c->qid) | `sdread` | service-only | partial | E | N | sys/src/9/port/devsd.c:1483 |
+| `sd:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
+| `sd:reset` | direct Dev callback | `sdreset` | interface pnp (5 candidates) | partial | - | N | sys/src/9/port/devsd.c:1986 |
+| `sd:shutdown` | direct Dev callback | `sdshutdown` | interface disable (3 candidates) | partial | - | N | sys/src/9/port/devsd.c:1986 |
+| `sd:stat` | direct Dev callback | `sdstat` | service-only | partial | - | N | sys/src/9/port/devsd.c:1986 |
+| `sd:walk` | direct Dev callback | `sdwalk` | service-only | partial | - | N | sys/src/9/port/devsd.c:1986 |
+| `sd:write Qctl` | TYPE(c->qid) | `sdwrite` | interface wctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1647 |
+| `sd:write Qextra` | TYPE(c->qid) | `sdwrite` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1742 |
+| `sd:write Qpart` | TYPE(c->qid) | `sdwrite` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1740 |
+| `sd:write Qraw` | TYPE(c->qid) | `sdwrite` | service-only | partial | E | N | sys/src/9/port/devsd.c:1684 |
+| `sd:write Qtopctl` | TYPE(c->qid) | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1588 |
+| `sd:wstat Qctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1781 |
+| `sd:wstat Qpart` | TYPE(c->qid) | `sdwstat` | service-only | partial | E | N | sys/src/9/port/devsd.c:1787 |
+| `sd:wstat Qraw` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1784 |
+| `sd:wstat Qtopctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1780 |
 
 #### `virtio10`
 
 | Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `virtio10/SDifc:bio` | SDifc callback | `viobio` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:disable` | SDifc callback | `viodisable` | ambiguous-symbol intrdisable | unresolved | - | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:enable` | SDifc callback | `vioenable` | ambiguous-symbol intrenable | unresolved | - | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:online` | SDifc callback | `vioonline` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:pnp` | SDifc callback | `viopnp` | ambiguous-symbol virtiomapregs | unresolved | - | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:rio` | SDifc callback | `viorio` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:720 |
-| `virtio10/SDifc:verify` | SDifc callback | `vioverify` | interface rio (5 candidates) | partial | - | N | sys/src/9/port/sdvirtio10.c:720 |
+| `virtio10/SDifc:bio` | SDifc callback | `viobio` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:disable` | SDifc callback | `viodisable` | ambiguous-symbol intrdisable | unresolved | - | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:enable` | SDifc callback | `vioenable` | ambiguous-symbol intrenable | unresolved | - | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:online` | SDifc callback | `vioonline` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:pnp` | SDifc callback | `viopnp` | ambiguous-symbol virtiomapregs | unresolved | - | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:rio` | SDifc callback | `viorio` | interface rio (5 candidates) | partial | EA | N | sys/src/9/port/sdvirtio10.c:725 |
+| `virtio10/SDifc:verify` | SDifc callback | `vioverify` | interface rio (5 candidates) | partial | - | N | sys/src/9/port/sdvirtio10.c:725 |
 
 ### usb
 
@@ -1587,7 +1590,7 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `pnpgen` | sys/src/9/port/devpnp.c:381 | Qtopdir, Qpnpdir, Qpnpctl, Qcsnctl, Qcsnraw, Qpcidir, Qpcictl, Qpciraw, default |
 | `procgen` | sys/src/9/port/devproc.c:178 | Qwait, Qprofile, Qwatchpt |
 | `rootgen` | sys/src/9/port/devroot.c:120 | Qdir, Qboot, default |
-| `sdgen` | sys/src/9/port/devsd.c:533 | Qtopdir, Qunitdir, Qraw, Qctl, Qpart, Qextra, Qtopctl, default |
+| `sdgen` | sys/src/9/port/devsd.c:751 | Qtopdir, Qunitdir, Qraw, Qctl, Qpart, Qextra, Qtopctl, default |
 | `usbgen` | sys/src/9/port/devusb.c:635 | Qdir, Qusbdir, Qctl, default |
 
 ## Lower-level interfaces
@@ -1630,7 +1633,7 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `SDifc` | `loop` | sys/src/9/port/sdloop.c:380 | pnp=pnp, verify=loopverify, online=looponline, rio=looprio, rctl=looprctl, wctl=loopwctl, bio=loopbio, probe=loopprobew, clear=loopclear, rtopctl=looprtopctl, wtopctl=loopwtopctl |
 | `SDifc` | `nvme` | sys/src/9/port/sdnvme.c:803 | pnp=nvmepnp, enable=nvmeenable, disable=nvmedisable, verify=nvmeverify, online=nvmeonline, rio=nvmerio, rctl=nvmerctl, bio=nvmebio |
 | `SDifc` | `ram` | sys/src/9/port/sdram.c:250 | pnp=rampnp, verify=ramverify, online=ramonline, rctl=ramrctl, bio=rambio, rio=ramrio |
-| `SDifc` | `virtio10` | sys/src/9/port/sdvirtio10.c:720 | pnp=viopnp, enable=vioenable, disable=viodisable, verify=vioverify, online=vioonline, rio=viorio, bio=viobio |
+| `SDifc` | `virtio10` | sys/src/9/port/sdvirtio10.c:725 | pnp=viopnp, enable=vioenable, disable=viodisable, verify=vioverify, online=vioonline, rio=viorio, bio=viobio |
 | `Hciimpl` | `ehcilinkage` | sys/src/9/port/usbehci.c:3263 | init=init, interrupt=interrupt, epopen=epopen, epstop=epstop, epclose=epclose, epread=epread, epwrite=epwrite, seprintep=seprintep, portpower=portpower, portreset=portreset, portenable=portenable, portstatus=portstatus |
 | `Hciimpl` | `xhcilinkage` | sys/src/9/port/usbxhci.c:1912 | init=xhciinit, shutdown=xhcishutdown, interrupt=interrupt, epopen=epopen, epstop=epstop, epclose=epclose, epread=epread, epwrite=epwrite, seprintep=seprintep, devclose=devclose, portenable=portenable, portreset=portreset, bhportreset=bhportreset, portpower=portpower, portstatus=portstatus, debug=setdebug |
 
@@ -1642,15 +1645,15 @@ Indirect-call candidates are retained by field name.  For example, every operati
 
 | Syscall | Number | Handler | Status | Source |
 | --- | ---: | --- | --- | --- |
-| `OSPACECLOSE` | 59 | `sysospaceclose` | partial | sys/src/9/port/devgefs.c:682 |
-| `OSPACECOMMIT` | 58 | `sysospacecommit` | partial | sys/src/9/port/devgefs.c:658 |
-| `OSPACEGET` | 56 | `sysospaceget` | partial | sys/src/9/port/devgefs.c:596 |
-| `OSPACEOPEN` | 55 | `sysospaceopen` | partial | sys/src/9/port/devgefs.c:553 |
-| `OSPACEPUT` | 57 | `sysospaceput` | partial | sys/src/9/port/devgefs.c:630 |
-| `OVOLOPEN` | 54 | `sysovolopen` | partial | sys/src/9/port/devgefs.c:436 |
-| `(unregistered)` |  | `sysoexecute` | unresolved | sys/src/9/port/devgefs.c:707 |
+| `OEXECUTE` | 60 | `sysoexecute` | partial | sys/src/9/port/devgefs.c:991 |
+| `OSPACECLOSE` | 59 | `sysospaceclose` | partial | sys/src/9/port/devgefs.c:966 |
+| `OSPACECOMMIT` | 58 | `sysospacecommit` | partial | sys/src/9/port/devgefs.c:942 |
+| `OSPACEGET` | 56 | `sysospaceget` | partial | sys/src/9/port/devgefs.c:847 |
+| `OSPACEOPEN` | 55 | `sysospaceopen` | partial | sys/src/9/port/devgefs.c:799 |
+| `OSPACEPUT` | 57 | `sysospaceput` | partial | sys/src/9/port/devgefs.c:881 |
+| `OVOLOPEN` | 54 | `sysovolopen` | partial | sys/src/9/port/devgefs.c:655 |
 
-All syscall-table entries discovered: `ALARM`, `AWAIT`, `BIND`, `BRK_`, `CHDIR`, `CLOSE`, `CREATE`, `DUP`, `ERRSTR`, `EXEC`, `EXITS`, `FAUTH`, `FD2PATH`, `FSTAT`, `FVERSION`, `FWSTAT`, `MOUNT`, `NOTED`, `NOTIFY`, `OPEN`, `OSEEK`, `OSPACECLOSE`, `OSPACECOMMIT`, `OSPACEGET`, `OSPACEOPEN`, `OSPACEPUT`, `OVOLOPEN`, `PIPE`, `PREAD`, `PWRITE`, `REMOVE`, `RENDEZVOUS`, `RFORK`, `SEEK`, `SEGATTACH`, `SEGBRK`, `SEGDETACH`, `SEGFLUSH`, `SEGFREE`, `SEMACQUIRE`, `SEMRELEASE`, `SLEEP`, `STAT`, `SYSR1`, `TSEMACQUIRE`, `UNMOUNT`, `WSTAT`, `_ERRSTR`, `_FSESSION`, `_FSTAT`, `_FWSTAT`, `_MOUNT`, `_NSEC`, `_READ`, `_STAT`, `_WAIT`, `_WRITE`, `_WSTAT`.
+All syscall-table entries discovered: `ALARM`, `AWAIT`, `BIND`, `BRK_`, `CHDIR`, `CLOSE`, `CREATE`, `DUP`, `ERRSTR`, `EXEC`, `EXITS`, `FAUTH`, `FD2PATH`, `FSTAT`, `FVERSION`, `FWSTAT`, `IOWRITE`, `MOUNT`, `NOTED`, `NOTIFY`, `OEXECUTE`, `OPEN`, `OSEEK`, `OSPACECLOSE`, `OSPACECOMMIT`, `OSPACECREATE`, `OSPACEGET`, `OSPACEOPEN`, `OSPACEPUT`, `OVOLOPEN`, `PIPE`, `PREAD`, `PWRITE`, `REMOVE`, `RENDEZVOUS`, `RFORK`, `SEEK`, `SEGATTACH`, `SEGBRK`, `SEGDETACH`, `SEGFLUSH`, `SEGFREE`, `SEMACQUIRE`, `SEMRELEASE`, `SLEEP`, `STAT`, `SYSR1`, `TSEMACQUIRE`, `UNMOUNT`, `WSTAT`, `_ERRSTR`, `_FSESSION`, `_FSTAT`, `_FWSTAT`, `_MOUNT`, `_NSEC`, `_READ`, `_STAT`, `_WAIT`, `_WRITE`, `_WSTAT`.
 
 ## Representative chains
 
@@ -1660,23 +1663,22 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 - Status: **partial**
 - OVOLOPEN remains a native syscall but still discovers/opens a Chan through #S/devsd before oopen/geopen.
+- focused call geopen not found in the selected path
 - The selected path reaches the GE engine entry; controller hardware is reached later through the storage backend, not by this bounded focus path.
-- Terminal: `engine-entry geopen`
+- Terminal: `engine-entry oopen`
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `sysovolopen` | sys/src/9/port/devgefs.c:436 |
-| 2 | `gevolume` | sys/src/9/port/devgefs.c:285 |
-| 3 | `namec` | sys/src/9/port/chan.c:1295 |
-| 4 | `oopen` | sys/src/9/gefs/o.c:80 |
-| 5 | `geopen` | sys/src/9/gefs/kern.c:912 |
+| 1 | `sysovolopen` | sys/src/9/port/devgefs.c:655 |
+| 2 | `gevolume` | sys/src/9/port/devgefs.c:415 |
+| 3 | `namec` | sys/src/9/port/chan.c:1306 |
+| 4 | `oopen` | sys/src/9/gefs/o.c:102 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `sysovolopen` | `func:sys/src/9/port/devgefs.c#gevolume` | sys/src/9/port/devgefs.c:462 |
-| 2 | `gevolume` | `func:sys/src/9/port/chan.c#namec` | sys/src/9/port/devgefs.c:298 |
-| 3 | `sysovolopen` | `func:sys/src/9/gefs/o.c#oopen` | sys/src/9/port/devgefs.c:467 |
-| 4 | `oopen` | `func:sys/src/9/gefs/kern.c#geopen` | sys/src/9/gefs/o.c:86 |
+| 1 | `sysovolopen` | `func:sys/src/9/port/devgefs.c#gevolume` | sys/src/9/port/devgefs.c:700 |
+| 2 | `gevolume` | `func:sys/src/9/port/chan.c#namec` | sys/src/9/port/devgefs.c:428 |
+| 3 | `sysovolopen` | `func:sys/src/9/gefs/o.c#oopen` | sys/src/9/port/devgefs.c:705 |
 
 ### Block partition read through SDifc to a storage backend
 
@@ -1686,11 +1688,11 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `sdbio` | sys/src/9/port/devsd.c:795 |
+| 1 | `sdbio` | sys/src/9/port/devsd.c:1013 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `sdbio` | `indirect:bio` | sys/src/9/port/devsd.c:875 |
+| 1 | `sdbio` | `indirect:bio` | sys/src/9/port/devsd.c:1093 |
 
 ### Keyboard scancode read path
 
@@ -1718,13 +1720,13 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `conswrite` | sys/src/9/port/devcons.c:635 |
+| 1 | `conswrite` | sys/src/9/port/devcons.c:648 |
 | 2 | `putstrn0` | sys/src/9/port/devcons.c:111 |
 | 3 | `uartputs` | sys/src/9/port/devuart.c:845 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `conswrite` | `func:sys/src/9/port/devcons.c#putstrn0` | sys/src/9/port/devcons.c:661 |
+| 1 | `conswrite` | `func:sys/src/9/port/devcons.c#putstrn0` | sys/src/9/port/devcons.c:674 |
 | 2 | `putstrn0` | `func:sys/src/9/port/devuart.c#uartputs` | sys/src/9/port/devcons.c:145 |
 | 3 | `uartputs` | `indirect:putc` | sys/src/9/port/devuart.c:856 |
 
@@ -1755,7 +1757,7 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `sdgen` | sys/src/9/port/devsd.c:533 |
+| 1 | `sdgen` | sys/src/9/port/devsd.c:751 |
 
 ## File coverage appendix
 
@@ -1860,6 +1862,8 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/pc/mp.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc/mp.h` | header | kernel header | S | S | ok | 0 |
 | `sys/src/9/pc/mtrr.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/pc/obootoid.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/pc/obootuser.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc/pcipc.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc/screen.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc/screen.h` | header | kernel header | S | S | ok | 0 |
@@ -1882,8 +1886,12 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/pc64/mem.h` | header | kernel header | S | S | ok | 0 |
 | `sys/src/9/pc64/mkfile` | build-tool | build helper | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/mmu.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/pc64/onativeprobe.c` | c | kernel support source | - | - | ok | 0 |
+| `sys/src/9/pc64/onativeprobe_stub.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/pc64/ouser.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc64/pc64` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/pc64mp` | config | kernel build configuration | n/a | n/a | ok | 0 |
+| `sys/src/9/pc64/pc64native` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/rebootcode.s` | assembly | assembly support | A | A | ok | 0 |
 | `sys/src/9/pc64/squidboy.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc64/trap.c` | c | kernel support source | A | A | ok | 0 |

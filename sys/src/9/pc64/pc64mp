@@ -55,6 +55,7 @@ link
 
 misc
 	pci		pcipc
+	onativeprobe_stub
 	archgeneric	devkbd i8259 i8253
 	archacpi	mp apic squidboy ec hpet
 	mtrr

@@ -173,6 +173,19 @@ rtctime(void)
 	return t;
 }
 
+/*
+ * E2: shared Chan-free Qrtc read body.  rtcread's Qrtc branch and the
+ * generated native entry both call this; it does no name/Qid dispatch.
+ */
+long
+rtcqread(void *buf, long n, vlong off)
+{
+	ulong offset = off;
+
+	n = readnum(offset, buf, n, (ulong)rtctime(), 12);
+	return n;
+}
+
 static long	 
 rtcread(Chan* c, void* buf, long n, vlong off)
 {
@@ -184,8 +197,7 @@ rtcread(Chan* c, void* buf, long n, vlong off)
 
 	switch((ulong)c->qid.path){
 	case Qrtc:
-		n = readnum(offset, buf, n, (ulong)rtctime(), 12);
-		return n;
+		return rtcqread(buf, n, off);
 	case Qnvram:
 		if(offset >= Nvsize)
 			return 0;

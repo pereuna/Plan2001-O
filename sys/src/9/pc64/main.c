@@ -19,6 +19,7 @@ extern int oboot_oid;
 extern int oboot_mp;
 extern int oboot_server;
 extern uvlong oboot_legacy_init0;
+extern int onativeprobe_start(void);
 
 extern void (*i8237alloc)(void);
 extern void bootscreeninit(void);
@@ -281,7 +282,9 @@ main(void)
 	bootmark(BMDevs);
 	preallocpages();
 	pageinit();
-	if(oboot_user){
+	if(onativeprobe_start()){
+		print("ONATIVEPROBE: HANDOFF opt-in native read probe\n");
+	}else if(oboot_user){
 		print("OBOOT-B: HANDOFF user o_user_bootstrap\n");
 		o_user_bootstrap();
 	}else if(oboot_oid){

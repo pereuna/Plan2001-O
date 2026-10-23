@@ -423,50 +423,238 @@ def real_native_spec() -> tuple[dict, dict]:
 
 
 class NativeGeneratorTests(unittest.TestCase):
-    def test_rtc_pilot_manifest_and_generated_c(self) -> None:
+    def test_rtc_and_cons_share_the_same_readnum_extraction(self) -> None:
         data, spec = real_native_spec()
         self.assertEqual(spec["schema"], om.NATIVE_SCHEMA)
         self.assertEqual(spec["config"], "pc64")
         rtc = next(d for d in spec["drivers"] if d["driver"] == "rtc")
-        self.assertTrue(rtc["pilot"])
-        self.assertEqual(rtc["generated_files"], ["kernel_native.h", "rtc_native.c"])
-        self.assertEqual(
-            [(s["symbol"], s["value"], s["name"]) for s in rtc["selectors"]],
-            [("Qdir", 0, "."), ("Qrtc", 1, "rtc"), ("Qnvram", 2, "nvram")],
+        cons = next(d for d in spec["drivers"] if d["driver"] == "cons")
+        self.assertEqual(rtc["generated_files"], ["kernel_native.h", "kernel_native.c"])
+        self.assertEqual(cons["generated_files"], ["kernel_native.h", "kernel_native.c"])
+
+        rtc_op = next(
+            o for o in rtc["operations"]
+            if o["selector"].get("symbol") == "Qrtc"
+            and o["semantics"].get("callback") == "read"
         )
-        by_key = {
-            (o["selector"].get("symbol"), o["semantics"]["operation"]): o
-            for o in rtc["operations"]
-        }
-        for key in (("Qrtc", "read"), ("Qnvram", "read"), ("Qnvram", "write")):
-            op = by_key[key]
-            self.assertEqual(op["conversion"], "DIRECT", key)
-            self.assertTrue(op["generated_symbol"])
-            self.assertEqual(op["dependencies"]["selected_branch"]["chan"], [])
-            self.assertIn("eve", op["permissions"]["evidence"])
-        self.assertEqual(by_key[("Qrtc", "write")]["conversion"], "MANUAL")
-        self.assertIn("sec2rtc", by_key[("Qrtc", "write")]["reasons"][0])
-        self.assertIn("Nvsize", by_key[("Qnvram", "read")]["offsets"])
-        self.assertIn("Nvoff", by_key[("Qnvram", "write")]["offsets"])
+        cons_op = next(
+            o for o in cons["operations"]
+            if o["selector"].get("symbol") == "Qpid"
+            and o["semantics"].get("callback") == "read"
+        )
+        self.assertEqual(rtc_op["conversion"], "DIRECT")
+        self.assertEqual(cons_op["conversion"], "DIRECT")
+        rn = rtc_op["native"]
+        cn = cons_op["native"]
+        self.assertEqual(rn["rule"], "readnum")
+        self.assertEqual(cn["rule"], "readnum")
+        self.assertEqual(rn["helper"], "rtcqread")
+        self.assertEqual(cn["helper"], "consqpidread")
+        self.assertEqual(rn["value_expression"], "(ulong) rtctime()")
+        self.assertEqual(cn["value_expression"], "up->pid")
+        self.assertEqual(rn["size_expression"], "12")
+        self.assertEqual(rn["size_value"], 12)
+        self.assertEqual(cn["size_expression"], "NUMSIZE")
+        self.assertEqual(cn["size_value"], 12)
+        self.assertEqual(rn["return_shape"], "assign-return")
+        self.assertEqual(cn["return_shape"], "direct-return")
+        self.assertIsNone(rn["guard"])
+        self.assertEqual(cn["guard"]["condition"], "n <= 0")
+        self.assertEqual(cn["entry_guard"]["condition"], "n <= 0")
+        self.assertEqual(rn["selector_constant"], "NATIVE_RTC_QRTC")
+        self.assertEqual(cn["selector_constant"], "NATIVE_CONS_QPID")
+        self.assertIn("any user read", rn["authorization"])
+        self.assertIn("0444", cn["authorization"])
+        self.assertIn("kernel-internal-only", cn["authorization"])
+        self.assertEqual(rtc_op["dependencies"]["selected_branch"]["chan"], [])
+        self.assertEqual(cons_op["dependencies"]["selected_branch"]["chan"], [])
+
+        self.assertEqual(rtc_op["source"]["helper"], "rtcqread")
+        self.assertEqual(cons_op["source"]["helper"], "consqpidread")
+        self.assertIn("rtcqread(buf, n, off)", rtc_op["source"]["branch_call"])
+        self.assertIn("consqpidread(buf, n, off)", cons_op["source"]["branch_call"])
+        analyzer = om.Analyzer(REPO)
+        analyzer.analyze()
+        rtc_fn = analyzer._find_function("rtcqread", "sys/src/9/pc/devrtc.c")
+        cons_fn = analyzer._find_function("consqpidread", "sys/src/9/port/devcons.c")
+        self.assertIn("readnum(", rtc_fn.text)
+        self.assertIn("readnum(", cons_fn.text)
+        rtc_read = analyzer._find_function("rtcread", "sys/src/9/pc/devrtc.c")
+        cons_read = analyzer._find_function("consread", "sys/src/9/port/devcons.c")
+        rtc_case, _ = om._find_case(rtc_read, "Qrtc")
+        cons_case, _ = om._find_case(cons_read, "Qpid")
+        rtc_branch = om.join_tokens(rtc_read.body[rtc_case.start:rtc_case.end])
+        cons_branch = om.join_tokens(cons_read.body[cons_case.start:cons_case.end])
+        self.assertIn("rtcqread(buf, n, off)", rtc_branch)
+        self.assertIn("consqpidread(buf, n, off)", cons_branch)
+        self.assertNotIn("readnum(", rtc_branch)
+        self.assertNotIn("readnum(", cons_branch)
+
+        for cb in ("read", "write"):
+            op = next(
+                o for o in rtc["operations"]
+                if o["selector"].get("symbol") == "Qnvram"
+                and o["semantics"].get("callback") == cb
+            )
+            self.assertEqual(op["conversion"], "MANUAL")
+            self.assertIn("downgraded", " ".join(op["reasons"]))
 
         outputs = om._native_outputs(spec)
         header = outputs["kernel_native.h"]
-        source = outputs["rtc_native.c"]
-        self.assertIn("NQrtc = 1", header)
-        self.assertIn("NQnvram = 2", header)
+        source = outputs["kernel_native.c"]
+        self.assertIn("NATIVE_RTC_QRTC = 1", header)
+        self.assertIn("NATIVE_CONS_QPID = 12", header)
+        self.assertIn("NATIVE_RTC_QRTC_SIZE = 12", header)
+        self.assertIn("NATIVE_CONS_QPID_SIZE = 12", header)
+        self.assertIn("native_rtc_qrtc_read", source)
+        self.assertIn("native_cons_qpid_read", source)
+        self.assertIn("return rtcqread(buf, n, off);", source)
+        self.assertIn("return consqpidread(buf, n, off);", source)
+        self.assertIn('error("native rtc: unsupported selector")', source)
+        self.assertIn('error("native cons: unsupported selector")', source)
         for text in (header, source):
             self.assertIn(rtc["sha256"], text)
-        self.assertIn("rtc_native_read", source)
-        self.assertIn("rtctime()", source)
-        self.assertIn("nvramread(", source)
-        self.assertIn("nvramwrite(", source)
-        self.assertIn("strcmp(up->user, eve)", source)
-        self.assertIn("error(Eperm)", source)
-        self.assertIn("no reviewed Chan-free binding", source)
+            self.assertIn(cons["sha256"], text)
+        self.assertNotIn("Chan *", source)
+        self.assertNotIn("qid.path", source)
         self.assertNotIn("devwalk(", source)
         self.assertNotIn("devdirread(", source)
         self.assertNotIn("namec(", source)
-        self.assertNotIn("walk(", source)
+        self.assertNotIn("readnum(", source)
+
+    def _synthetic_spec(
+        self,
+        helper_body: str,
+        *,
+        binding_helper: str = "synread",
+        require_up: bool = False,
+        preprocessor: str = "",
+    ) -> dict:
+        src = preprocessor + r'''
+enum { Qdir, Qsyn };
+static Dirtab syndir[] = {
+	".",	{Qdir, 0, QTDIR},	0,	DMDIR|0555,
+	"syn",	{Qsyn},			8,	0444,
+};
+long
+synread(void *buf, long n, vlong off)
+{
+''' + helper_body + r'''
+}
+static long
+syread(Chan *c, void *buf, long n, vlong off)
+{
+	switch((ulong)c->qid.path){
+	case Qsyn:
+		return synread(buf, n, off);
+	}
+	return 0;
+}
+Dev syndevtab = {
+	's', "synd",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, syread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+'''
+        rel = "port/devsynd.c"
+        path = "sys/src/9/" + rel
+        with fixture({
+            rel: src,
+            "testarch/testconf": "dev\n\ttest\n\tsynd\n",
+        }) as td:
+            root = Path(td)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            rec = om._file_record(data, path)
+            self.assertIsNotNone(rec)
+            bindings = {
+                path: {
+                    "sha256": rec["sha256"],
+                    "driver": "synd",
+                    "device": "s",
+                    "dirtab": "syndir",
+                    "selector_values": {"Qsyn": 1},
+                    "constants": {},
+                    "operations": {
+                        "read:Qsyn": {
+                            "kind": "readnum",
+                            "conversion": "DIRECT",
+                            "helper": binding_helper,
+                            "allowed_calls": [],
+                            "allowed_idents": [],
+                            "allowed_constants": {},
+                            "require_up": require_up,
+                            "authorization": "kernel-internal-only synthetic test",
+                            "context": ["synthetic"],
+                            "reason": "synthetic generic readnum fixture",
+                        }
+                    },
+                }
+            }
+            return om.build_native_spec(analyzer, data, "testconf", bindings)
+
+    def test_synthetic_static_dev_uses_same_renderer(self) -> None:
+        spec = self._synthetic_spec(
+            "\treturn readnum((ulong)off, buf, n, 4242, 8);\n"
+        )
+        driver = next(d for d in spec["drivers"] if d["driver"] == "synd")
+        op = next(o for o in driver["operations"] if o.get("native"))
+        self.assertEqual(op["conversion"], "DIRECT")
+        self.assertEqual(op["native"]["rule"], "readnum")
+        self.assertEqual(op["native"]["value_expression"], "4242")
+        self.assertEqual(op["native"]["size_value"], 8)
+        self.assertEqual(op["native"]["generated_symbol"], "native_synd_qsyn_read")
+        outputs = om._native_outputs(spec)
+        self.assertIn("NATIVE_SYND_QSYN = 1", outputs["kernel_native.h"])
+        self.assertIn("NATIVE_SYND_QSYN_SIZE = 8", outputs["kernel_native.h"])
+        self.assertIn("native_synd_qsyn_read", outputs["kernel_native.c"])
+        self.assertIn("return synread(buf, n, off);", outputs["kernel_native.c"])
+        self.assertNotIn("rtc", outputs["kernel_native.c"].lower())
+        self.assertNotIn("cons", outputs["kernel_native.c"].lower())
+
+    def test_assign_and_direct_readnum_shapes_both_extract(self) -> None:
+        assign = self._synthetic_spec(
+            "\tulong offset = off;\n"
+            "\tn = readnum(offset, buf, n, 4242, 8);\n"
+            "\treturn n;\n"
+        )
+        direct = self._synthetic_spec(
+            "\tif(n <= 0)\n\t\treturn n;\n"
+            "\treturn readnum((ulong)off, buf, n, 4242, 8);\n"
+        )
+        aop = next(o for d in assign["drivers"] for o in d["operations"] if o.get("native"))
+        dop = next(o for d in direct["drivers"] for o in d["operations"] if o.get("native"))
+        self.assertEqual(aop["native"]["return_shape"], "assign-return")
+        self.assertEqual(dop["native"]["return_shape"], "direct-return")
+        self.assertEqual(dop["native"]["guard"]["condition"], "n <= 0")
+
+    def test_unsafe_source_shapes_are_refused(self) -> None:
+        cases = {
+            "goto": "\tgoto out;\n\treturn readnum((ulong)off, buf, n, 4242, 8);\n",
+            "local": "\tint x = 1;\n\treturn readnum((ulong)off, buf, n, x, 8);\n",
+            "extra": "\treturn n;\n\treturn readnum((ulong)off, buf, n, 4242, 8);\n",
+            "macro-value": "\treturn readnum((ulong)off, buf, n, BADMACRO(), 8);\n",
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(om.NativeGenerationError):
+                    self._synthetic_spec(body)
+        with self.assertRaises(om.NativeGenerationError):
+            self._synthetic_spec(
+                "\treturn readnum((ulong)off, buf, n, 4242, 8);\n",
+                binding_helper="missinghelper",
+            )
+        with self.assertRaises(om.NativeGenerationError):
+            self._synthetic_spec(
+                "\treturn readnum((ulong)off, buf, n, 4242, 8);\n",
+                require_up=True,
+            )
+        with self.assertRaises(om.NativeGenerationError):
+            self._synthetic_spec(
+                "\treturn readnum((ulong)off, buf, n, 4242, 8);\n",
+                preprocessor="#ifdef SYNTHETIC\n",
+            )
 
     def test_pipe_is_manual_with_blockers(self) -> None:
         _, spec = real_native_spec()
@@ -494,14 +682,13 @@ class NativeGeneratorTests(unittest.TestCase):
             second = om.write_native_artifacts(spec, out)
             self.assertEqual(snapshot, {p.name: p.read_bytes() for p in second})
             self.assertEqual(om.check_native_artifacts(spec, out), [])
-            (out / "rtc_native.c").write_text("tampered\n", encoding="utf-8")
+            (out / "kernel_native.c").write_text("tampered\n", encoding="utf-8")
             problems = om.check_native_artifacts(spec, out)
-            self.assertTrue(any("rtc_native.c" in p for p in problems))
+            self.assertTrue(any("kernel_native.c" in p for p in problems))
 
     def test_stale_reviewed_binding_fails_closed(self) -> None:
         with fixture({"pc/devrtc.c": BASE_DEVTEST}) as td:
             root = Path(td)
-            data = analyze(root)
             analyzer = om.Analyzer(root)
             data = analyzer.analyze()
             bindings = {
@@ -662,7 +849,6 @@ Dev idevtab = {
         )
         self.assertEqual(iop["conversion"], "MANUAL")
         self.assertIn("indirect callback", iop["reasons"][0])
-
 
     def test_parse_failure_is_refused_in_native_manifest(self) -> None:
         with fixture({

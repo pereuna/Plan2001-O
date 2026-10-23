@@ -21,12 +21,32 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
+native_probe=${NATIVE_PROBE:-0}
+if [ "$native_probe" = 1 ]; then
+	# E2 opt-in: regenerate before staging, then build only the probe config.
+	python3 "$here/kernel_opmap.py" --generate-native --config pc64 \
+		--out-dir "$root/build/generated/kernel-native" >/dev/null
+	kconf=pc64native
+	kernel=9pc64native
+	testkconf=
+	testkernel=
+fi
 out=$tbuild; b=$root/build
 mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$b"/in.img "$b"/out.img
 
-cp "$here/targets/$TARGET" "$b/target"; printf 'what=%s\npasses=%s\n' "${WHAT:-all}" "${PASSES:-1}" >> "$b/target"
+cp "$here/targets/$TARGET" "$b/target"
+printf 'what=%s\npasses=%s\n' "${WHAT:-all}" "${PASSES:-1}" >> "$b/target"
+if [ "$native_probe" = 1 ]; then
+	printf "kconf=pc64native\nkernel=9pc64native\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"
+if [ "$native_probe" = 1 ]; then
+	mkdir -p "$b/overlay/sys/src/9/pc64"
+	cp "$root/build/generated/kernel-native/kernel_native.c" \
+		"$root/build/generated/kernel-native/kernel_native.h" \
+		"$b/overlay/sys/src/9/pc64/"
+fi
 tar cf "$b/in.img" --format=ustar -C "$b/overlay" . -C "$here" build.rc -C "$b" target
 truncate -s $(( $(stat -c %s "$b/in.img") / 1048576 + 16 ))M "$b/in.img"
 truncate -s 512M "$b/out.img"

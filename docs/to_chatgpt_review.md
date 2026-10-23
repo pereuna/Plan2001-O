@@ -1,27 +1,36 @@
-**E1 GENERATOR PARTIAL** — committed and pushed as `65c3d54`.
+# Last completed agent result — E2 native generator (PASS)
 
-**Native output / source mapping**
-- `build/generated/kernel-native/kernel_native.h` — selector constants + RTC prototypes
-- `build/generated/kernel-native/rtc_native.c` — reviewed RTC entry
-- `build/generated/kernel-native/native-decisions.json` — 29 active `pc64` Dev registrations, 756 operations
-- Source binding: `sys/src/9/pc/devrtc.c`, SHA-256 `45722e4f...f1bcb`; hash-pinned so edits fail closed.
+**E2 GENERIC EXTRACTION PASS (agent-reported, 23 October 2026, base
+`7b4dfac`).**  One `readnum` extractor/renderer in the existing
+`tools/kernel_opmap.py` now drives two real `pc64` read operations:
 
-**RTC: DIRECT (compile-validated, not runtime-executed)**
-- `Qrtc` read → `rtctime()` + `readnum()`: DIRECT
-- `Qnvram` read → `nvramread()` with `Nvoff`/`Nvsize`: DIRECT
-- `Qnvram` write → `nvramwrite()` with offset-0 rule and bounds: DIRECT
-- `Qrtc` write → **MANUAL** (`sec2rtc()`/`PUTBCD` are static; explicit error, no fake success)
-- `eve` permission checks and offset rules are reproduced. Namespace `walk`/`stat` remain LEGACY.
-- Generated C compiled successfully with the build VM's Plan 9 `6c` against repository kernel headers (`build/vm/serial-20261023-233225.log`, ignored). Runtime RTC call not performed.
+- `devrtc.c` `Qrtc` read → shared `rtcqread` → generated
+  `native_rtc_qrtc_read`;
+- `devcons.c` `Qpid` read → shared `consqpidread` → generated
+  `native_cons_qpid_read`.
 
-**PIPE: MANUAL** — dynamic `Pipe`/`qref`/`ref`/`c->aux` ownership, `qhangup`/`qclose`/`qreopen`, opposite-queue read/write and `qsetlimit` block safe automation. Manifest records these blockers; no pipe code generated.
+Both inherited Dev branches delegate to those same helpers; the generated C is
+a thin binding and per-driver selector dispatch.  E1's RTC NVRAM DIRECT
+claims are explicitly downgraded to MANUAL.  `devpipe` remains MANUAL.
 
-**OMAP CLI COMPATIBILITY: PASS** — default JSON/Markdown hashes are unchanged from before E1. Baseline note: `kernel_opmap.py --check` still reports the pre-existing stale `docs/KERNEL-OPMAP.{json,md}`; they were not silently regenerated.
+`NATIVE_PROBE=1 WHAT=kernel tools/build.sh` staged generated files under
+`build/` and linked `9pc64native`.  `tools/test-o-native-generator.sh` booted
+it with `onativeprobe=1` and observed in a real kernel process after
+`rtcinit()` (no `chandevinit`/namespace): RTC return 12 with a plausible time,
+PID return 12 matching `up->pid`, correct size/offset/zero/negative behavior,
+unsupported-selector refusals, zero path counters in the measured window, and
+no panic.  Logs are under `build/verification/` (not committed).
 
-**Tests**
-- `python3 tools/test_kernel_opmap.py` — **18/18 PASS**
-- Generated output reproduced byte-for-byte twice; `--generate-native --check` PASS
-- `WHAT=kernel tools/build.sh` **NOT RUN** (no kernel/executable source changed)
-- D2b server gate **NOT RUN** (no executable/kernel behavior change)
+Evidence: generator tests 21/21 PASS; native `--check` PASS; normal
+`--check` PASS after a deliberate OMAP `--write` caused by the reviewed source
+edits/new probe files; normal `WHAT=kernel` build PASS; D2b server, D2a output,
+normal O boot and pathless tests PASS.  The `what=kernel` build list now also
+builds `ohandle`/`oexec`, removing a clean-build dependency on `WHAT=all`.
 
-**Remaining kernel `Chan` dependencies:** all non-pilot drivers, pipe endpoints, RTC `walk`/`stat`/`open`/`close`/directory read, GE/O volume discovery, mount/9P transports, and the retained `Chan`/`Qid`/`Dirtab`/`Walk`/`Dev` kernel machinery. No driver has been converted to Chan-free operation.
+**Remaining:** this proves two bounded reads, not general driver conversion,
+full legacy permission/lifecycle equivalence or whole-kernel Chan independence.
+`Chan`, `Qid`, `Dirtab`, `Walk`, `Dev`, namespace/9P, pipe endpoints, GE/O
+volume discovery and non-pilot driver paths remain.  Generated entries are
+kernel-internal-only, not a userspace ABI.  Next work should either add a
+third generic operation shape or a reviewed native handle contract; do not
+describe the 27 drivers as converted.

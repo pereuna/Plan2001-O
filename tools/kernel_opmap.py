@@ -48,17 +48,19 @@ GENERATOR_VERSION = "1"
 KERNEL_REL = "sys/src/9"
 DEFAULT_JSON = "docs/KERNEL-OPMAP.json"
 DEFAULT_MD = "docs/KERNEL-OPMAP.md"
-NATIVE_SCHEMA = "plan2001.kernel-native/v1"
+NATIVE_SCHEMA = "plan2001.kernel-native/v2"
 NATIVE_DEFAULT_CONFIG = "pc64"
 NATIVE_DEFAULT_OUT = "build/generated/kernel-native"
-NATIVE_GENERATOR_VERSION = "1"
+NATIVE_GENERATOR_VERSION = "2"
 
-# Reviewed pilot binding.  The source hash is deliberate: a change to
-# devrtc.c invalidates the binding and generation fails closed instead of
-# silently emitting wrappers for code nobody reviewed.
+# Reviewed E2 bindings.  The source hashes are deliberate: a change to either
+# driver invalidates its binding and generation fails closed.  The generator
+# derives the readnum expression, offset, size and return shape from the named
+# helper's tokens; these records only provide provenance, selector mapping and
+# the narrow allow-lists needed to validate that source.
 NATIVE_REVIEWED_BINDINGS: dict[str, dict[str, Any]] = {
     "sys/src/9/pc/devrtc.c": {
-        "sha256": "45722e4fc13195b14924e7781c5eae09412704919233315f2502c0bfed3f1bcb",
+        "sha256": "6c2f2fd951f861b99323aa372ad902ffedf0f36124ef354be2f1f336c44cbe5d",
         "driver": "rtc",
         "device": "r",
         "dirtab": "rtcdir",
@@ -66,39 +68,75 @@ NATIVE_REVIEWED_BINDINGS: dict[str, dict[str, Any]] = {
         "constants": {"Nvoff": 128, "Nvsize": 256},
         "operations": {
             "read:Qrtc": {
+                "kind": "readnum",
                 "conversion": "DIRECT",
-                "generated_symbol": "rtc_native_read",
+                "helper": "rtcqread",
+                "allowed_calls": ["rtctime"],
+                "allowed_idents": [],
+                "allowed_constants": {},
+                "require_up": False,
+                "authorization": (
+                    "kernel-internal-only; rtcdir Qrtc is 0444 and rtcopen "
+                    "permits any user read; this is not a new user entry"
+                ),
+                "context": ["shared helper is called by rtcread's Qrtc branch"],
                 "reason": (
-                    "reviewed pilot binding: the Qrtc branch of rtcread only "
-                    "dispatches on c->qid.path and then calls rtctime() and "
-                    "readnum(), neither of which takes a Chan; the generated "
-                    "entry supplies the selector, offset and buffer directly"
+                    "E2 generic readnum extraction: Qrtc branch delegates to "
+                    "the shared Chan-free rtcqread helper; value/size are derived "
+                    "from its tokenised source"
                 ),
             },
             "read:Qnvram": {
-                "conversion": "DIRECT",
-                "generated_symbol": "rtc_native_read",
+                "conversion": "MANUAL",
                 "reason": (
-                    "reviewed pilot binding: the Qnvram branch calls nvramread() "
-                    "only; the generated entry reproduces the reviewed offset "
-                    "clamp and Nvoff translation and does not walk a name"
+                    "E1's separately reviewed NVRAM read binding is not emitted "
+                    "by the E2 generic readnum rule; downgraded explicitly to "
+                    "MANUAL rather than silently dropped"
                 ),
             },
             "write:Qnvram": {
-                "conversion": "DIRECT",
-                "generated_symbol": "rtc_native_write",
+                "conversion": "MANUAL",
                 "reason": (
-                    "reviewed pilot binding: the Qnvram branch calls nvramwrite() "
-                    "only; the generated entry reproduces the reviewed offset-0 "
-                    "rule, offset clamp and Nvoff translation"
+                    "E1's separately reviewed NVRAM write binding is not emitted "
+                    "by the E2 generic readnum rule; downgraded explicitly to "
+                    "MANUAL rather than silently dropped"
                 ),
             },
             "write:Qrtc": {
                 "conversion": "MANUAL",
                 "reason": (
                     "Qrtc write needs the static sec2rtc()/PUTBCD path and "
-                    "textual decimal parsing; there is no exported Chan-free "
-                    "settime helper, so E1 refuses to synthesize one"
+                    "textual decimal parsing; no shared Chan-free helper exists"
+                ),
+            },
+        },
+    },
+    "sys/src/9/port/devcons.c": {
+        "sha256": "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896",
+        "driver": "cons",
+        "device": "c",
+        "dirtab": "consdir",
+        "selector_values": {"Qpid": 12},
+        "constants": {},
+        "operations": {
+            "read:Qpid": {
+                "kind": "readnum",
+                "conversion": "DIRECT",
+                "helper": "consqpidread",
+                "allowed_calls": [],
+                "allowed_idents": ["up", "pid"],
+                "allowed_constants": {"NUMSIZE": 12},
+                "require_up": True,
+                "authorization": (
+                    "kernel-internal-only; consdir pid is 0444 and "
+                    "consopen/devopen permit any user read; this is not a new "
+                    "user API"
+                ),
+                "context": ["up != nil", "current process pid"],
+                "reason": (
+                    "E2 generic readnum extraction: Qpid branch delegates to "
+                    "the shared Chan-free consqpidread helper; the helper's n "
+                    "guard, value and NUMSIZE are derived from its tokens"
                 ),
             },
         },
@@ -3617,14 +3655,16 @@ def _chan_dependencies(fn: Function | None) -> list[str]:
     return sorted(deps)
 
 
-def _backend_evidence(data: dict[str, Any], op: dict[str, Any]) -> dict[str, Any]:
+def _backend_evidence(
+    data: dict[str, Any], op: dict[str, Any], full: bool = False
+) -> dict[str, Any]:
     chain = data.get("chains", {}).get(op.get("chain_id") or "", {})
     terminal = chain.get("terminal") or {}
-    return {
+    evidence = {
         "chain_id": op.get("chain_id"),
         "status": op.get("status"),
         "reason": op.get("reason"),
-        "nodes": list(chain.get("nodes", [])),
+        "node_count": len(chain.get("nodes", [])),
         "terminal": {
             "kind": terminal.get("kind"),
             "symbol": terminal.get("symbol"),
@@ -3634,8 +3674,11 @@ def _backend_evidence(data: dict[str, Any], op: dict[str, Any]) -> dict[str, Any
             "reason": terminal.get("reason"),
         },
         "services": list(chain.get("service_symbols", [])),
-        "responsibilities": list(chain.get("responsibilities", [])),
     }
+    if full:
+        evidence["nodes"] = list(chain.get("nodes", []))
+        evidence["responsibilities"] = list(chain.get("responsibilities", []))
+    return evidence
 
 
 def _semantics(callback: str | None) -> dict[str, Any]:
@@ -3929,6 +3972,526 @@ def _build_driver_selectors(
     return selectors
 
 
+
+NATIVE_CAST_TYPES = {
+    "char", "uchar", "short", "ushort", "int", "uint", "long", "ulong",
+    "vlong", "uvlong", "u8int", "u16int", "u32int", "u64int", "s8int",
+    "s16int", "s32int", "s64int", "usize", "uintptr", "intptr",
+}
+
+
+def _norm_params(text: str) -> str:
+    return re.sub(r"\s+", " ", text).replace(" *", "*").replace("* ", "*").strip()
+
+
+def _global_enum_constants(analyzer: Analyzer) -> dict[str, int]:
+    """Enum constants from scanned headers; conflicting names are omitted."""
+    values: dict[str, int] = {}
+    conflicts: set[str] = set()
+    for sf in analyzer.files:
+        if sf.kind != "header" or not sf.tokens:
+            continue
+        try:
+            parsed = parse_enum_constants(sf.tokens)
+        except Exception:
+            continue
+        for name, value in parsed.items():
+            if name in values and values[name] != value:
+                conflicts.add(name)
+            else:
+                values.setdefault(name, value)
+    for name in conflicts:
+        values.pop(name, None)
+    return values
+
+
+def _c_int_literal(raw: str) -> int | None:
+    try:
+        if raw.lower().startswith("0x"):
+            return int(raw, 16)
+        if raw.startswith("0") and len(raw) > 1:
+            return int(raw, 8)
+        return int(raw, 10)
+    except ValueError:
+        return None
+
+
+def _split_statements(body: Sequence[Token]) -> list[list[Token]]:
+    """Split a narrow helper body into top-level statements."""
+    out: list[list[Token]] = []
+    i = 0
+    while i < len(body):
+        if body[i].value in (";", "}"):
+            i += 1
+            continue
+        start = i
+        if body[i].value == "if":
+            if i + 1 >= len(body) or body[i + 1].value != "(":
+                raise NativeGenerationError("unsupported if without parenthesised condition")
+            close = find_matching(body, i + 1, "(", ")")
+            if close is None:
+                raise NativeGenerationError("unterminated if condition")
+            k = close + 1
+            if k >= len(body):
+                raise NativeGenerationError("if without a statement")
+            if body[k].value == "{":
+                end = find_matching(body, k, "{", "}")
+                if end is None:
+                    raise NativeGenerationError("unterminated if block")
+                out.append(list(body[start:end + 1]))
+                i = end + 1
+                continue
+            end = scan_to_semicolon(body, k)
+            if end is None:
+                raise NativeGenerationError("unterminated if statement")
+            out.append(list(body[start:end + 1]))
+            i = end + 1
+            continue
+        end = scan_to_semicolon(body, i)
+        if end is None:
+            raise NativeGenerationError("unterminated statement in native helper")
+        out.append(list(body[start:end + 1]))
+        i = end + 1
+    return out
+
+
+def _strip_leading_casts(tokens: Sequence[Token]) -> list[Token]:
+    toks = list(tokens)
+    while (
+        len(toks) >= 3
+        and toks[0].value == "("
+        and toks[1].kind == "id"
+        and toks[1].value in NATIVE_CAST_TYPES
+        and toks[2].value == ")"
+    ):
+        toks = toks[3:]
+    return toks
+
+
+def _expr_is_name(tokens: Sequence[Token], name: str) -> bool:
+    toks = _strip_leading_casts(tokens)
+    return len(toks) == 1 and toks[0].kind == "id" and toks[0].value == name
+
+
+def _expr_is_off(tokens: Sequence[Token], local: str | None) -> bool:
+    toks = _strip_leading_casts(tokens)
+    if len(toks) != 1 or toks[0].kind != "id":
+        return False
+    return toks[0].value == "off" or (local is not None and toks[0].value == local)
+
+
+def _parse_guard(stmt: Sequence[Token]) -> dict[str, Any] | None:
+    if not stmt or stmt[0].value != "if":
+        return None
+    if len(stmt) < 5 or stmt[1].value != "(":
+        return None
+    close = find_matching(stmt, 1, "(", ")")
+    if close is None:
+        return None
+    cond = "".join(t.value for t in stmt[2:close])
+    body = list(stmt[close + 1:])
+    if body and body[0].value == "{":
+        end = find_matching(body, 0, "{", "}")
+        if end is None:
+            return None
+        body = body[1:end]
+    if len(body) != 3 or body[0].value != "return" or body[1].value != "n" or body[2].value != ";":
+        return None
+    accepted = {
+        "n<=0": "n <= 0",
+        "n<1": "n < 1",
+        "n==0": "n == 0",
+        "0>=n": "0 >= n",
+        "1>n": "1 > n",
+        "0==n": "0 == n",
+    }
+    if cond not in accepted:
+        return None
+    return {"condition": accepted[cond], "returns": "n", "text": f"if({accepted[cond]}) return n;"}
+
+
+def _match_call(tokens: Sequence[Token], name: str) -> list[list[Token]] | None:
+    if not tokens or tokens[0].value != name:
+        return None
+    if len(tokens) < 2 or tokens[1].value != "(":
+        return None
+    close = find_matching(tokens, 1, "(", ")")
+    if close != len(tokens) - 1:
+        return None
+    return call_args(tokens, 1)
+
+
+def _validate_value_expr(
+    tokens: Sequence[Token],
+    allowed_calls: Sequence[str],
+    allowed_idents: Sequence[str],
+) -> str:
+    if not tokens:
+        raise NativeGenerationError("empty readnum value expression")
+    work = _strip_leading_casts(tokens)
+    if not work:
+        raise NativeGenerationError("readnum value expression is only a cast")
+    calls = set(allowed_calls)
+    idents = set(allowed_idents)
+    rest: list[Token] = []
+    i = 0
+    while i < len(work):
+        t = work[i]
+        if t.kind == "id" and i + 1 < len(work) and work[i + 1].value == "(":
+            if t.value not in calls:
+                raise NativeGenerationError(
+                    f"readnum value expression calls unreviewed {t.value!r}"
+                )
+            if i > 0 and work[i - 1].value in ("->", "."):
+                raise NativeGenerationError("member/indirect call in readnum value expression")
+            close = find_matching(work, i + 1, "(", ")")
+            if close is None:
+                raise NativeGenerationError("unterminated call in readnum value expression")
+            i = close + 1
+            continue
+        rest.append(t)
+        i += 1
+    for t in rest:
+        if t.kind == "id":
+            if t.value not in idents:
+                raise NativeGenerationError(
+                    f"readnum value identifier {t.value!r} is not reviewed"
+                )
+        elif t.kind == "num":
+            continue
+        elif t.value in ("->", "."):
+            continue
+        else:
+            raise NativeGenerationError(
+                f"unsupported token {t.raw!r} in readnum value expression"
+            )
+    if not rest and not calls:
+        raise NativeGenerationError("readnum value expression has no value")
+    return join_tokens(tokens)
+
+
+def _validate_size_expr(
+    tokens: Sequence[Token],
+    allowed_constants: dict[str, int],
+    global_enums: dict[str, int],
+) -> tuple[str, int]:
+    toks = _strip_leading_casts(tokens)
+    if len(toks) == 1 and toks[0].kind == "num":
+        value = _c_int_literal(toks[0].raw)
+        if value is None:
+            raise NativeGenerationError(f"unsupported readnum size literal {toks[0].raw!r}")
+    elif len(toks) == 1 and toks[0].kind == "id" and toks[0].value in allowed_constants:
+        name = toks[0].value
+        value = global_enums.get(name)
+        if value is None or value != allowed_constants[name]:
+            raise NativeGenerationError(
+                f"readnum size constant {name} is not the reviewed value "
+                f"{allowed_constants[name]!r} (parsed {value!r})"
+            )
+    else:
+        raise NativeGenerationError("readnum size is not a literal or reviewed constant")
+    return join_tokens(tokens), value
+
+
+def _find_case(handler: Function, selector: str) -> tuple[CaseLabel, Switch]:
+    matches: list[tuple[CaseLabel, Switch]] = []
+    for sw in handler.switches:
+        if "qid" not in sw.condition.lower():
+            continue
+        for case in sw.cases:
+            if case.label == selector:
+                matches.append((case, sw))
+    if not matches:
+        raise NativeGenerationError(
+            f"selector {selector} has no visible Qid switch case in {handler.name}"
+        )
+    if len(matches) > 1:
+        raise NativeGenerationError(
+            f"selector {selector} has {len(matches)} Qid switch cases in {handler.name}"
+        )
+    return matches[0]
+
+
+def _validate_branch_call(case_tokens: Sequence[Token], helper: str) -> str:
+    stmts = _split_statements(case_tokens)
+    if len(stmts) != 1:
+        raise NativeGenerationError(
+            f"selected branch must contain exactly one statement, found {len(stmts)}"
+        )
+    stmt = stmts[0]
+    if not stmt or stmt[0].value != "return":
+        raise NativeGenerationError("selected branch is not a direct return")
+    expr = stmt[1:-1]
+    args = _match_call(expr, helper)
+    if args is None:
+        raise NativeGenerationError(
+            f"selected branch does not return the reviewed helper {helper!r}"
+        )
+    if len(args) != 3 or not _expr_is_name(args[0], "buf") \
+            or not _expr_is_name(args[1], "n") or not _expr_is_off(args[2], None):
+        raise NativeGenerationError(
+            f"selected branch does not call {helper}(buf, n, off)"
+        )
+    return join_tokens(stmt)
+
+
+def _find_pre_dispatch_guard(handler: Function, switch_start: int) -> dict[str, Any] | None:
+    pre = list(handler.body[:switch_start])
+    for i in range(len(pre) - 1, -1, -1):
+        if pre[i].value == "switch":
+            pre = pre[:i]
+            break
+    try:
+        stmts = _split_statements(pre)
+    except NativeGenerationError:
+        return None
+    found = None
+    for stmt in stmts:
+        if not stmt or stmt[0].value != "if":
+            continue
+        guard = _parse_guard(stmt)
+        if guard is not None:
+            if found is not None:
+                raise NativeGenerationError(
+                    f"{handler.name}: multiple n guards before Qid dispatch"
+                )
+            found = guard
+    return found
+
+
+def _native_const_name(driver: str, selector: str) -> str:
+    text = f"{driver}_{selector}".upper()
+    return re.sub(r"[^A-Z0-9]+", "_", text).strip("_")
+
+
+def _native_symbol(driver: str, selector: str) -> str:
+    text = f"{driver}_{selector}".lower()
+    return "native_" + re.sub(r"[^a-z0-9]+", "_", text).strip("_") + "_read"
+
+
+def _native_read_dispatch(driver: str) -> str:
+    return "native_" + re.sub(r"[^a-z0-9]+", "_", driver.lower()).strip("_") + "_read"
+
+
+def _extract_readnum_operation(
+    analyzer: Analyzer,
+    data: dict[str, Any],
+    path: str,
+    binding_op: dict[str, Any],
+    op: dict[str, Any],
+    selector: str,
+    global_enums: dict[str, int],
+) -> dict[str, Any]:
+    helper_name = binding_op.get("helper")
+    if not helper_name:
+        raise NativeGenerationError(f"{path}: readnum binding has no helper")
+    fn = analyzer._find_function(helper_name, path)
+    if fn is None:
+        raise NativeGenerationError(
+            f"{path}: reviewed helper {helper_name!r} was not found"
+        )
+    if fn.static:
+        raise NativeGenerationError(
+            f"{path}: helper {helper_name!r} is static and cannot be linked by generated C"
+        )
+    if not fn.text.startswith("long "):
+        raise NativeGenerationError(
+            f"{path}: helper {helper_name!r} does not return long"
+        )
+    params = _norm_params(fn.params)
+    if params != "void*buf, long n, vlong off":
+        raise NativeGenerationError(
+            f"{path}: helper {helper_name!r} signature is {fn.params!r}; "
+            "expected void *buf, long n, vlong off"
+        )
+
+    guard = None
+    local_offset = None
+    readnum_args: list[list[Token]] | None = None
+    assigned = False
+    return_shape = None
+    for stmt in _split_statements(fn.body):
+        if not stmt:
+            continue
+        first = stmt[0].value
+        if first == "if":
+            if readnum_args is not None:
+                raise NativeGenerationError(
+                    f"{helper_name}: control flow after readnum is not supported"
+                )
+            parsed = _parse_guard(stmt)
+            if parsed is None:
+                raise NativeGenerationError(
+                    f"{helper_name}: unsupported if statement in native helper"
+                )
+            if guard is not None:
+                raise NativeGenerationError(f"{helper_name}: duplicate n guard")
+            guard = parsed
+            continue
+        if first == "return":
+            if len(stmt) < 2:
+                raise NativeGenerationError(f"{helper_name}: empty return is not supported")
+            expr = stmt[1:-1]
+            args = _match_call(expr, "readnum")
+            if args is not None:
+                if readnum_args is not None or assigned:
+                    raise NativeGenerationError(
+                        f"{helper_name}: multiple readnum results are not supported"
+                    )
+                readnum_args = args
+                return_shape = "direct-return"
+            elif assigned and _expr_is_name(expr, "n"):
+                return_shape = "assign-return"
+            else:
+                raise NativeGenerationError(
+                    f"{helper_name}: unsupported return expression in native helper"
+                )
+            continue
+        if first in ("goto", "switch", "for", "while", "do", "break", "continue", "else"):
+            raise NativeGenerationError(
+                f"{helper_name}: unsupported control flow {first!r} in native helper"
+            )
+        eq = None
+        depth = 0
+        for idx, t in enumerate(stmt):
+            if t.value in ("(", "[", "{"):
+                depth += 1
+            elif t.value in (")", "]", "}"):
+                depth = max(0, depth - 1)
+            elif t.value == "=" and depth == 0:
+                eq = idx
+                break
+        if eq is None or eq < 1:
+            raise NativeGenerationError(
+                f"{helper_name}: unsupported statement in native helper"
+            )
+        lhs = stmt[:eq]
+        rhs = stmt[eq + 1:-1]
+        target = None
+        for t in reversed(lhs):
+            if t.kind == "id":
+                target = t.value
+                break
+        if target is None:
+            raise NativeGenerationError(f"{helper_name}: assignment without a target")
+        if readnum_args is not None:
+            raise NativeGenerationError(
+                f"{helper_name}: assignment after readnum is not supported"
+            )
+        if target == "n":
+            args = _match_call(rhs, "readnum")
+            if args is None:
+                raise NativeGenerationError(
+                    f"{helper_name}: n is assigned from an unreviewed expression"
+                )
+            if assigned:
+                raise NativeGenerationError(f"{helper_name}: duplicate readnum assignment")
+            readnum_args = args
+            assigned = True
+        elif target == "offset":
+            if local_offset is not None:
+                raise NativeGenerationError(f"{helper_name}: duplicate offset local")
+            if not _expr_is_off(rhs, None):
+                raise NativeGenerationError(
+                    f"{helper_name}: offset local is not initialised from off"
+                )
+            local_offset = target
+        else:
+            raise NativeGenerationError(
+                f"{helper_name}: unsupported local assignment to {target!r}"
+            )
+
+    if readnum_args is None or return_shape is None:
+        raise NativeGenerationError(
+            f"{helper_name}: no supported readnum return shape found"
+        )
+    if len(readnum_args) != 5:
+        raise NativeGenerationError(
+            f"{helper_name}: readnum takes {len(readnum_args)} arguments, expected 5"
+        )
+    if not _expr_is_off(readnum_args[0], local_offset):
+        raise NativeGenerationError(
+            f"{helper_name}: readnum offset is not off/the reviewed local"
+        )
+    if not _expr_is_name(readnum_args[1], "buf"):
+        raise NativeGenerationError(f"{helper_name}: readnum buffer is not buf")
+    if not _expr_is_name(readnum_args[2], "n"):
+        raise NativeGenerationError(f"{helper_name}: readnum length is not n")
+    value_expr = _validate_value_expr(
+        readnum_args[3],
+        binding_op.get("allowed_calls", []),
+        binding_op.get("allowed_idents", []),
+    )
+    size_expr, size_value = _validate_size_expr(
+        readnum_args[4],
+        binding_op.get("allowed_constants", {}),
+        global_enums,
+    )
+
+    lowered = fn.text.lower()
+    for bad in ("chan", "qid", "dirtab", "devwalk", "devdirread", "namec", "c->"):
+        if bad in lowered:
+            raise NativeGenerationError(
+                f"{helper_name}: helper text contains forbidden {bad!r}"
+            )
+
+    handler = _handler_function(analyzer, op)
+    if handler is None:
+        raise NativeGenerationError(
+            f"{path}: Dev handler for {selector} was not found"
+        )
+    if fn.conditions:
+        raise NativeGenerationError(
+            f"{helper_name}: helper is inside preprocessor conditions {list(fn.conditions)!r}"
+        )
+    if handler.conditions:
+        raise NativeGenerationError(
+            f"{handler.name}: handler is inside preprocessor conditions {list(handler.conditions)!r}"
+        )
+    if not binding_op.get("authorization"):
+        raise NativeGenerationError(
+            f"{helper_name}: binding has no explicit authorization contract"
+        )
+    if binding_op.get("require_up") and not re.search(r"\bup\b", fn.text):
+        raise NativeGenerationError(
+            f"{helper_name}: binding requires up but helper does not use it"
+        )
+    case, switch = _find_case(handler, selector)
+    branch_call = _validate_branch_call(handler.body[case.start:case.end], helper_name)
+    entry_guard = _find_pre_dispatch_guard(handler, switch.start)
+
+    driver = op.get("driver") or ""
+    symbol = _native_symbol(driver, selector)
+    const = _native_const_name(driver, selector)
+    return {
+        "rule": "readnum",
+        "helper": helper_name,
+        "helper_line": fn.line,
+        "helper_params": "void *buf, long n, vlong off",
+        "helper_return": "long",
+        "value_expression": value_expr,
+        "size_expression": size_expr,
+        "size_value": size_value,
+        "offset_expression": join_tokens(readnum_args[0]),
+        "return_shape": return_shape,
+        "guard": guard,
+        "entry_guard": entry_guard,
+        "branch_call": branch_call,
+        "branch_line": case.line,
+        "handler": handler.name,
+        "handler_line": handler.line,
+        "generated_symbol": symbol,
+        "dispatcher_symbol": _native_read_dispatch(driver),
+        "selector_constant": "NATIVE_" + const,
+        "size_constant": "NATIVE_" + const + "_SIZE",
+        "authorization": binding_op.get("authorization", "not stated"),
+        "context": list(binding_op.get("context", [])),
+        "require_up": bool(binding_op.get("require_up", False)),
+        "allowed_calls": list(binding_op.get("allowed_calls", [])),
+        "allowed_idents": list(binding_op.get("allowed_idents", [])),
+    }
+
+
 def build_native_spec(
     analyzer: Analyzer,
     data: dict[str, Any],
@@ -3948,6 +4511,7 @@ def build_native_spec(
     file_records = {
         f["path"]: f for f in data.get("source", {}).get("files", [])
     }
+    global_enums = _global_enum_constants(analyzer)
 
     # Validate the reviewed bindings against the same parsed tree first.
     binding_state: dict[str, dict[str, Any]] = {}
@@ -4002,14 +4566,35 @@ def build_native_spec(
             key = _binding_key(op)
             fn = _handler_function(analyzer, op)
             binding_op = (binding or {}).get("operations", {}).get(key)
+            native = None
+            generated_symbol = None
             if binding_op is not None:
                 binding_keys_seen[path].add(key)
                 conversion = binding_op["conversion"]
                 reason = binding_op["reason"]
-                generated_symbol = binding_op.get("generated_symbol")
+                if conversion == "DIRECT":
+                    if binding_op.get("kind") != "readnum":
+                        raise NativeGenerationError(
+                            f"{binding.get('driver')}: DIRECT {key} does not use "
+                            "the generic readnum rule"
+                        )
+                    selector_symbol = op.get("entry", {}).get("qid")
+                    if not selector_symbol:
+                        raise NativeGenerationError(
+                            f"{binding.get('driver')}: {key} is not a Qid read"
+                        )
+                    native = _extract_readnum_operation(
+                        analyzer, data, path, binding_op, op,
+                        selector_symbol, global_enums,
+                    )
+                    generated_symbol = native["generated_symbol"]
+                elif binding_op.get("kind") == "readnum":
+                    raise NativeGenerationError(
+                        f"{binding.get('driver')}: {key} has a readnum binding "
+                        "but is not marked DIRECT"
+                    )
             else:
                 conversion, reason = _generic_classification(data, op)
-                generated_symbol = None
             entry_deps = _chan_dependencies(fn)
             if conversion == "DIRECT":
                 branch_deps = {
@@ -4027,16 +4612,24 @@ def build_native_spec(
                     "note": "branch-specific independence not established",
                 }
             selector = _selector_info(data, op, enum_values)
+            source_mapping = {
+                "path": op.get("source", {}).get("path"),
+                "line": op.get("source", {}).get("line"),
+                "function": op.get("handler", {}).get("symbol"),
+                "function_line": op.get("handler", {}).get("line"),
+                "sha256": rec.get("sha256"),
+            }
+            if native is not None:
+                source_mapping.update({
+                    "helper": native["helper"],
+                    "helper_line": native["helper_line"],
+                    "branch_line": native["branch_line"],
+                    "branch_call": native["branch_call"],
+                })
             op_records.append({
                 "id": op.get("id"),
                 "kind": op.get("kind"),
-                "source": {
-                    "path": op.get("source", {}).get("path"),
-                    "line": op.get("source", {}).get("line"),
-                    "function": op.get("handler", {}).get("symbol"),
-                    "function_line": op.get("handler", {}).get("line"),
-                    "sha256": rec.get("sha256"),
-                },
+                "source": source_mapping,
                 "device": {
                     "driver": reg.get("name"),
                     "char": reg.get("dc"),
@@ -4045,17 +4638,23 @@ def build_native_spec(
                 "selector": selector,
                 "semantics": _semantics(op.get("entry", {}).get("callback")),
                 "conditional": _condition_info(data, reg, op, config),
-                "backend": _backend_evidence(data, op),
+                "backend": _backend_evidence(
+                    data, op, full=(conversion == "DIRECT")
+                ),
                 "dependencies": {
                     "entry_chan": entry_deps,
                     "selected_branch": branch_deps,
                 },
                 "permissions": _permission_evidence(op, fn),
+                "authorization": (
+                    native["authorization"] if native is not None
+                    else "kernel-internal-only; no generated native entry"
+                ),
                 "offsets": _offset_evidence(op, fn),
                 "state_risks": _state_risks(analyzer, data, op, fn, path or ""),
                 "lifecycle": (
-                    "no persistent native handle in E1; caller supplies selector "
-                    "and offset"
+                    "kernel-internal-only; no persistent native handle in E2; "
+                    "caller supplies selector and offset"
                     if conversion == "DIRECT"
                     else "current implementation is tied to Chan/device lifecycle; "
                          "native lifetime contract not established"
@@ -4063,6 +4662,7 @@ def build_native_spec(
                 "conversion": conversion,
                 "reasons": [reason],
                 "generated_symbol": generated_symbol,
+                "native": native,
             })
 
         # A binding that does not match an actual parsed operation is stale.
@@ -4074,6 +4674,43 @@ def build_native_spec(
                     f"the parsed operation list: {', '.join(missing)}"
                 )
 
+        detail = (
+            any(o.get("native") is not None for o in op_records)
+            or reg.get("name") in NATIVE_DRIVER_NOTES
+        )
+        if not detail:
+            # Compact refusal record for analysis-only drivers: status and
+            # evidence remain inspectable without duplicating the full
+            # backend/lifecycle schema for hundreds of unconverted operations.
+            op_records = [{
+                "id": o.get("id"),
+                "kind": o.get("kind"),
+                "source": {
+                    "path": o.get("source", {}).get("path"),
+                    "line": o.get("source", {}).get("line"),
+                    "function": o.get("source", {}).get("function"),
+                    "function_line": o.get("source", {}).get("function_line"),
+                },
+                "selector": o.get("selector"),
+                "semantics": o.get("semantics"),
+                "conditional": {
+                    "active_in_selected_config":
+                        (o.get("conditional") or {}).get("active_in_selected_config"),
+                    "preprocessor_conditions":
+                        (o.get("conditional") or {}).get("preprocessor_conditions"),
+                    "ambiguous_alternatives":
+                        (o.get("conditional") or {}).get("ambiguous_alternatives"),
+                },
+                "backend": {
+                    "chain_id": (o.get("backend") or {}).get("chain_id"),
+                    "status": (o.get("backend") or {}).get("status"),
+                    "reason": (o.get("backend") or {}).get("reason"),
+                },
+                "state_risks": o.get("state_risks"),
+                "conversion": o.get("conversion"),
+                "reasons": o.get("reasons"),
+                "generated_symbol": o.get("generated_symbol"),
+            } for o in op_records]
         counts = {"DIRECT": 0, "BRIDGE": 0, "MANUAL": 0, "LEGACY": 0}
         for op in op_records:
             counts[op["conversion"]] = counts.get(op["conversion"], 0) + 1
@@ -4089,6 +4726,7 @@ def build_native_spec(
                 if (rec.get("build") or {}).get(c.get("name")) == "active"
             ),
             "pilot": path in bindings,
+            "detail": detail,
             "generated_files": [],
             "classification": (
                 "DIRECT-PARTIAL" if counts["DIRECT"] and counts["MANUAL"]
@@ -4116,7 +4754,8 @@ def build_native_spec(
     for driver in drivers:
         if driver["path"] in binding_state:
             state = binding_state[driver["path"]]
-            driver["generated_files"] = ["kernel_native.h", f"{state['driver']}_native.c"]
+            if any(o.get("native") is not None for o in driver["operations"]):
+                driver["generated_files"] = ["kernel_native.h", "kernel_native.c"]
             driver["selectors"] = state["selectors"]
             driver["source_constants"] = state["constants"]
 
@@ -4209,68 +4848,119 @@ def _provenance(spec: dict[str, Any], source_path: str) -> str:
     )
 
 
-def _rtc_driver(spec: dict[str, Any]) -> dict[str, Any] | None:
+def _native_operations(spec: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    out: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for driver in spec.get("drivers", []):
-        if driver.get("driver") == "rtc" and driver.get("pilot"):
-            return driver
-    return None
+        for op in driver.get("operations", []):
+            if op.get("native") is not None:
+                out.append((driver, op))
+    out.sort(key=lambda item: (
+        item[0].get("driver") or "", item[1]["native"].get("selector_constant") or ""
+    ))
+    return out
 
 
-def _c_selector(symbol: str) -> str:
-    return "N" + symbol
+def _native_driver_operations(
+    spec: dict[str, Any],
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    driver_by_name: dict[str, dict[str, Any]] = {}
+    for driver, op in _native_operations(spec):
+        name = driver.get("driver") or ""
+        grouped.setdefault(name, []).append(op)
+        driver_by_name[name] = driver
+    return [(driver_by_name[name], grouped[name]) for name in sorted(grouped)]
+
+
+def _native_provenance(spec: dict[str, Any]) -> str:
+    src = spec.get("source", {})
+    lines = [
+        "/*",
+        f" * Generated by {GENERATOR} --generate-native.  Do not edit.",
+        f" * Config: {spec.get('config')}",
+        f" * Source commit: {src.get('commit')}",
+        f" * Kernel fingerprint: {src.get('fingerprint_sha256')}",
+    ]
+    for driver in spec.get("drivers", []):
+        if not any(o.get("native") is not None for o in driver.get("operations", [])):
+            continue
+        lines.append(
+            f" * Source: {driver.get('path')} SHA-256: {driver.get('sha256')}"
+        )
+    lines.extend([
+        " * Generated code is opt-in, lives under build/ and is not part of the normal kernel build.",
+        " */",
+    ])
+    return "\n".join(lines) + "\n"
 
 
 def render_native_header(spec: dict[str, Any]) -> str:
-    rtc = _rtc_driver(spec)
-    if rtc is None:
-        raise NativeGenerationError("the RTC pilot driver is not active")
-    selectors = rtc.get("selectors", [])
-    if not selectors:
-        raise NativeGenerationError("the RTC pilot has no reviewed selectors")
+    ops = _native_operations(spec)
+    if not ops:
+        raise NativeGenerationError("no generated native read operations")
     lines = [
-        _provenance(spec, rtc["path"]).rstrip("\n"),
+        _native_provenance(spec).rstrip("\n"),
         "",
         "#ifndef PLAN2001_KERNEL_NATIVE_H",
         "#define PLAN2001_KERNEL_NATIVE_H",
         "",
         "/* Include \"u.h\" before this header; Plan 9 u.h has no include guard. */",
         "",
-        "/* Numeric selectors from the parsed enum and rtcdir[]. */",
+        "/* Numeric selectors derived from the reviewed enum/Dirtab mapping. */",
         "enum {",
     ]
-    for item in selectors:
-        value = item.get("value")
+    seen_const: set[str] = set()
+    for _, op in ops:
+        native = op["native"]
+        const = native["selector_constant"]
+        selector = op.get("selector") or {}
+        value = selector.get("value")
         if value is None:
             raise NativeGenerationError(
-                f"selector {item.get('symbol')} has no numeric value"
+                f"selector {selector.get('symbol')} has no numeric value"
             )
-        lines.append(f"\t{_c_selector(item['symbol'])} = {value},")
-    lines.extend([
-        "};",
-        "",
-        "int\trtc_native_permitted(ulong, int);",
-        "long\trtc_native_read(ulong, void*, long, vlong);",
-        "long\trtc_native_write(ulong, void*, long, vlong);",
-        "",
-        "#endif",
-        "",
-    ])
+        if const not in seen_const:
+            lines.append(f"\t{const} = {value},")
+            seen_const.add(const)
+    lines.extend(["};", "", "enum {"])
+    seen_size: set[str] = set()
+    for _, op in ops:
+        native = op["native"]
+        if native["size_constant"] in seen_size:
+            continue
+        lines.append(f"\t{native['size_constant']} = {native['size_value']},")
+        seen_size.add(native["size_constant"])
+    lines.extend(["};", "", "/* Reviewed Chan-free helpers implemented in the driver sources. */"])
+    seen_helper: set[str] = set()
+    for _, op in ops:
+        helper = op["native"]["helper"]
+        if helper in seen_helper:
+            continue
+        lines.append(f"long\t{helper}(void*, long, vlong);")
+        seen_helper.add(helper)
+    lines.extend(["", "/* Generic generated read entries. */"])
+    for _, op in ops:
+        native = op["native"]
+        lines.append(f"long\t{native['generated_symbol']}(void*, long, vlong);")
+    lines.extend(["", "/* Per-driver selector dispatch; kernel-internal only. */"])
+    seen_dispatch: set[str] = set()
+    for _, op in ops:
+        native = op["native"]
+        disp = native["dispatcher_symbol"]
+        if disp in seen_dispatch:
+            continue
+        lines.append(f"long\t{disp}(ulong, void*, long, vlong);")
+        seen_dispatch.add(disp)
+    lines.extend(["", "#endif", ""])
     return "\n".join(lines)
 
 
 def render_native_source(spec: dict[str, Any]) -> str:
-    rtc = _rtc_driver(spec)
-    if rtc is None:
-        raise NativeGenerationError("the RTC pilot driver is not active")
-    constants = rtc.get("source_constants", {})
-    nvoff = constants.get("Nvoff")
-    nvsize = constants.get("Nvsize")
-    if nvoff is None or nvsize is None:
-        raise NativeGenerationError("the reviewed Nvoff/Nvsize constants are missing")
-    qrtc = _c_selector("Qrtc")
-    qnvram = _c_selector("Qnvram")
+    ops = _native_operations(spec)
+    if not ops:
+        raise NativeGenerationError("no generated native read operations")
     lines = [
-        _provenance(spec, rtc["path"]).rstrip("\n"),
+        _native_provenance(spec).rstrip("\n"),
         "",
         '#include "u.h"',
         '#include "../port/lib.h"',
@@ -4281,88 +4971,43 @@ def render_native_source(spec: dict[str, Any]) -> str:
         '#include "kernel_native.h"',
         "",
         "/*",
-        " * Reviewed bindings:",
-        " *   Qrtc read    -> rtctime() + readnum()",
-        " *   Qnvram read  -> nvramread()",
-        " *   Qnvram write -> nvramwrite()",
-        " *   Qrtc write   -> MANUAL: sec2rtc()/PUTBCD are static and not bound.",
-        " * No walk, namec, devtab or directory lookup is used here.",
+        " * Thin bindings only: the readnum body, guard and offset handling live",
+        " * in the reviewed helper shared with the inherited Dev branch.",
+        " * No Chan, Qid dispatch, Dirtab, walk, namec or namespace traversal.",
         " */",
-        "enum {",
-        f"\tNvoff =\t{nvoff},",
-        f"\tNvsize =\t{nvsize},",
-        "};",
-        "",
-        "int",
-        "rtc_native_permitted(ulong selector, int omode)",
-        "{",
-        "\tomode = openmode(omode);",
-        "\tswitch(selector){",
-        f"\tcase {qrtc}:",
-        "\t\tif(strcmp(up->user, eve) != 0 && omode != OREAD)",
-        "\t\t\treturn 0;",
-        "\t\treturn 1;",
-        f"\tcase {qnvram}:",
-        "\t\treturn strcmp(up->user, eve) == 0;",
-        "\t}",
-        "\treturn 0;",
-        "}",
-        "",
-        "long",
-        "rtc_native_read(ulong selector, void *buf, long n, vlong off)",
-        "{",
-        "\tuchar *a;",
-        "\tulong offset;",
-        "",
-        "\tif(!rtc_native_permitted(selector, OREAD))",
-        "\t\terror(Eperm);",
-        "\toffset = off;",
-        "\tswitch(selector){",
-        f"\tcase {qrtc}:",
-        "\t\treturn readnum(offset, buf, n, (ulong)rtctime(), 12);",
-        f"\tcase {qnvram}:",
-        "\t\tif(offset >= Nvsize)",
-        "\t\t\treturn 0;",
-        "\t\tif(offset+n > Nvsize)",
-        "\t\t\tn = Nvsize-offset;",
-        "\t\toffset += Nvoff;",
-        "\t\ta = buf;",
-        "\t\twhile(n-- > 0)",
-        "\t\t\t*a++ = nvramread(offset++);",
-        "\t\treturn a - (uchar*)buf;",
-        "\t}",
-        "\terror(Ebadarg);",
-        "}",
-        "",
-        "long",
-        "rtc_native_write(ulong selector, void *buf, long n, vlong off)",
-        "{",
-        "\tuchar *a;",
-        "\tulong offset;",
-        "",
-        "\tif(!rtc_native_permitted(selector, OWRITE))",
-        "\t\terror(Eperm);",
-        "\tif(off != 0)",
-        "\t\terror(Ebadarg);",
-        "\toffset = off;",
-        "\tswitch(selector){",
-        f"\tcase {qrtc}:",
-        "\t\terror(\"rtc: Qrtc write has no reviewed Chan-free binding\");",
-        f"\tcase {qnvram}:",
-        "\t\tif(offset >= Nvsize)",
-        "\t\t\treturn 0;",
-        "\t\tif(offset+n > Nvsize)",
-        "\t\t\tn = Nvsize-offset;",
-        "\t\toffset += Nvoff;",
-        "\t\ta = buf;",
-        "\t\twhile(n-- > 0)",
-        "\t\t\tnvramwrite(offset++, *a++);",
-        "\t\treturn a - (uchar*)buf;",
-        "\t}",
-        "\terror(Ebadarg);",
-        "}",
         "",
     ]
+    for driver, op in ops:
+        native = op["native"]
+        lines.extend([
+            "long",
+            f"{native['generated_symbol']}(void *buf, long n, vlong off)",
+            "{",
+            f"\treturn {native['helper']}(buf, n, off);",
+            "}",
+            "",
+        ])
+    for driver, driver_ops in _native_driver_operations(spec):
+        name = driver.get("driver") or ""
+        disp = driver_ops[0]["native"]["dispatcher_symbol"]
+        lines.extend([
+            "long",
+            f"{disp}(ulong selector, void *buf, long n, vlong off)",
+            "{",
+            "\tswitch(selector){",
+        ])
+        for op in driver_ops:
+            native = op["native"]
+            lines.extend([
+                f"\tcase {native['selector_constant']}:",
+                f"\t\treturn {native['generated_symbol']}(buf, n, off);",
+            ])
+        lines.extend([
+            "\t}",
+            f'\terror("native {name}: unsupported selector");',
+            "}",
+            "",
+        ])
     return "\n".join(lines)
 
 
@@ -4373,7 +5018,7 @@ def dumps_native_manifest(spec: dict[str, Any]) -> str:
 def _native_outputs(spec: dict[str, Any]) -> dict[str, str]:
     return {
         "kernel_native.h": render_native_header(spec),
-        "rtc_native.c": render_native_source(spec),
+        "kernel_native.c": render_native_source(spec),
         "native-decisions.json": dumps_native_manifest(spec),
     }
 

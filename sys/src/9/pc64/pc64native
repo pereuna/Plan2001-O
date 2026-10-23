@@ -1,0 +1,86 @@
+# pc64native - E2 opt-in native read probe.  Same devices as pc64 plus
+# onativeprobe and the generated kernel_native object, which tools/build.sh
+# stages from build/generated/kernel-native/.  No bootdir and no user init.
+dev
+	root
+	cons
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	etheri225	pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	onativeprobe
+	kernel_native
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# This config is deliberately pathless: main.c hands off directly to the
+# onativeprobe kernel process when plan9.ini has onativeprobe=1.
