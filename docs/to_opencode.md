@@ -1,7 +1,7 @@
 # Plan2001-O — Experiment A: bottom-up boot without the legacy first user process
 
 **Task for OpenCode. Repository:** `pereuna/Plan2001-O`, current `main`.  
-**Scope:** one small, reversible kernel boot experiment. This **supersedes** the previous A/B/C pathless-boot assignment in this file. Do not continue its block-storage, executable-loader or console refactors as part of this task.
+**Scope:** one small, reversible kernel boot experiment. This replaces only the **pending assignment text in this shared instruction file**, NOT the earlier committed work, measurements or documentation. The preceding top-down pathless-storage assignment already reported **Level A PASS (native GE/O storage)** and **Levels B/C NOT YET**, as recorded in `docs/O-BOOT-DEPENDENCIES.md`. The new **Experiment A (kernel-only bootstrap bypass)** is a different test despite the similar letter. Never overwrite, rename or invalidate the earlier Level A evidence. Do not continue the earlier Level B/C loader/console refactors as part of this new experiment.
 
 ## Question
 
@@ -10,6 +10,12 @@ Can the existing amd64 9front-derived kernel initialize its normal hardware and 
 Approach this **bottom-up**, starting from `sys/src/9/pc64/main.c:main()`, not by removing filesystem APIs from the top. The experiment must distinguish code **present in the kernel binary**, code **initialized at boot**, and code **actually executed on the chosen boot path**.
 
 The aim is **NOT** to remove `Chan`, `Dev`, `namec`, `devroot`, the filesystem source, or any existing O interface. It is to demonstrate that the traditional user-boot chain can be bypassed at a narrow branch point while the rest of the kernel remains usable.
+
+## 0. Working-tree and concurrent-agent safety
+
+Before changing any source file, run `git status --short`, `git branch --show-current` and `git log -5 --oneline`. Confirm that the earlier native SD block path (implementation `e384300`) and its dependency report (`1229bca`) are already in the current history. If another OpenCode process/agent has uncommitted work on overlapping files or is still acting on the old assignment, **do not modify, discard, stage or commit that work**; report the collision and work only from a separate clean checkout/branch once safe. Do not use `git reset --hard`, `git checkout -- .`, `git clean -fd`, forced push, or blind `git add .` to resolve it. Avoid two agents writing concurrently to `docs/to_chatgpt_review.md` or `docs/STATUS.md`.
+
+Keep the existing native `sysovolopen -> ovolopenblk -> SD` path, `tools/test-o-pathless.sh`, and `docs/O-BOOT-DEPENDENCIES.md` as preserved baselines. This task is **not** a rollback of the top-down Level A changes. In `docs/STATUS.md` explicitly label its results `Boot Experiment A`, distinct from `Storage Level A`. Never change existing PASS evidence without a new test and source-level explanation.
 
 ## 1. Source check before edits
 
