@@ -1,29 +1,27 @@
-# Last completed agent result — E1 native generator (PARTIAL)
+**E1 GENERATOR PARTIAL** — committed and pushed as `65c3d54`.
 
-**E1 GENERATOR PARTIAL (agent-reported, 23 October 2026, base `c894eb5`).**
-`tools/kernel_opmap.py --generate-native` extends the existing analyser rather
-than adding a scanner.  It writes a 29-driver `pc64` decision manifest plus a
-hash-pinned RTC pilot under `build/generated/kernel-native/` (Git-ignored).
+**Native output / source mapping**
+- `build/generated/kernel-native/kernel_native.h` — selector constants + RTC prototypes
+- `build/generated/kernel-native/rtc_native.c` — reviewed RTC entry
+- `build/generated/kernel-native/native-decisions.json` — 29 active `pc64` Dev registrations, 756 operations
+- Source binding: `sys/src/9/pc/devrtc.c`, SHA-256 `45722e4f...f1bcb`; hash-pinned so edits fail closed.
 
-- **RTC:** three `DIRECT` reviewed operations (`Qrtc` read, `Qnvram` read and
-  write) map `Qrtc=1`/`Qnvram=2` to `rtctime`, `nvramread` and `nvramwrite`.
-  `eve` permission and `Nvoff`/`Nvsize` offset rules are reproduced.  `Qrtc`
-  write is `MANUAL` because `sec2rtc()`/`PUTBCD` are static.  `walk`/`stat`
-  stay `LEGACY`.
-- **Pipe:** `MANUAL`; dynamic `Pipe`/`qref`/`c->aux` ownership and
-  open-close hangup semantics block automation.
-- **Other drivers:** described, not edited; no `DIRECT` claim without a
-  reviewed binding.
+**RTC: DIRECT (compile-validated, not runtime-executed)**
+- `Qrtc` read → `rtctime()` + `readnum()`: DIRECT
+- `Qnvram` read → `nvramread()` with `Nvoff`/`Nvsize`: DIRECT
+- `Qnvram` write → `nvramwrite()` with offset-0 rule and bounds: DIRECT
+- `Qrtc` write → **MANUAL** (`sec2rtc()`/`PUTBCD` are static; explicit error, no fake success)
+- `eve` permission checks and offset rules are reproduced. Namespace `walk`/`stat` remain LEGACY.
+- Generated C compiled successfully with the build VM's Plan 9 `6c` against repository kernel headers (`build/vm/serial-20261023-233225.log`, ignored). Runtime RTC call not performed.
 
-Evidence: `python3 tools/test_kernel_opmap.py` 18/18 PASS; default OMAP JSON/MD
-hashes unchanged; generated output reproducible and
-`--generate-native --check` PASS.  Generated `rtc_native.c` compiles with the
-build VM's Plan 9 `6c` against repository kernel headers (log
-`build/vm/serial-20261023-233225.log`), but was **not** executed in a booted kernel.  D2b was not rerun because no
-executable/kernel behaviour changed.  `docs/KERNEL-OPMAP.{json,md}` remain
-stale against the kernel tree from before E1 and were not silently regenerated.
+**PIPE: MANUAL** — dynamic `Pipe`/`qref`/`ref`/`c->aux` ownership, `qhangup`/`qclose`/`qreopen`, opposite-queue read/write and `qsetlimit` block safe automation. Manifest records these blockers; no pipe code generated.
 
-**Current direction:** next iteration should add one runtime-controlled RTC
-read/fault test (or a reviewed native handle contract) and then address
-`devpipe` endpoint ownership.  Do not treat this as a converted driver or as
-whole-kernel `Chan` independence.
+**OMAP CLI COMPATIBILITY: PASS** — default JSON/Markdown hashes are unchanged from before E1. Baseline note: `kernel_opmap.py --check` still reports the pre-existing stale `docs/KERNEL-OPMAP.{json,md}`; they were not silently regenerated.
+
+**Tests**
+- `python3 tools/test_kernel_opmap.py` — **18/18 PASS**
+- Generated output reproduced byte-for-byte twice; `--generate-native --check` PASS
+- `WHAT=kernel tools/build.sh` **NOT RUN** (no kernel/executable source changed)
+- D2b server gate **NOT RUN** (no executable/kernel behavior change)
+
+**Remaining kernel `Chan` dependencies:** all non-pilot drivers, pipe endpoints, RTC `walk`/`stat`/`open`/`close`/directory read, GE/O volume discovery, mount/9P transports, and the retained `Chan`/`Qid`/`Dirtab`/`Walk`/`Dev` kernel machinery. No driver has been converted to Chan-free operation.
