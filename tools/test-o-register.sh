@@ -21,6 +21,7 @@ disk=$b/oregister.img
 oimg=$b/oregister-o.img
 cdisk=$b/oregister-corrupt.img
 coimg=$b/oregister-corrupt-o.img
+ccdisk=$b/oregister-conc.img
 repldisk=$b/oregister-repl.img
 reploimg=$b/oregister-repl-o.img
 for f in gefs micropython oinit ohandle; do
@@ -142,11 +143,11 @@ grep -q 'space: O: committed init version 3' "$vm/boot3.log" || fail "boot 3: no
 echo "### two processes with independent native Space handles"
 NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$kernel" \
 	INIT='/boot/ohandle -reg -vol PARTUUID=@PARTUUID@' \
-	"$here/gefsdisk" "$disk"
-puuid=$(cat "$disk.partuuid")
-grep -q "^init=/boot/ohandle -reg -vol PARTUUID=$puuid$" "$disk.ini" ||
+	"$here/gefsdisk" "$ccdisk"
+puuid=$(cat "$ccdisk.partuuid")
+grep -q "^init=/boot/ohandle -reg -vol PARTUUID=$puuid$" "$ccdisk.ini" ||
 	fail "plan9.ini: wrong concurrency init line"
-boot concurrency
+BOOTDISK="$ccdisk" boot concurrency
 grep -q '^PASS: native OID registration under two processes$' "$vm/concurrency.log" ||
 	fail "concurrency: no PASS"
 grep -q '^oreg: parent ' "$vm/concurrency.log" || fail "concurrency: no OID transcript"
@@ -158,7 +159,7 @@ echo "### boot 4: Python graph and payloads survive independent native writes"
 boot boot4
 grep -q 'space: O: restored init version 3' "$vm/boot4.log" || fail "boot 4: graph not restored"
 checkcommon boot4
-checkmarks boot4 $saved saved-boot2 saved-boot3 new-oid-above-external \
+checkmarks boot4 $saved saved-boot2 saved-boot3 new-oid-strictly-above \
 	new-oid-unused fourth-new-payload fourth-boot
 grep -q 'space: O: committed init version 4' "$vm/boot4.log" || fail "boot 4: no graph commit 4"
 

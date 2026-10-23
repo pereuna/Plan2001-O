@@ -153,12 +153,7 @@ def later_boot():
     verify_saved()
     boot = state.boots + 1
     n = space.oregister(b"boot%d\n" % boot)
-    if state.boots < 3:
-        check(n == state.max_oid + 1, "new-oid-strictly-above")
-    else:
-        # an independent native registration (the two-process handle
-        # test) may have advanced the high-water mark since this graph
-        check(n > state.max_oid, "new-oid-above-external")
+    check(n == state.max_oid + 1, "new-oid-strictly-above")
     check(n not in (state.empty, state.hello, state.binary, state.big,
         state.same1, state.same2, state.rev), "new-oid-unused")
     state.max_oid = n
