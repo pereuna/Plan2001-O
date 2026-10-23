@@ -40,7 +40,7 @@ _main(struct Oargs *a)
 	int i;
 
 	/* D2a user-originated negative checks; no output on any of these. */
-	if(a->argc == 6){
+	if(a->argc == 6 && a->argv[5][0] == '-' && a->argv[5][1] == 'B'){
 		if(iowrite(99, nil, 0) != -1)
 			alarm(0x0e01);
 		if(iowrite(1, nil, -1) != -1)

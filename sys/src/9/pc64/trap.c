@@ -432,11 +432,22 @@ syscall(Ureg* ureg)
 		panic("syscall: cs 0x%4.4lluX", ureg->cs);
 	fpukenter(ureg);
 	scallnr = ureg->bp;	/* RARG */
-	budget = oboot_mp ? 64 : 8;
-	trace = (oboot_user || oboot_oid || oboot_mp) &&
+	budget = (oboot_mp || oboot_server) ? 64 : 8;
+	trace = (oboot_user || oboot_oid || oboot_mp || oboot_server) &&
 		up->pid == oboot_userpid &&
 		userureg(ureg) && oboot_usernsys < budget;
-	tag = oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	tag = oboot_server ? "OBOOT-D2B" :
+		oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	if(oboot_server && up != nil && up->pid == oboot_userpid &&
+	   (scallnr == BIND || scallnr == OPEN || scallnr == _READ ||
+	    scallnr == _WRITE || scallnr == PWRITE || scallnr == FD2PATH ||
+	    scallnr == CREATE || scallnr == MOUNT || scallnr == _MOUNT ||
+	    scallnr == REMOVE || scallnr == STAT || scallnr == FSTAT ||
+	    scallnr == WSTAT || scallnr == FWSTAT || scallnr == CHDIR ||
+	    scallnr == FAUTH || scallnr == _STAT || scallnr == _FSTAT ||
+	    scallnr == _WSTAT || scallnr == _FWSTAT))
+		print("OBOOT-D2B: LEGACY-ATTEMPT nr=%lud pc=%#llux text=%s\n",
+			scallnr, ureg->pc, up->text);
 	arg0 = arg1 = 0;
 	arg2 = 0;
 	if(trace)
@@ -462,7 +473,7 @@ syscall(Ureg* ureg)
 			tag, up->pid, scallnr, ureg->ax, up->text, ureg->pc,
 			ureg->cs, ureg->ss, userureg(ureg));
 		oboot_usernsys++;
-		if(oboot_mp && (oboot_usernsys == 4 ||
+		if((oboot_mp || oboot_server) && (oboot_usernsys == 4 ||
 		   oboot_usernsys == 16 || oboot_usernsys == 32 ||
 		   oboot_usernsys == 64))
 			print("%s: AFTER-SYSCALLS n=%d legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
@@ -470,7 +481,7 @@ syscall(Ureg* ureg)
 				oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
 				opath_namec, opath_newchan, opath_walk, opath_devwalk,
 				opath_mount, opath_exec);
-		else if(!oboot_mp && oboot_usernsys == 4)
+		else if(!(oboot_mp || oboot_server) && oboot_usernsys == 4)
 			print("%s: AFTER-SYSCALLS legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
 				tag, oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
 				opath_namec, opath_newchan, opath_walk, opath_devwalk,

@@ -51,7 +51,7 @@ struct Oblock {
 };
 extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
 extern uvlong opath_mount, opath_exec;
-extern int oboot_oid, oboot_mp, oboot_userpid;
+extern int oboot_oid, oboot_mp, oboot_server, oboot_userpid;
 void*	onativeopen(void*, char*);
 long	onativeget(void*, uvlong, void*, long, uvlong*);
 void	onativeput(void*, uvlong, void*, long);
@@ -579,14 +579,15 @@ opathdump(char *tag)
 static int
 ocprobe(void)
 {
-	return (oboot_oid || oboot_mp) && up != nil &&
+	return (oboot_oid || oboot_mp || oboot_server) && up != nil &&
 		up->pid == oboot_userpid;
 }
 
 static char*
 octag(void)
 {
-	return oboot_mp ? "OBOOT-D1" : "OBOOT-C";
+	return oboot_server ? "OBOOT-D2B" :
+		oboot_mp ? "OBOOT-D1" : "OBOOT-C";
 }
 
 /*
@@ -1019,13 +1020,13 @@ sysoexecute(va_list list)
 	if(n < 0)
 		error("oexec: no such object");
 	if(ocprobe()){
-		if(oboot_mp){
+		if(oboot_mp || oboot_server){
 			uchar digest[SHA2_256dlen];
 			int i;
 
 			sha2_256(buf, n, digest, nil);
-			print("OBOOT-D1: OEXECUTE oid=%#llux len=%ld sha256=",
-				oid, n);
+			print("%s: OEXECUTE oid=%#llux len=%ld sha256=",
+				octag(), oid, n);
 			for(i = 0; i < SHA2_256dlen; i++)
 				print("%.2ux", digest[i]);
 			print(" ver=%#llux\n", ver);

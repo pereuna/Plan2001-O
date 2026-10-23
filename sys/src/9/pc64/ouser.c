@@ -50,6 +50,7 @@ struct Oargs
 int	oboot_user;
 int	oboot_oid;
 int	oboot_mp;
+int	oboot_server;
 int	oboot_userpid;
 int	oboot_usernsys;
 
@@ -129,12 +130,14 @@ ouserproc(void *arg)
 	USED(arg);
 	if(waserror())
 		panic("%s: bootstrap: %s",
+			oboot_server ? "OBOOT-D2B" :
 			oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B",
 			up->errstr);
 
-	img = (oboot_oid || oboot_mp) ? obootoid : obootuser;
-	imglen = (oboot_oid || oboot_mp) ? sizeof(obootoid) : sizeof(obootuser);
-	tag = oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	img = (oboot_oid || oboot_mp || oboot_server) ? obootoid : obootuser;
+	imglen = (oboot_oid || oboot_mp || oboot_server) ? sizeof(obootoid) : sizeof(obootuser);
+	tag = oboot_server ? "OBOOT-D2B" :
+		oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
 	ouserimage(img, imglen, tag, &entry, &text);
 
 	/*
@@ -169,12 +172,12 @@ ouserproc(void *arg)
 
 	argp = 0;
 	sp = USTKTOP-sizeof(Tos)-64;
-	if(oboot_oid || oboot_mp){
+	if(oboot_oid || oboot_mp || oboot_server){
 		memset(&oa, 0, sizeof oa);
 		oa.vollen = obootvollen;
 		memmove(oa.volspec, obootvol, obootvollen);
 		memmove(oa.space, "init", 4);
-		if(oboot_mp){
+		if(oboot_mp || oboot_server){
 			oa.oid = MpOid;
 			oa.argc = 6;
 			memmove(oa.argv[0], "micropython", 12);
@@ -182,7 +185,10 @@ ouserproc(void *arg)
 			memmove(oa.argv[2], obootvol, obootvollen+1);
 			memmove(oa.argv[3], "-S", 3);
 			memmove(oa.argv[4], "init", 5);
-			memmove(oa.argv[5], "-B", 3);
+			if(oboot_server)
+				memmove(oa.argv[5], "-N", 3);
+			else
+				memmove(oa.argv[5], "-B", 3);
 		}else{
 			oa.oid = CExecOid;
 			oa.argc = 1;
@@ -197,7 +203,7 @@ ouserproc(void *arg)
 	up->kp = 0;
 	up->noswap = 0;
 	up->privatemem = 0;
-	if(oboot_mp)
+	if(oboot_mp || oboot_server)
 		up->iomask = Iomout|Iomdiag;
 	procpriority(up, PriNormal, 0);
 	procsetup(up);
@@ -210,23 +216,23 @@ ouserproc(void *arg)
 		tag, up->pid, entry, text, imglen,
 		up->slash == nil ? "nil" : "set",
 		up->dot == nil ? "nil" : "set");
-	if(oboot_oid || oboot_mp)
+	if(oboot_oid || oboot_mp || oboot_server)
 		print("%s: VOLSPEC len=%d %s\n", tag, obootvollen, obootvol);
-	if(oboot_mp){
-		print("OBOOT-D1: ARGV argc=%d", oa.argc);
+	if(oboot_mp || oboot_server){
+		print("%s: ARGV argc=%d", tag, oa.argc);
 		{
 			int i;
 			for(i = 0; i < oa.argc; i++)
 				print(" <%s>", oa.argv[i]);
 		}
-		print("\nOBOOT-D1: OID=%#llux\n", oa.oid);
+		print("\n%s: OID=%#llux\n", tag, oa.oid);
 	}
 	print("%s: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
 		tag, oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
 	print("%s: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
 		tag, opath_namec, opath_newchan, opath_walk, opath_devwalk,
 		opath_mount, opath_exec);
-	if(oboot_oid || oboot_mp)
+	if(oboot_oid || oboot_mp || oboot_server)
 		print("%s: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p arg=%#p\n",
 			tag, up->pid, entry, sp, argp);
 	else
@@ -235,7 +241,7 @@ ouserproc(void *arg)
 
 	splhi();
 	fpukexit(nil);
-	if(oboot_oid || oboot_mp){
+	if(oboot_oid || oboot_mp || oboot_server){
 		oe.sp = sp;
 		oe.arg = argp;
 		otouser(&oe);
@@ -251,19 +257,19 @@ o_user_bootstrap(void)
 	char *p;
 	int n;
 
-	if(oboot_oid || oboot_mp){
+	if(oboot_oid || oboot_mp || oboot_server){
 		p = getconf("obootvol");
 		if(p == nil || strncmp(p, "PARTUUID=", 9) != 0){
-			print("%s: bad obootvol\n", oboot_mp ? "OBOOT-D1" : "OBOOT-C");
+			print("%s: bad obootvol\n", oboot_server ? "OBOOT-D2B" : oboot_mp ? "OBOOT-D1" : "OBOOT-C");
 			panic("%s: obootvol must be PARTUUID=...",
-				oboot_mp ? "OBOOT-D1" : "OBOOT-C");
+				oboot_server ? "OBOOT-D2B" : oboot_mp ? "OBOOT-D1" : "OBOOT-C");
 		}
 		n = strlen(p);
 		if(n <= 0 || n >= sizeof obootvol){
 			print("%s: obootvol length %d\n",
-				oboot_mp ? "OBOOT-D1" : "OBOOT-C", n);
+				oboot_server ? "OBOOT-D2B" : oboot_mp ? "OBOOT-D1" : "OBOOT-C", n);
 			panic("%s: obootvol too long",
-				oboot_mp ? "OBOOT-D1" : "OBOOT-C");
+				oboot_server ? "OBOOT-D2B" : oboot_mp ? "OBOOT-D1" : "OBOOT-C");
 		}
 		memmove(obootvol, p, n);
 		obootvol[n] = 0;

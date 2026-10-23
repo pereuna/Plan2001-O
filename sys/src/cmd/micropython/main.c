@@ -124,7 +124,7 @@ static int onnote(void *ureg, char *note) {
 
 int main(int argc, char **argv) {
     volatile uintptr_t stack_top;
-    int fail = 0, i, boot = 0, autorun = 0, bootfail = 0;
+    int fail = 0, i, boot = 0, nativeboot = 0, autorun = 0, bootfail = 0;
     const char *source = NULL, *file = NULL, *ovol = NULL, *env = NULL, *space = NULL;
     char useenv[128];
 
@@ -150,14 +150,21 @@ int main(int argc, char **argv) {
     }
     if (argc == 2 && strcmp(argv[1], "-B") == 0) {
         boot = 1;
+    } else if (argc == 2 && strcmp(argv[1], "-N") == 0) {
+        nativeboot = 1;
     } else if (argc == 3 && strcmp(argv[1], "-c") == 0) {
         source = argv[2];
     } else if (argc >= 2 && argv[1][0] != '-') {
         file = argv[1];
     } else if (argc != 1) {
-        p9_dprintf("usage: micropython [-O volume] [-E env | -S space] [-B | -c source | file [arg...]]\n");
+        p9_dprintf("usage: micropython [-O volume] [-E env | -S space] [-B | -N | -c source | file [arg...]]\n");
         exits("usage");
     }
+    if (nativeboot && (ovol == NULL || space == NULL)) {
+        p9_dprintf("micropython: -N requires -O volume and -S space\n");
+        exits("usage");
+    }
+    p9_space_native_mode(nativeboot);
     // D2a: only an -O run may look for the process-local native stream.
     p9_console_native(ovol != NULL);
     // inf and nan as results, as in C: Plan 9 traps them by default
@@ -173,10 +180,12 @@ int main(int argc, char **argv) {
         p9_console_exit(1);
         return 1;
     }
+    if (nativeboot)
+        p9_dprintf("OBOOT-D2B: P9-SPACE-O\n");
     // Stage 5: bootstrap (devices, console) runs before the Space is
     // restored, so its boot-only objects never enter the persistent
     // __main__ that the restore replaces.
-    if (boot && space != NULL) {
+    if (boot && space != NULL && !nativeboot) {
         execstr(bootpy, MP_QSTR_boot_dot_py);
     }
     if (space != NULL) {
@@ -191,6 +200,8 @@ int main(int argc, char **argv) {
             p9_console_exit(1);
             return 1;
         }
+        if (nativeboot)
+            p9_dprintf("OBOOT-D2B: SPACE-OPEN\n");
     } else if (env == NULL) {
         mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR_));
         mp_obj_list_append(mp_sys_path, mp_obj_new_str("/sys/lib/python", 15));
@@ -215,6 +226,15 @@ int main(int argc, char **argv) {
         fail = execstr(source, MP_QSTR__lt_command_gt_);
     } else if (file != NULL) {
         fail = execfile(file);
+    } else if (nativeboot) {
+        // -O ... -S init -N: native noninteractive server boot.  No
+        // boot.py, no /dev, no console init, no REPL input.
+        autorun = 1;
+        if (p9_space_boot() < 0) {
+            bootfail = 1;
+            fail = 1;
+        } else
+            p9_dprintf("OBOOT-D2B: RUN\n");
     } else {
         if (boot && space == NULL) {
             // boot.py opens the console (kbdfs) itself
@@ -246,6 +266,8 @@ int main(int argc, char **argv) {
             p9_dprintf("init: failed, no commit\n");
         }
     }
+    if (nativeboot && !uncaught && !bootfail)
+        p9_dprintf("OBOOT-D2B: COMMIT\n");
     if (autorun) {
         // the commit is durable; report the object identity with the
         // OIDs it now has, then stay alive without a REPL.  QEMU (or
@@ -256,7 +278,8 @@ int main(int argc, char **argv) {
         if (!uncaught && !bootfail) {
             p9_dprintf("init: done\n");
         }
-        p9_console_restore();
+        if (!nativeboot)
+            p9_console_restore();
         for (;;) {
             sleep(1000);
         }

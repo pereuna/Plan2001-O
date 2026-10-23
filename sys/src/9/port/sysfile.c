@@ -297,6 +297,20 @@ sysopen(va_list list)
 	mode = va_arg(list, ulong);
 	openmode(mode);	/* error check only */
 	validaddr((uintptr)name, 1, 0);
+	if(oboot_server && up != nil && up->pid == oboot_userpid){
+		char b[128];
+		int i;
+
+		for(i = 0; i < (int)sizeof b - 1; i++){
+			if(!okaddr((uintptr)name+i, 1, 0))
+				break;
+			b[i] = name[i];
+			if(b[i] == 0)
+				break;
+		}
+		b[i] = 0;
+		print("OBOOT-D2B: OPEN-ENTRY path=%s\n", b);
+	}
 	c = namec(name, Aopen, mode, 0);
 	if(waserror()){
 		cclose(c);
@@ -875,8 +889,9 @@ sysiowrite(va_list list)
 	}
 	memmove(p, buf, n);
 	putstrn(p, (int)n);
-	if(oboot_mp && up != nil && up->pid == oboot_userpid)
-		print("OBOOT-D2A: OUTPUT h=%d n=%ld counters namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+	if((oboot_mp || oboot_server) && up != nil && up->pid == oboot_userpid)
+		print("%s: OUTPUT h=%d n=%ld counters namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			oboot_server ? "OBOOT-D2B" : "OBOOT-D2A",
 			h, n, opath_namec, opath_newchan, opath_walk,
 			opath_devwalk, opath_mount, opath_exec);
 	free(p);

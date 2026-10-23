@@ -42,8 +42,6 @@ extern const mp_obj_fun_builtin_var_t mp_builtin___build_class___obj;
 
 extern const mp_obj_type_t mp_type_closure;
 extern const mp_obj_module_t mp_module___main__;
-long long nsec(void);
-
 enum {	/* values */
     V_NONE, V_FALSE, V_TRUE, V_ELLIPSIS,
     V_INT,		/* zigzag */
@@ -1226,7 +1224,7 @@ int p9_image_commit(uint64_t *next, int (*write)(vstr_t *rec, void *a), void *a,
     oent_t *x;
     int k, ret;
     char what[80];
-    long long t0 = nsec();
+    long long t0 = p9_now();
 
     scan_space_names();
 
@@ -1900,7 +1898,7 @@ void p9_image_restore(const byte *p, size_t len) {
     size_t i, k, n, nroot;
     const char *s;
 
-    long long t0 = nsec();
+    long long t0 = p9_now();
 
     memset(&d, 0, sizeof d);
     d.p = p;
@@ -1978,7 +1976,7 @@ void p9_image_restore_store(const byte *p, size_t len, uint64_t *version, char *
     uint64_t oid, olen;
     const char *s;
 
-    long long t0 = nsec();
+    long long t0 = p9_now();
 
     if (len < 21 || p[0] != 'H') {
         corrupt();

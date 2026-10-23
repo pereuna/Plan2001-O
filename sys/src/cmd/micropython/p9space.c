@@ -69,7 +69,7 @@ static struct {
     vstr_t meta;	/* a commit's catalog record, if it has one */
     int hasmeta;
 } sp = { 0, "", "", -1, 0, 0, -1 };
-static vlong lastcommit;	/* nsec() */
+static vlong lastcommit;	/* p9_now() */
 
 /*
  * Stage 4: the native O volume and the Space handle.  ovol is -1 until
@@ -79,6 +79,7 @@ static vlong lastcommit;	/* nsec() */
  */
 static int ovol = -1;
 static int osp = -1;
+static int nativepath;
 static int ofresh;	/* Stage 5: the O Space had no graph at open */
 
 typedef struct {
@@ -92,18 +93,33 @@ static int nodefs, aodefs;
 
 static bool ishex(const char *s);
 
+void p9_space_native_mode(int on) {
+    nativepath = on;
+}
+
+// D2b: a native run uses the pathless _NSEC syscall, not /dev/bintime.
+vlong p9_now(void) {
+    extern vlong _nsec(void*);
+
+    if (nativepath)
+        return _nsec(nil);
+    return nsec();
+}
+
 // $spacetime: the times of a restore and a commit on fd 2 (ms)
 void p9_spacetime(const char *what, vlong t0) {
     static int on = -1;
     char *e;
 
+    if (nativepath)
+        return;
     if (on < 0) {
         e = getenv("spacetime");
         on = e != NULL;
         free(e);
     }
     if (on) {
-        p9_dprintf("spacetime: %s %lld ms\n", what, (nsec() - t0) / 1000000);
+        p9_dprintf("spacetime: %s %lld ms\n", what, (p9_now() - t0) / 1000000);
     }
 }
 
@@ -654,7 +670,10 @@ static p9_space_mod_t *loadmod(qstr name) {
     mp_compiled_module_t cm;
     char lib[256];
 
-    libpath(lib, sizeof lib, "", "");
+    if (ovol >= 0)
+        lib[0] = 0;
+    else
+        libpath(lib, sizeof lib, "", "");
     loadmpy(envitem(1), lib, name, mp_obj_new_module(name), &cm);
     addmod(name, cm.context, (mp_raw_code_t *)cm.rc);
     return &((p9_space_mod_t *)MP_STATE_VM(p9_space_mods))[nmods - 1];
@@ -1265,7 +1284,7 @@ static void openversions(const char *dir, const char *name, char *env) {
         mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("space %s: no valid version"), name);
     }
     useenv(name, env);
-    t0 = nsec();
+    t0 = p9_now();
     p9_image_restore((const byte *)img.buf + body, img.len - body - TRLLEN);
     p9_spacetime("restore", t0);
     vstr_clear(&img);
@@ -1315,7 +1334,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
         p9_image_reset();
         nlr_jump(nlr.ret_val);
     }
-    t0 = nsec();
+    t0 = p9_now();
     ofresh = 0;
     if (oreadobj(OID_GRAPH, &st, NULL) == 0) {
         if ((why = storehdr((const byte *)st.buf, st.len, &h, &nu)) != NULL) {
@@ -1351,7 +1370,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
     sp.migrate = 0;
     sp.writer = getpid();
     sp.isopen = 1;
-    lastcommit = nsec();
+    lastcommit = p9_now();
     return mp_const_none;
 }
 
@@ -1528,7 +1547,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
             }
         }
         useenv(name, env);
-        t0 = nsec();
+        t0 = p9_now();
         nu = sizeof user;
         p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, NULL);
         p9_spacetime("restore", t0);
@@ -1553,7 +1572,7 @@ static mp_obj_t space_open(size_t n_args, const mp_obj_t *args) {
     strcpy(sp.dir, dir);
     sp.writer = ver > 0 ? -1 : getpid();
     sp.isopen = 1;
-    lastcommit = nsec();
+    lastcommit = p9_now();
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(space_open_obj, 1, 2, space_open);
@@ -1964,7 +1983,7 @@ static mp_obj_t space_view(size_t n_args, const mp_obj_t *pos, mp_map_t *kw) {
     v->w.envmap = readenv(v->w.lib, env);
     v->name = args[0].u_obj;
     v->env = mp_obj_new_str(env, 64);
-    t0 = nsec();
+    t0 = p9_now();
     nu = sizeof user;
     p9_image_restore_store((const byte *)st.buf, st.len, &n, user, &nu, &v->w);
     p9_spacetime("view", t0);
@@ -2408,11 +2427,11 @@ static void commit(void) {
 
     if (ovol >= 0) {
         ocommit();
-        lastcommit = nsec();
+        lastcommit = p9_now();
         return;
     }
     if (nlr_push(&nlr) == 0) {
-        t0 = nsec();
+        t0 = p9_now();
         r = p9_image_commit(&sp.next, storewrite, NULL, 0);
         p9_spacetime("commit", t0);
         if (r < 0) {
@@ -2425,7 +2444,7 @@ static void commit(void) {
                 sp.migrate = 0;
             }
         }
-        lastcommit = nsec();
+        lastcommit = p9_now();
         if ((chk = getenv("spacecheck")) != NULL) {
             free(chk);
             if ((r = p9_image_check()) > 0) {
@@ -2471,7 +2490,7 @@ int p9_space_commit(int force) {
 // has passed since the last; a failure raises CommitError instead of
 // blocking
 void p9_space_rest(void) {
-    if (!iswriter() || nsec() - lastcommit < (vlong)(interval * 1e9)) {
+    if (!iswriter() || p9_now() - lastcommit < (vlong)(interval * 1e9)) {
         return;
     }
     if (atomicdepth > 0) {

@@ -90,6 +90,9 @@ uint64_t p9_image_oid(const void *p);
 // the Space's OIDs forgotten (a failed open); the views' kept
 void p9_image_reset(void);
 
+// D2b: a native -N run disables optional legacy getenv instrumentation.
+void p9_space_native_mode(int on);
+vlong p9_now(void);
 // Stage 4: use the native O volume SPEC (a PARTUUID or device) for the
 // Space, its Environment and its code; 0 ok, -1 failed (printed)
 int p9_space_o(const char *spec);

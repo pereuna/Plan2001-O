@@ -17,6 +17,7 @@ extern int oboot_probe;
 extern int oboot_user;
 extern int oboot_oid;
 extern int oboot_mp;
+extern int oboot_server;
 extern uvlong oboot_legacy_init0;
 
 extern void (*i8237alloc)(void);
@@ -230,6 +231,7 @@ main(void)
 	oboot_user = p != nil && strcmp(p, "user") == 0;
 	oboot_oid = p != nil && strcmp(p, "oid") == 0;
 	oboot_mp = p != nil && strcmp(p, "mp") == 0;
+	oboot_server = p != nil && strcmp(p, "server") == 0;
 	trapinit0();
 	ioinit();
 	i8250console();
@@ -243,6 +245,8 @@ main(void)
 		print("OBOOT-C: MAIN entry oboot=oid\n");
 	if(oboot_mp)
 		print("OBOOT-D1: MAIN entry oboot=mp\n");
+	if(oboot_server)
+		print("OBOOT-D2B: MAIN entry oboot=server\n");
 	cpuidentify();
 	meminit0();
 	archinit();
@@ -285,6 +289,9 @@ main(void)
 		o_user_bootstrap();
 	}else if(oboot_mp){
 		print("OBOOT-D1: HANDOFF mp o_user_bootstrap\n");
+		o_user_bootstrap();
+	}else if(oboot_server){
+		print("OBOOT-D2B: HANDOFF server o_user_bootstrap\n");
 		o_user_bootstrap();
 	}else if(oboot_probe){
 		print("OBOOT-A: HANDOFF probe ouserinit\n");
