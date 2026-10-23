@@ -1,112 +1,141 @@
-# Coding task: local native OID registration (Plan2001-O)
+# Plan2001-O coding/research task: pathless normal O boot (no kernel Chan/namec on executed O path)
 
-**Repository:** pereuna/Plan2001-O, current main branch.
-**Task type:** one narrow, buildable implementation and its regression tests.
-**Architectural decision:** OIDs are LOCAL, not globally unique over IP. This task implements registration in the existing native GE/O Space; it does not implement a global Space service or remote object access.
+**Repository:** pereuna/Plan2001-O. Work from current main. This replaces the previous completed registration assignment.
 
-Read AGENTS.md, README.md, docs/GENERAL-SOFTWARE-SPECIFICATION.md, docs/OLIO-OBJEKTI-MANIFESTI.md, docs/OBJECT-MODEL.md, docs/O-FORMAT.md, docs/STATUS.md, and the actual source before editing. The source is authoritative for the current transaction and ABI implementation. The philosophical manifesto is not a demand to redesign bytes or hardware.
+## Question to answer experimentally
 
-## 1. Ontology and scope: do not confuse identity with location or interpretation
+**Can the normal amd64 Plan2001-O boot find and open its GE/O partition, execute its bootstrap and O-resident MicroPython, and perform a persistent OID operation without traversing a filesystem, opening a kernel Chan, or calling namec anywhere along that executed O boot path?**
 
-- An **olio** is an independently registered occurrence. Its sole REQUIRED application-visible property at this level is its local OID. It may have no application name, type, graph membership, provenance, or nonempty payload.
-- It becomes an **object** in an observation, operation, or relation. Registration is an operation; it does NOT install permanent object/type semantics.
-- **Local uniqueness:** within one actual OID scope, at a given time a numeric OID designates at most one registered occurrence. Multiple in-memory buffers and retained content versions are not separately registered occurrences.
-- **No global numeric identity:** silli:42 and kuha:42 can denote unrelated local occurrences. Registering the same bytes independently on two machines is allowed to yield the same number. No IP address, hostname, UUID, content digest, timestamps, or machine identity is stored as a compulsory per-olio property.
-- **Remote observation is not registration.** A future machine may read/stream/display a remote occurrence without creating a local OID or making a durable local copy. This task creates NO remote protocol, automatic cache-to-O persistence, network mount or graph_mount.
-- **Import/copy is explicit new registration:** if bytes are deliberately retained on another machine, that destination creates its own local OID. Any relationship to the original is optional graph/provenance data at a higher layer, not intrinsic to the OID.
-- **Moving a stored occurrence** is NOT implemented here. Do not promise remote identity preservation, remote deletions, or distributed atomicity.
-- No global allocator or globally ordered creation sequence.
+Answer with actual source-level call chains AND instrumented QEMU runtime evidence. The objective is a useful, buildable **architecture experiment**, not a wholesale 9front rewrite. Keep legacy code and its test configuration intact until a verified replacement exists.
 
-**Important scope boundary:** today's implemented persistent identity is (GE volume, SpaceID, OID), commonly displayed as (SpaceID, OID) inside one active volume; the normal PoC uses one O volume and its init Space. Implement uniqueness and durability **within this existing active native O Space**. This is not yet a machine-wide allocator spanning every RAM resident, O disk, removable disk and multiple Space instances. Do NOT silently declare those larger scopes solved. Document this limitation clearly, without changing GE/O v1 disk format or inventing a new volume namespace. Reserve the machine-wide scope question for a separate design decision.
+Terminology: an **olio** is a locally registered Space occurrence with OID; a **file** may remain an ordered byte sequence. A filesystem/directory tree and its mandatory namespace semantics are NOT part of the target O model. Relations, graphs, tags, names, and queries remain USERSPACE concerns. No #tag feature implementation or test in this assignment.
 
-## 2. Requested user-visible behavior
+This is an experiment with a strict proof standard. If the complete path cannot be implemented safely in one bounded change, deliver a working narrower step plus an exact, evidenced "NOT YET" for the complete question. Never weaken the scope retroactively or claim a partial test proves full boot.
 
-Provide a minimal MicroPython API in the existing built-in space module:
+## 1. Read the actual implementation before touching it
 
-```python
-import space
+Read AGENTS.md, README.md, docs/STATUS.md, docs/O-FORMAT.md, docs/GENERAL-SOFTWARE-SPECIFICATION.md, docs/OBJECT-MODEL.md and these sources:
 
-a = space.oregister()               # a fresh local OID, empty payload
-b = space.oregister(b"hello\n")     # a different fresh local OID
+- sys/src/9/pc64/main.c: main(), init0(), userinit() handoff, current init= handling.
+- sys/src/9/port/initcode.c: startboot() currently bind()s #c/#d/#e/#p/#s/etc, open()s /dev/cons three times, then path-exec()s /boot/oinit. **This is a real O-boot dependency; do not overlook it.** It also carries a one-page/no-data limitation.
+- sys/src/9/pc64/pc64: normal kernel bootdir embeds oinit, kbdfs, ohandle, oexec. sys/src/9/pc64/pc64mp is test-only.
+- sys/src/cmd/oinit/oinit.c: embedded path-invoked bootstrap; it opens O and executes OID_MP_EXEC.
+- sys/src/9/port/devgefs.c: sysovolopen -> gevolume -> scandisks -> namec("#S") and namec("#S/sdXX/data"); existing GPT scan and O volume handles.
+- sys/src/9/gefs/kern.c: geopen/newgfd/gopen/gpread/gpwrite/rw, **gflushdev() uses namec(raw)** to issue SCSI cache flush.
+- sys/src/9/gefs/load.c: loadge() still calls open(dev) and dirfstat() through GE's gopen/gdirfstat bridge.
+- sys/src/9/gefs/blk.c, sys/src/9/gefs/gefs.h, sys/src/9/gefs/gdat.h: GE I/O wrapping, sync and block cache.
+- sys/src/9/port/devsd.c and sys/src/9/port/sd.h: SD device discovery, sector I/O, SDifc.bio, raw command/flush path, media changes, DMA/alignment and lifetime.
+- sys/src/9/port/chan.c, dev.c, sysfile.c, devroot.c, devcons.c, devpipe.c, devmnt.c, portdat.h, sysproc.c, pgrp.c: namespace and descriptor requirements.
+- sys/src/cmd/micropython/main.c, p9console.c, p9space.c: O-mode initialization AND stdin/stdout/raw console paths. The standard REPL uses descriptor I/O and /dev/consctl; it is NOT pathless merely because code objects load from O.
+- Relevant kernel syscall definitions and ported GE prototypes.
 
-assert a != b
-assert space.oget(a) == b""
-assert space.oget(b) == b"hello\n"
+**Important naming distinction:** gefs.h aliases the GE-internal message channel type to Mchan and the inherited kernel Chan to Kchan. GE's own queues (wrchan/rdchan) are not filesystem kernel Chans merely because their source spelling says "Chan". Audit semantic types, not just grep counts.
 
-c = space.oregister(b"hello\n")
-assert c != b                        # bytes equality does not imply identity
-space.oput(b, b"new content")       # revise existing OID, do NOT allocate
-assert space.oget(b) == b"new content"
-assert space.oget(c) == b"hello\n"
-```
+## 2. Explicit definitions of three proof levels
 
-Contract:
+Implement and report levels independently:
 
-1. `space.oregister(data=b"") -> int` allocates a never-before-*committed* OID in the current native O Space, publishes its payload (including zero bytes) and the durable allocation state, and returns ONLY after native GE/O commit/sync has succeeded. It MUST work when the Python graph is unchanged, and the result must be recoverable after a reboot of the same disk.
-2. No data argument creates a real, independently retrievable **empty-payload occurrence**, not a missing record or a sentinel. Do not introduce a compulsory file type, timestamp, name, metadata dict, class, graph binding, or Python object serialization.
-3. At minimum accept byte-like inputs as already supported by `space.oput`. Explicitly reject str and non-byte objects. Keep the existing conservative 1 MiB whole-object limit unless actual source constraints justify a narrower bound; never truncate.
-4. Use the same -O native volume plus -S Space requirement as `oget/oput`; unsupported/legacy mode raises a clear error, not a filesystem fallback.
-5. Existing `space.oget` and `space.oput` behavior remains intact; they still operate on native GE/O payloads, while `space.oid` still reports a Python serialized-graph *logical* OID. Numeric coincidence between a Python logical OID and a native record does not merge them.
-6. The result is a local uint64 numeric identifier with well-defined reserved/excluded ranges, no wraparound or signed truncation. When the available range is exhausted, fail rather than reuse.
-7. Do NOT expose an allocator-internal record or counter as an ordinary registerable OID or allow external writes to corrupt it.
+**LEVEL A — O storage I/O pathless:**
+A fresh normal O volume is discovered by PARTUUID (or a clearly documented native device ID), opened and used for OID register/read/commit/sync with NO kernel Chan, namec, devwalk, 9P, or directory enumeration in the executed disk discovery / O storage I/O / flush call chain. This includes every write-cache flush and retry, not just the first sector read.
 
-## 3. Implement the allocator in native GE/O, not in Python
+**LEVEL B — native bootstrap pathless:**
+The kernel passes control to a minimal bootstrap and executes the MicroPython binary at existing OID_MP_EXEC without the legacy initcode.c bind/open/exec pathname sequence, /boot tree lookup, or filesystem Chan. An **embedded flat binary blob/table** as bootstrap is acceptable; its filename in the source tree is not a runtime filesystem. Maintain the existing stable executable bytes/OID and error/rollback semantics.
 
-Relevant implementation:
+**LEVEL C — entire demonstrated normal O boot pathless:**
+After LEVEL B, MicroPython performs a real O register/read/reboot persistence or comparable existing O test, and any console/stdin/stdout needed by that path is also independent of filesystem Chans, fd-to-Chan and path lookup. No executed filesystem operations, including startup setup, output or the invoked REPL/test path, may be ignored. An OS background subsystem **not invoked by this test** may retain Chan and legacy Dev code in the compiled image; complete kernel-wide Chan removal is NOT the question.
 
-- sys/src/9/gefs/obj.c: `Ospace`, `ospacetx`, `begin`, `ospaceputdata`, `ospaceput`, `ospacecommit`, `ospaceget`, `ospaceclose`, and the existing Kobj versioning/commit engine.
-- sys/src/9/gefs/o.c and sys/src/9/gefs/gfns.h: native O Space API.
-- sys/src/9/port/devgefs.c: process-owned O handles and syscall boundary.
-- sys/src/libc/9syscall/sys.h and relevant syscall dispatch/ABI declarations.
-- sys/src/cmd/micropython/p9space.c, p9space.h: current 64-bit OID validation, reserved OIDs, `oget/oput` binding, and the DIFFERENT Python graph `sp.next` state.
-- tools/mkovol, tools/obytefile.py, tools/test-o-bytefile.sh, plus normal QEMU/O-loader harness.
+If a level does not meet its precise contract, mark it **NOT YET** and describe the executed counterexample. Do not redefine "pathless" to mean "no filesystem mounted": the current O-only demo already demonstrates the weaker condition.
 
-Introduce one narrow native operation (name it `ospacecreate` / `ospacealloc` or a similarly clear name after checking conflicts) which **both allocates an OID and writes the initial payload**, with one publication/sync boundary. Wire a thin user-space syscall and MicroPython binding to it. Do not implement a read-counter -> user-space allocate -> oput -> separate counter-commit sequence.
+## 3. Mandatory baseline audit and evidence BEFORE changes
 
-**Atomicity requirement:** allocation state and the new occurrence must be part of the SAME native Space transaction and become visible together. In particular:
+Create docs/O-BOOT-DEPENDENCIES.md with:
 
-- The next candidate cannot be guessed in Python or derived from the serialized `OID_GRAPH` / `sp.next` / Python `space.oid` allocator.
-- Never return an OID before the corresponding occurrence AND allocator advancement are durably published.
-- Two concurrent register operations cannot both return the same OID in the same Space. Respect the existing GE/O store-writer serialization and locking; a documented retryable busy error is acceptable if contention is not internally queued.
-- Committed OIDs must not be reused after an ordinary delete/tombstone, restart, process exit, abort, or failed operation. Explicitly document which uncommitted candidates may be retried, since no durable ID was returned.
-- First registration against an existing seeded/native O volume with NO allocator state must work without reformatting or destroying it. Existing hand-chosen native IDs (e.g. 42, 44..49), reserved low/header IDs, seeded Environment, code, and O executable IDs must not be overwritten.
-- Current `space.oput(oid, data)` can create explicitly numbered native records. Preserve that prior behavior and tests. Therefore the allocator must account for possible manually created IDs in its candidate range: test/skip occupied candidates **inside the serialized native operation**, and advance the persistent high-water mark. Never assume the candidate is free merely because the allocation counter says so.
-- Do not reassign a previously committed, later-retired OID simply because `ospaceget` would now return missing. Avoid OID reuse through tombstones and retained-version pruning by relying on the persistent high-water mark and a clear policy for externally supplied IDs. Since explicit future-ID writes remain possible, check collisions robustly.
-- Use a small documented allocator-state record in the EXISTING GE/O Kobj/Space transaction machinery if appropriate. Any new reserved identifier must be forbidden to ordinary native writers and guarded at the relevant native boundary, not merely hidden by a Python check. Make initialization, corruption/malformed-state detection, and upgrade of older O volumes explicit. Do not modify the GE/O v1 layout, introduce a separate database, or build a global scan/index unless necessary for demonstrated correctness.
-- Audit lock order (Space handle lock, fs->mutlk, GE tree scan), failed `begin`/`commit`/`gesync`/abort, and error paths. Do not read an unpublished candidate or leave the active transaction poisoned on error.
-- Existing OID regions (especially `OID_ROOTS`, `OID_FIRST`, `OID_CODE`, `OID_ENV`, `OID_GRAPH`, `OID_UPGRADE_META` and `OID_MP_EXEC`/other O-exec fixtures) must remain safe. An implementation may choose a constrained, monotonic user-ID range, but it must justify the bounds and test collisions.
+1. Concrete initial entry to GE/O transaction + direct callers, with file:line evidence; enumerate every use of namec, kernel Chan, Dev walk/stat, fs fd, path-exec and per-process fd tables along this boot.
+2. Separate **core necessary mechanism** (device probe, block range, read/write/flush, interrupts, synchronization, process loading, stdout/serial I/O) from **legacy facade** (file naming, directory enumeration, 9P, qid, walk, /boot, mount).
+3. Find all bootstrap and console operations from power-on through the target PASS marker, not only the O backend.
+4. Record which calls happen at run time vs which are merely linked into the binary. Include the kernel-Chan vs GE-Mchan distinction.
+5. Identify a smallest reversible implementation route and blockers. If a direct SD block API or console primitive already exists, reuse it instead of designing another generic framework.
+6. Record HEAD commit, normal baseline build and a baseline QEMU transcript.
 
-If the interaction between current explicit-ID writes and immutable never-reuse semantics cannot be made safe with a straightforward bounded design, implement the safe limited scope, report the exact unsolved scenario, and do not claim full machine-wide/permanent uniqueness. Prefer an explicit restriction over a silent collision.
+Do not just scan for words. Follow actual call graphs and dynamic execution.
 
-## 4. Dedicated executable regression gate (normal O-loaded MicroPython)
+## 4. Smallest pathless native block backend (Level A)
 
-Add a focused self-contained `tools/test-o-register.sh` (and a small O-resident Python test module if useful). Use existing tools/mkovol, disposable ESP + O images and the regular **9pc64 -> oinit -> OID_MP_EXEC -> MicroPython** path, NOT only the test-only embedded `9pc64mp` kernel.
+Prefer implementation in a compact, internal SD block interface; names below are suggestions, NOT existing APIs:
 
-Required machine-checkable scenarios:
+    Oblock *oblockopenpart(guid, flags);
+    long oblockreadat(Oblock*, void*, long, uvlong);
+    long oblockwriteat(Oblock*, const void*, long, uvlong);
+    int oblockflush(Oblock*);
+    uvlong oblocksize(Oblock*);
+    void oblockclose(Oblock*);
 
-1. **Fresh Space**: register empty, six-byte text, embedded-NUL binary, and a 2048-byte multi-chunk payload; each `oget(oid)` returns exactly its bytes, with missing OID distinguishable from empty bytes. A fresh OID is an int in the allowed range.
-2. **Identity**: register equal payloads twice; assert distinct OIDs. Mutate one with `oput`; the other remains unchanged, and revision does not allocate a new OID.
-3. **Persistence**: save returned OIDs in a test-controlled way (e.g. deterministic test logs or an already existing test graph variable; storing test bookkeeping in the Python graph is allowed ONLY for the test). Reboot the SAME disk twice, verify all payloads and IDs, and register again; new IDs are strictly above previous allocator-issued IDs and never equal earlier ones.
-4. **Legacy coexistence**: preseed explicitly numbered native OIDs (including existing bytefile fixtures where practical). A new registration never overwrites them. Verify an explicitly written future candidate is skipped, including if the allocator cursor approaches it. The current `test-o-bytefile.sh` still passes unmodified.
-5. **Multi-handle/multi-process contention**: two processes or independent native Space handles try to register at once. Both successes have distinct IDs; or one receives a clean documented busy error and a successful later retry gets a fresh ID. No duplicate IDs, partial occurrences, deadlocks or panics. Do not claim a race was tested unless it really ran.
-6. **Failures**: malformed input and over-limit data rejected; unsupported mode rejected; corrupted allocator state rejected safely (not reset to zero); exhausted/reserved range handled cleanly. If a deterministic transaction abort or fault-injection harness is feasible, interrupt before publication and verify no half-published allocation; distinguish this from ordinary QEMU shutdown after a successful commit. Never write/reformat real physical disks.
-7. **No hidden persistence on read**: reading or observing a result never invokes registration. No network implementation is required: verify locally that `oget`/read-only access does not change the allocator state or create extra OIDs, and document the conceptual future remote rule.
-8. **Existing gates**: run the prior nine O-only gates AND `test-o-bytefile.sh`; preserve native executable loader, Space graph, oinit, and handle lifetime behavior. Report actual PASS / FAIL / NOT RUN, not anticipated results.
+It may use an existing SDunit + SDifc.bio and the existing hardware/controller drivers. It must NOT implement "direct" by opening #S/... through a hidden namec or Chan adapter.
 
-Prefer deterministic `PASS/FAIL` markers, a nonzero exit status on failed assertions, and captured QEMU log paths.
+Requirements:
 
-## 5. Documentation and evidence
+- Find GPT PARTUUID directly from SD enumerated devices / real controller units; preserve partition bounds and 512/4096-byte sector awareness, little-endian GPT checks, partition type/unique GUID distinction, overflow defenses, malformed disk and missing partition behavior. Choose a sound hardware-independent SD iteration API rather than hard-coding QEMU's sdE0/sdXX.
+- Respect SDunit initialization, removable/media-change locking, reference lifetime, failure cleanup, alignment/bounce-buffer/DMA and bounds as the existing sdbio does. Do NOT bypass validation to achieve a shorter call tree.
+- **Correctly implement cache flush** via the underlying driver semantics with error propagation. GE's current gflushdev() reopening #S/.../raw via namec is not acceptable in Level A. If real flush cannot be implemented safely, Level A is NOT YET rather than falsely durable.
+- Route native O GE reads/writes/sync through the block interface. One native O volume may be enough for this PoC. Keep GE superblocks, arenas, B-tree, existing GE/O versioning and format, OID allocator and user data unchanged. Do not repurpose OID for SD device handles.
+- Be exact about error codes, read-only requests, partial transfers, out-of-range I/O, sector rounding and flush ordering. Do not silently swallow failures.
+- Keep the legacy GEFS/9P path available for old regression gates and for comparison until an independently verified O path works. Avoid code duplication of the entire GE engine; limit divergence to its underlying I/O provider and volume discovery.
+- No hidden Python file IO in the test or O initialization to cover up a block layer gap.
 
-- Update docs/O-FORMAT.md with the **actual** allocator-state encoding, local scope, published transaction semantics, reserved IDs and migration/initialization behavior. Do not inaccurately call an additive Kobj record a new disk-format revision.
-- Update docs/GENERAL-SOFTWARE-SPECIFICATION.md and/or docs/OBJECT-MODEL.md ONLY as necessary to align the concrete scope: globally accessible conceptual Space does not imply a global numeric OID; machine/peer names are addressing context and do not become compulsory olio metadata. Clearly distinguish concept from implemented PoC.
-- Update README.md only for a concise real API example if the implementation passes; keep current architectural caveats.
-- Add a dated implementation + runtime-test section to docs/STATUS.md. Retain past evidence unchanged.
-- Write docs/to_chatgpt_review.md with changed files, native allocator design, ID scope and incompatibilities, exact build/test commands + results + logs, concurrency and failure evidence, remaining risks and commit SHA.
+## 5. Bootstrap and console are separate, real blockers (Levels B/C)
 
-## 6. Delivery and non-goals
+Audit the current start of userspace:
 
-Implement, test, commit and push ONE focused change (or the smallest clean sequence) on the current Plan2001-O branch. Stage only intended paths. Existing automatic OpenCode review/push integration may do reporting; make the report accurate.
+    main.c:init0 -> initcode.c:startboot
+    -> bind /dev trees -> open("/dev/cons") -> exec("/boot/oinit")
+    -> oinit -> sysovolopen -> oexecute(OID_MP_EXEC)
+    -> MicroPython -> p9console and O Space
 
-**Do not implement:** a global OID server; distributed consensus; content-addressed identity; cross-machine UUIDs; hostname as an inherent object property; copying data during observation; a browser/cache; network object transport; tags, indexed queries or graph_mount; a Unix/Plan9 filesystem facade; classes/type inheritance; full object deletion/GC; a generic ontology system; a wholesale GE/O rewrite.
+A filesystem root not being mounted is INSUFFICIENT. The current embedded /boot tree remains a filesystem facade.
 
-**Acceptance condition:** an ordinary O-loaded MicroPython on a disposable persistent O volume can call `space.oregister()` or `space.oregister(bytes)` to obtain a previously unused LOCAL OID, retrieve the exact empty/binary content by that OID, reboot and retain its identity, and register more occurrences without collision or dependence on the Python serialized graph. An attempted registration that fails never reports a durable OID. There is no implied persistence or new OID from merely observing remotely stored content.
+If Level A succeeds, implement the smallest experimental alternative for B in a **separate, explicitly selected O-native boot configuration or switch**, preserving the current working normal path as a regression control during development. Options to evaluate:
+
+- one flat embedded bootstrap image whose entry is invoked/loaded without namec or Chan (boot image is bytes, not a directory entry);
+- a kernel-native O startup path which directly loads OID_MP_EXEC after device initialization without a fake /boot name;
+- another comparably small path justified by real kernel process creation and execo dependencies.
+
+Do NOT impose a new universal O-object layer on drivers. Do NOT break the one-page initcode constraints accidentally. **Audit execo requirements:** process context, memory segments, Ureg/stack/Tos, handle lifetime, error rollback, argv copying and exit rules. Never inject executable bytes into an unsafe context merely to get rid of exec().
+
+For **Level C**, inspect current stdio descriptors, keyboard kbdfs, MicroPython p9console.c and normal runtime init. The target may use a small direct serial console primitive rather than fd 0/1 or /dev/consctl; keep its behavior testable in QEMU and usable for a human where required. Reusing inherited UART hardware routines is preferable to writing a new terminal subsystem. Changing print output alone does not prove the interpreter's input path.
+
+A useful **minimal Level C test** is the normal O-resident MicroPython boot doing native GE/O writes/reads and emitting PASS over a direct serial/console mechanism; an interactive REPL is an additional check only if it, too, is proven pathless. Clearly state which level was demonstrated.
+
+If attaining B or C requires a wide replacement of process setup, syscalls, process stdio and all kernel driver APIs, **STOP at the last working proven level**, document the concrete call-chain blocker and cost rather than starting an unbounded refactor. This experiment is intended to decide whether 9front remains viable versus Genode/L4, not to force success at any cost.
+
+## 6. Instrumented proof and disposable-QEMU gates
+
+Add e.g. tools/test-o-pathless.sh plus an OPTIONAL instrumented kernel build and source-visible instrumentation. Capture and classify actual runtime operations, not just build-time symbol presence.
+
+Instrument the relevant legacy entry points and callers in the scoped O execution path (namec, newchan/Chan allocation, devwalk/path walk, bind/mount, kernel-Chan SD access, legacy path exec and console descriptors). Beware: boot may invoke some before selection of the O path, so define and report the beginning/end of the observation window **and any pre-window calls affecting bootstrap**. Never hide earlier dependency by starting counters only after disk open. Prefer counters/markers, with detailed traces only when needed. Instrumentation must be switchable and should not perturb ordering/locks or require filesystem logging; print compact serial markers.
+
+Checkpoints:
+1. Baseline old boot still functions; log at least one real legacy path invocation to prove instrumentation works (positive control).
+2. Direct O GPT volume opens by PARTUUID (test wrong/missing GUID and malformed GPT) with no kernel Chan or namec in its storage path.
+3. OID allocation, empty/binary byte retrieval, read-after-write, normal sync; reboot the **same disposable disk** twice and verify stable OIDs/content and monotonic registration.
+4. Explicit block-range failures/oversized requests rejected; flush command really reached the driver or has positive device-level evidence, not simply that an empty wrapper returned 0.
+5. A deliberately exercised injected failure / interrupted operation when practical; no falsely reported committed OID on failed sync.
+6. If B implemented: execute MicroPython from O by current binary OID without runtime /boot lookup, verify source binary SHA where existing gates already do so, and clean error when executable OID missing/corrupt.
+7. If C implemented: a full normal O boot to a durable GE/O + MicroPython PASS marker with a verified **zero** forbidden legacy-path event count throughout the complete selected boot path, including console. Ensure the instrumentation check is not bypassed in uninstrumented code.
+8. Existing gates as appropriate: WHAT=all tools/build.sh; tools/selfroot build/selfroot; tools/test-o-register.sh; tools/test-o-boot-omp.sh; tools/test-o-boot.sh; tools/test-o-exec.sh; tools/test-o-exec-args.sh; tools/test-o-handles.sh; tools/test-o-bytefile.sh; tools/test-ge.sh; tools/test-o-volume.sh; tools/test-o-objects.sh; tools/test-o-space.sh. Report PASS/FAIL/NOT RUN with **actual** commands and logs.
+
+The test gate must not pass just because an expected marker appears if there were forbidden calls, warnings ignored, kernel panics before success, or a timeout. An expected QEMU shutdown diagnostic may be called out separately from a runtime path proof, consistent with earlier STATUS evidence.
+
+## 7. Deliverables and decision
+
+- docs/O-BOOT-DEPENDENCIES.md: measured call-path analysis, LOC/source anchors, A/B/C evidence and exact remaining blockers.
+- Minimal safe source/test changes for the highest proven level; preserve baseline paths. Prefer 1–3 compact, reviewable commits over a giant refactor. Build/test before committing.
+- docs/STATUS.md: dated record with exact commit/working-tree status, actual QEMU commands, PASS/FAIL/NOT RUN, logs, and any observable data integrity risk.
+- docs/to_chatgpt_review.md: agent-facing review with the real technical findings and comparison (native 9front path cost vs replacing platform). **Do not handcraft a different final-answer transcript into this file if the existing OpenCode idle plugin copies the exact visible final answer there.** Keep full durable evidence in O-BOOT-DEPENDENCIES.md and STATUS.md.
+- Commit and push intended edits; the OpenCode final-answer automation may handle the final git add/commit/push. Avoid racing its writes.
+
+Conclude with a concise verdict, one of:
+- **A/B/C PASS** — normal O boot demonstrably free from kernel Chan/namec in the entire executed path;
+- **A PASS; B/C NOT YET** — native GE/O storage no longer depends on files but bootstrap and/or console do;
+- **A NOT YET** — exact unresolved call chain, limitations, risks and minimum next experiment.
+
+Never claim that merely renaming Dev/Chan or removing mounting achieves this. Do not remove the legacy filesystem from the repository or change on-disk formats. Do not implement #tags, graph semantics, new object hierarchies, global OIDs, an IP protocol, or Genode migration. Do not use real physical disks during tests.
