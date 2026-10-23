@@ -404,6 +404,7 @@ long		unionread(Chan*, void*, long);
 void		unlock(Lock*);
 uvlong		us2fastticks(uvlong);
 void		userinit(void);
+void		ouserinit(void);
 uintptr		userpc(void);
 long		userwrite(char*, int);
 void		validaddr(uintptr, ulong, int);

@@ -18,6 +18,17 @@
 #include	"initcode.i"
 
 /*
+ * Plan2001 Boot Experiment A: opt-in kernel-only first task
+ * (plan9.ini oboot=probe).  The counters distinguish the legacy
+ * user-bootstrap path from the experimental one on the executed boot.
+ */
+int	oboot_probe;
+uvlong	oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0;
+
+extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
+extern uvlong opath_mount, opath_exec;
+
+/*
  * The first process kernel process starts here.
  */
 static void
@@ -26,6 +37,7 @@ proc0(void*)
 	KMap *k;
 	Page *p;
 
+	oboot_legacy_proc0++;
 	spllo();
 	if(waserror())
 		panic("proc0: %s", up->errstr);
@@ -87,7 +99,47 @@ proc0(void*)
 void
 userinit(void)
 {
+	oboot_legacy_userinit++;
 	up = nil;
 	kstrdup(&eve, "");
 	kproc("*init*", proc0, nil);
+}
+
+/*
+ * Boot Experiment A: a kernel-only first task.  It deliberately does
+ * not call chandevinit, init0, touser, namec, bind, mount or exec, and
+ * it never constructs a user-mode namespace.  The task runs only after
+ * schedinit() has entered the scheduler, then stays asleep.
+ */
+static Rendez obootr;
+
+static void
+oprobesched(void *arg)
+{
+	int i;
+
+	USED(arg);
+	print("OBOOT-A: KPROC-RUNNING pid=%lud slash=%s dot=%s\n",
+		up->pid, up->slash == nil ? "nil" : "set",
+		up->dot == nil ? "nil" : "set");
+	print("OBOOT-A: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
+		oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
+	print("OBOOT-A: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+		opath_namec, opath_newchan, opath_walk, opath_devwalk,
+		opath_mount, opath_exec);
+	for(i = 0; i < 2; i++){
+		tsleep(&obootr, return0, nil, 1000);
+		print("OBOOT-A: HEARTBEAT %d pid=%lud ticks=%lud\n",
+			i+1, up->pid, MACHP(0)->ticks);
+	}
+	for(;;)
+		tsleep(&obootr, return0, nil, 60000);
+}
+
+void
+ouserinit(void)
+{
+	up = nil;
+	kstrdup(&eve, "");
+	kproc("*oprobes*", oprobesched, nil);
 }

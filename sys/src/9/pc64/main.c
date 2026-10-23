@@ -13,6 +13,9 @@
 Conf conf;
 int idle_spin;
 
+extern int oboot_probe;
+extern uvlong oboot_legacy_init0;
+
 extern void (*i8237alloc)(void);
 extern void bootscreeninit(void);
 
@@ -150,6 +153,7 @@ init0(void)
 	char buf[2*KNAMELEN], **sp, *av[16], *p, *s;
 	int ac, i, n;
 
+	oboot_legacy_init0++;
 	chandevinit();
 
 	ac = 0;
@@ -212,15 +216,21 @@ init0(void)
 void
 main(void)
 {
+	char *p;
+
 	bootmark(BMMain);
 	bootinfoinit();
 	mach0init();
 	bootargsinit();
+	p = getconf("oboot");
+	oboot_probe = p != nil && strcmp(p, "probe") == 0;
 	trapinit0();
 	ioinit();
 	i8250console();
 	quotefmtinstall();
 	print("\nPlan 9\n");
+	if(oboot_probe)
+		print("OBOOT-A: MAIN entry oboot=probe\n");
 	cpuidentify();
 	meminit0();
 	archinit();
@@ -255,7 +265,11 @@ main(void)
 	bootmark(BMDevs);
 	preallocpages();
 	pageinit();
-	userinit();
+	if(oboot_probe){
+		print("OBOOT-A: HANDOFF probe ouserinit\n");
+		ouserinit();
+	}else
+		userinit();
 	bootmark(BMUser);
 	schedinit();
 }
