@@ -198,6 +198,12 @@ onativeput(void *sp, uvlong oid, void *buf, long n)
 	ospaceput(sp, oid, buf, n);
 }
 
+long
+onativecreate(void *sp, void *buf, long n, uvlong *oid)
+{
+	return ospacecreate(sp, buf, n, oid);
+}
+
 uvlong
 onativecommit(void *sp)
 {

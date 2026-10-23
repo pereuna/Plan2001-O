@@ -38,9 +38,25 @@ enum {
 	Objbatch	= 32,		/* messages with values to an upsert */
 	Objclob		= 256,		/* clobbers to an upsert: > Bufspc */
 	Objyield	= 4,		/* upserts between flushtx's yields */
-	Objroom		= 16,		/* blocks a batch of values needs, at most */
-	Objrhdr		= 1+8+8+8,	/* 'o' oid ver len */
+	Objroom	= 16,		/* blocks a batch of values needs, at most */
+	Objrhdr	= 1+8+8+8,	/* 'o' oid ver len */
 };
+
+/*
+ * Native OID allocation state.  It is appended to the Space header's
+ * existing user part, so it advances in the same Kobj transaction as
+ * the object it names; no allocator record is itself an OID, and no
+ * ordinary ospaceput can reach it.  The first 72 bytes are the
+ * pre-existing seed header (Environment digest and its next value),
+ * kept for compatibility; the allocator starts below at offset 72.
+ */
+#define Objallocbase	64ULL
+#define Objalloclimit	0xffffffff00000000ULL
+#define Objexecfirst	0x4f45584543000001ULL
+#define Objexeclast	0x4f45584543000003ULL
+#define Objalloclegacy	72
+#define Objallocstate	88	/* 72 + magic[8] + next[8] */
+static char objallocmagic[8] = "OALLOC01";
 
 typedef struct Ohdr Ohdr;
 typedef struct Oent Oent;
@@ -1084,6 +1100,165 @@ objabortfid(Fid *f, int id)
  * There is no Fid, qid, mount, file or path: these calls enter the
  * engine directly.  The handle's lock is the PoC's single writer.
  */
+
+static Otx*	ospacetx(Ospace*);
+static void	ospaceputdata(Otx*, uvlong, void*, long);
+
+/*
+ * A candidate is never handed out if it falls in a reserved range or if
+ * any published record (including a tombstone) already names it.  The
+ * latter is checked in the same serialized transaction as the write, so
+ * an explicitly numbered ospaceput in the candidate range is skipped
+ * even though it did not advance the high-water mark.
+ */
+static int
+allocreserved(uvlong oid)
+{
+	if(oid < Objallocbase || oid >= Objalloclimit)
+		return 1;
+	return oid >= Objexecfirst && oid <= Objexeclast;
+}
+
+static int
+objectused(Gefs *fs, uvlong sid, uvlong oid, uvlong upto)
+{
+	char pfx[Objoidksz];
+	Scan *s;
+	int used;
+
+	s = emalloc(sizeof(Scan), 1);
+	if(waserror()){
+		free(s);
+		nexterror();
+	}
+	pfx[0] = Kobj;
+	PACK64(pfx+1, sid);
+	PACK64(pfx+9, oid);
+	btnewscan(fs, s, pfx, Objoidksz);
+	btenter(&fs->snap, s);
+	if(waserror()){
+		btexit(s);
+		nexterror();
+	}
+	used = 0;
+	while(btnext(s, &s->kv)){
+		if(s->kv.nk != Objksz)
+			continue;
+		if(keyver(s->kv.k) > upto)
+			continue;
+		used = 1;
+		break;
+	}
+	btexit(s);
+	poperror();
+	free(s);
+	poperror();
+	return used;
+}
+
+static int
+txhasoid(Otx *tx, uvlong oid)
+{
+	Oent *e;
+
+	for(e = tx->ent; e < tx->ent+tx->nent; e++)
+		if(e->oid == oid)
+			return 1;
+	return 0;
+}
+
+/*
+ * Read the allocator's published state.  A Space with no user part, or
+ * with the pre-allocator 72-byte seed header, upgrades on first use.
+ * Anything else is rejected instead of being reset to zero.
+ */
+static void
+getalloc(Ohdr *h, uvlong *next)
+{
+	if(h->nuser == 0 || h->nuser == Objalloclegacy){
+		*next = Objallocbase;
+		return;
+	}
+	if(h->nuser == Objallocstate && memcmp(h->user+Objalloclegacy,
+	    objallocmagic, sizeof objallocmagic) == 0){
+		*next = UNPACK64(h->user+Objalloclegacy+sizeof objallocmagic);
+		if(*next < Objallocbase || *next > Objalloclimit)
+			error("O: corrupt allocator state");
+		return;
+	}
+	error("O: unrecognized Space allocator state");
+}
+
+/*
+ * Allocate one never-before-committed OID and publish its initial
+ * payload (including an empty one).  The allocator high-water mark and
+ * the object are written in one Space transaction and become visible
+ * with one commit; the caller sees the OID only after gesync succeeds.
+ */
+long
+ospacecreate(Ospace *sp, void *data, long n, uvlong *oid)
+{
+	Gefs *fs;
+	Otx *tx;
+	Ohdr h;
+	uvlong cand, next;
+
+	if(oid == nil)
+		error("O: no OID result pointer");
+	fs = sp->fs;
+	qlock(&sp->lk);
+	if(waserror()){
+		qunlock(&sp->lk);
+		nexterror();
+	}
+	qlock(&fs->mutlk);
+	if(waserror()){
+		if(!waserror()){
+			if(sp->tx != nil)
+				abort1(sp->tx);
+			poperror();
+		}
+		qunlock(&fs->mutlk);
+		nexterror();
+	}
+	tx = ospacetx(sp);
+	begin(tx);
+	if(!gethdr(&fs->snap, sp->sid, &h))
+		error("O: no Space header");
+	getalloc(&h, &next);
+	for(;;){
+		if(next >= Objalloclimit)
+			error("O: OID range exhausted");
+		if(allocreserved(next) || txhasoid(tx, next) ||
+		    objectused(fs, sp->sid, next, h.n)){
+			next++;
+			continue;
+		}
+		break;
+	}
+	cand = next;
+	next++;
+	if(next >= Objalloclimit)
+		next = Objalloclimit;	/* the next call fails, never wraps */
+	memset(tx->user, 0, sizeof tx->user);
+	if(h.nuser >= Objalloclegacy)
+		memmove(tx->user, h.user, Objalloclegacy);
+	memmove(tx->user+Objalloclegacy, objallocmagic, sizeof objallocmagic);
+	PACK64(tx->user+Objalloclegacy+sizeof objallocmagic, next);
+	tx->nuser = Objallocstate;
+	tx->newuser = 1;
+
+	ospaceputdata(tx, cand, data, n);
+	flushtx(tx);
+	commit(tx);
+	qunlock(&fs->mutlk);
+	poperror();
+	gesync(fs, 0);
+	qunlock(&sp->lk);
+	poperror();
+	*oid = cand;
+	return 0;
+}
 
 Ospace*
 ospaceopen(Gefs *fs, char *name)

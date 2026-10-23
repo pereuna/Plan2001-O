@@ -42,6 +42,7 @@ typedef struct Ospace Ospace;
 void*	onativeopen(void*, char*);
 long	onativeget(void*, uvlong, void*, long, uvlong*);
 void	onativeput(void*, uvlong, void*, long);
+long	onativecreate(void*, void*, long, uvlong*);
 uvlong	onativecommit(void*);
 void	onativeclose(void*);
 
@@ -650,6 +651,39 @@ sysospaceput(va_list list)
 	if(n > 0)
 		validaddr((uintptr)buf, n, 0);	/* read */
 	onativeput(oh->sp, oid, buf, n);
+	poperror();
+	ohandput(oh);
+	return 0;
+}
+
+uintptr
+sysospacecreate(va_list list)
+{
+	Ohand *oh;
+	char *buf;
+	uvlong oid, *p;
+	long n;
+	int h;
+
+	h = va_arg(list, int);
+	buf = va_arg(list, char*);
+	n = va_arg(list, long);
+	p = va_arg(list, uvlong*);
+	oh = ogetspace(h);
+	if(waserror()){
+		ohandput(oh);
+		nexterror();
+	}
+	if(n < 0 || n > 64*MiB)
+		error(Ebadarg);
+	if(n > 0)
+		validaddr((uintptr)buf, n, 0);	/* read */
+	if(p == nil)
+		error(Ebadarg);
+	validaddr((uintptr)p, sizeof *p, 1);	/* written */
+	oid = 0;
+	onativecreate(oh->sp, buf, n, &oid);
+	memmove(p, &oid, sizeof oid);
 	poperror();
 	ohandput(oh);
 	return 0;

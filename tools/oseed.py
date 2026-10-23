@@ -10,6 +10,7 @@ SEED = "/tmp/seed"
 CODE_OID = 0xffffffff00000000
 NATIVEEXEC = "/tmp/nativeexec"
 MPEXEC = "/tmp/mpexec"
+REGALLOC = "/tmp/regalloc"
 EXEC_OID = 0x4f45584543000001
 BADEXEC_OID = 0x4f45584543000002
 MP_OID = 0x4f45584543000003
@@ -35,6 +36,14 @@ except OSError:
 
 # The interpreter must be stored byte for byte: no header patching.  Write
 # the copy the seeder reads and read it back before gefs -i stores it.
+try:
+    a = open(REGALLOC, "rb").read()
+except OSError:
+    a = None
+if a is not None:
+    open(SEED + "/alloc", "wb").write(a)
+    print("seed: regalloc", len(a), space.hash(a))
+
 if m is not None:
     open(SEED + "/mp", "wb").write(m)
     y = open(SEED + "/mp", "rb").read()

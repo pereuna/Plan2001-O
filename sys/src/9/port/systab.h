@@ -58,6 +58,8 @@ Syscall sysovolopen;
 Syscall sysospaceopen;
 Syscall sysospaceget;
 Syscall sysospaceput;
+Syscall sysospacecreate;
+Syscall sysoexecute;
 Syscall sysospacecommit;
 Syscall sysospaceclose;
 Syscall	sysdeath;
@@ -119,6 +121,8 @@ Syscall *systab[]={
 	[OSPACEOPEN]	sysospaceopen,
 	[OSPACEGET]	sysospaceget,
 	[OSPACEPUT]	sysospaceput,
+	[OSPACECREATE]	sysospacecreate,
+	[OEXECUTE]	sysoexecute,
 	[OSPACECOMMIT]	sysospacecommit,
 	[OSPACECLOSE]	sysospaceclose,
 };
@@ -180,6 +184,8 @@ char *sysctab[]={
 	[OSPACEOPEN]	"Ospaceopen",
 	[OSPACEGET]	"Ospaceget",
 	[OSPACEPUT]	"Ospaceput",
+	[OSPACECREATE]	"Ospacecreate",
+	[OEXECUTE]	"Oexecute",
 	[OSPACECOMMIT]	"Ospacecommit",
 	[OSPACECLOSE]	"Ospaceclose",
 };

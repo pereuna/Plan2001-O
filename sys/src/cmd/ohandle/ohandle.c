@@ -5,6 +5,7 @@ extern long ovolopen(char*, int);
 extern long ospaceopen(int, char*, int);
 extern long ospaceget(int, uvlong, void*, long, uvlong*);
 extern long ospaceput(int, uvlong, void*, long);
+extern long ospacecreate(int, void*, long, uvlong*);
 extern long ospacecommit(int, uvlong*);
 extern long ospaceclose(int);
 
@@ -308,6 +309,116 @@ runexeccheck(void)
 	exits(nil);
 }
 
+static int
+readfull(int fd, void *v, long n)
+{
+	char *p;
+	long r;
+
+	p = v;
+	while(n > 0){
+		if((r = read(fd, p, n)) <= 0)
+			return -1;
+		p += r;
+		n -= r;
+	}
+	return 0;
+}
+
+/*
+ * Two processes, each with its own native Space handle, register at the
+ * same time.  The store writer serialization must give every successful
+ * call a distinct OID; both payloads must be independently readable.
+ */
+static void
+runregtest(void)
+{
+	enum { N = 8 };
+	char buf[64], want[64];
+	int fd[2], i, j, dup;
+	long pid, h;
+	uvlong po[N], co[N];
+
+	if(ovolopen(volspec, strlen(volspec)) != 1){
+		fail("regtest ovolopen: %r");
+		exits("fail");
+	}
+	if(pipe(fd) < 0){
+		fail("regtest pipe: %r");
+		exits("fail");
+	}
+	pid = rfork(RFPROC|RFFDG);
+	if(pid < 0){
+		fail("regtest rfork: %r");
+		exits("fail");
+	}
+	if(pid == 0){
+		close(fd[0]);
+		if((h = openinit()) < 0)
+			exits("fail");
+		for(i = 0; i < N; i++){
+			snprint(buf, sizeof buf, "child-%d", i);
+			if(ospacecreate(h, buf, strlen(buf), &co[i]) < 0)
+				childfail("regtest child create %d: %r", i);
+			if(write(fd[1], &co[i], sizeof co[i]) != sizeof co[i])
+				childfail("regtest child write %d: %r", i);
+		}
+		if(ospaceclose(h) < 0)
+			childfail("regtest child close: %r");
+		exits(nil);
+	}
+	close(fd[1]);
+	if((h = openinit()) < 0)
+		exits("fail");
+	for(i = 0; i < N; i++){
+		snprint(buf, sizeof buf, "parent-%d", i);
+		if(ospacecreate(h, buf, strlen(buf), &po[i]) < 0)
+			fail("regtest parent create %d: %r", i);
+		if(readfull(fd[0], &co[i], sizeof co[i]) < 0)
+			fail("regtest parent read %d: %r", i);
+	}
+	close(fd[0]);
+	reap();
+
+	for(i = 0; i < N; i++){
+		snprint(want, sizeof want, "parent-%d", i);
+		if(ospaceget(h, po[i], buf, sizeof buf, nil) < 0)
+			fail("regtest parent object %d: %r", i);
+		else
+			checkval("regtest parent payload", buf,
+				(long)strlen(want), want);
+		snprint(want, sizeof want, "child-%d", i);
+		if(ospaceget(h, co[i], buf, sizeof buf, nil) < 0)
+			fail("regtest child object %d: %r", i);
+		else
+			checkval("regtest child payload", buf,
+				(long)strlen(want), want);
+	}
+	dup = 0;
+	for(i = 0; i < N; i++){
+		for(j = 0; j < N; j++){
+			if(po[i] == po[j] && i != j)
+				dup = 1;
+			if(co[i] == co[j] && i != j)
+				dup = 1;
+			if(po[i] == co[j])
+				dup = 1;
+		}
+	}
+	if(dup)
+		fail("regtest duplicate OID");
+	for(i = 0; i < N; i++)
+		print("oreg: parent %llud child %llud\n", po[i], co[i]);
+	if(ospaceclose(h) < 0)
+		fail("regtest close: %r");
+	if(nfail == 0)
+		print("PASS: native OID registration under two processes\n");
+	else
+		print("FAIL: native OID registration: %d checks failed\n", nfail);
+	for(;;)
+		sleep(1000);
+}
+
 void
 main(int argc, char *argv[])
 {
@@ -319,6 +430,10 @@ main(int argc, char *argv[])
 		volspec = argv[2];
 		runexeccheck();
 	}
-	fprint(2, "usage: %s -vol SPEC | -exec-check SPEC\n", argv[0]);
+	if(argc == 4 && strcmp(argv[1], "-reg") == 0 && strcmp(argv[2], "-vol") == 0){
+		volspec = argv[3];
+		runregtest();
+	}
+	fprint(2, "usage: %s -vol SPEC | -exec-check SPEC | -reg -vol SPEC\n", argv[0]);
 	exits("usage");
 }

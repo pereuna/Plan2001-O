@@ -30,6 +30,7 @@ long	ovolopen(char*, int);
 long	ospaceopen(int, char*, int);
 long	ospaceget(int, uvlong, void*, long, uvlong*);
 long	ospaceput(int, uvlong, void*, long);
+long	ospacecreate(int, void*, long, uvlong*);
 long	ospacecommit(int, uvlong*);
 long	ospaceclose(int);
 long	oexecute(int, uvlong, char**, int);

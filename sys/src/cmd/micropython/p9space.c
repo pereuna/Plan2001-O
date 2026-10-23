@@ -31,6 +31,7 @@ extern long ovolopen(char *, int);
 extern long ospaceopen(int, char *, int);
 extern long ospaceget(int, unsigned long long, void *, long, unsigned long long *);
 extern long ospaceput(int, unsigned long long, void *, long);
+extern long ospacecreate(int, void *, long, unsigned long long *);
 extern long ospacecommit(int, unsigned long long *);
 extern long ospaceclose(int);
 
@@ -1572,9 +1573,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(space_oid_obj, space_oid);
  * Direct native GE/O byte objects (docs/OBJECT-MODEL.md, docs/O-FORMAT.md):
  * oget/oput address one published O object by OID, not a Python logical
  * OID and not the OID_GRAPH payload.  This is a small binding over the
- * existing ospaceget/ospaceput/ospacecommit syscalls, not a general OID
- * allocator.  A numeric value may coincide with a Python graph OID; the
- * two namespaces are independent.
+ * existing ospaceget/ospaceput/ospacecreate/ospacecommit syscalls.  A
+ * numeric value may coincide with a Python graph OID; the two namespaces
+ * are independent.
  */
 enum {
 	Obytemax = 1*1024*1024,	/* a whole-object read/write PoC limit */
@@ -1691,6 +1692,41 @@ space_oget(mp_obj_t oidobj)
 	return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(space_oget_obj, space_oget);
+
+/*
+ * oregister([data]) -> a fresh local native OID.  Allocation and the
+ * initial payload are one native Space transaction; the native layer
+ * commits and syncs before this returns.  It is a local numeric OID,
+ * not a Python graph OID and not a globally unique identifier.
+ */
+static mp_obj_t
+space_oregister(size_t n_args, const mp_obj_t *args)
+{
+	mp_buffer_info_t b;
+	unsigned long long oid;
+	long r;
+
+	obyteopen();
+	b.buf = nil;
+	b.len = 0;
+	if (n_args > 0) {
+		if (mp_obj_is_str(args[0]) ||
+		    !mp_get_buffer(args[0], &b, MP_BUFFER_READ)) {
+			mp_raise_TypeError(MP_ERROR_TEXT("space.oregister: data must be bytes-like"));
+		}
+		if (b.len > Obytemax) {
+			mp_raise_msg_varg(&mp_type_ValueError,
+				MP_ERROR_TEXT("space.oregister: %d bytes over the %d-byte PoC limit"),
+				(int)b.len, (int)Obytemax);
+		}
+	}
+	r = ospacecreate(osp, b.buf, (long)b.len, &oid);
+	if (r < 0) {
+		raise_err();
+	}
+	return mp_obj_new_int_from_ull(oid);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(space_oregister_obj, 0, 1, space_oregister);
 
 // info() -> (name, version, Environment) of the open Space, or None
 static mp_obj_t space_info(void) {
@@ -2505,6 +2541,7 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_oid), MP_ROM_PTR(&space_oid_obj) },
     { MP_ROM_QSTR(MP_QSTR_oget), MP_ROM_PTR(&space_oget_obj) },
     { MP_ROM_QSTR(MP_QSTR_oput), MP_ROM_PTR(&space_oput_obj) },
+    { MP_ROM_QSTR(MP_QSTR_oregister), MP_ROM_PTR(&space_oregister_obj) },
     { MP_ROM_QSTR(MP_QSTR_view), MP_ROM_PTR(&space_view_obj) },
     { MP_ROM_QSTR(MP_QSTR_upgrade), MP_ROM_PTR(&space_upgrade_obj) },
     { MP_ROM_QSTR(MP_QSTR_View), MP_ROM_PTR(&view_type) },

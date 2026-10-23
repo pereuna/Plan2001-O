@@ -635,8 +635,8 @@ oseed(Bptr *rootp, int *htp)
 {
 	char *env, *p, *e, *q, path[512];
 	char name[128], def[65], mpy[65], oidhex[17], k[Keymax], v[Inlmax], hex[65];
-	uchar *data, *eb, *hb;
-	long n, en, hn, tot;
+	uchar *data, *eb, *hb, *ab;
+	long n, en, hn, an, tot;
 	Seedrec *r;
 	uvlong oid;
 	int nr, ar, off, i;
@@ -707,7 +707,15 @@ oseed(Bptr *rootp, int *htp)
 	PACK64(v+16, 1);
 	memmove(v+24, hb, 64);
 	PACK64(v+24+64, OID_FIRST_HOST);
-	seedadd(&r, &nr, &ar, k, 9, v, 24+72);
+	an = 0;
+	snprint(path, sizeof path, "%s/alloc", seeddir);
+	if(seedread(path, &ab, &an) >= 0){
+		if(an > 256 - 72)
+			sysfatal("seed: alloc: too long");
+		memmove(v+24+72, ab, an);
+		free(ab);
+	}
+	seedadd(&r, &nr, &ar, k, 9, v, 24+72+an);
 
 	free(eb);
 	free(hb);

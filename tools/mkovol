@@ -20,6 +20,8 @@
 #   NOMPEXEC=1                with SOURCE, omit the interpreter (an older or
 #                             diagnostic image; the normal boot then reports a
 #                             missing object).  Not valid with MPEXEC.
+#   REGALLOC=FILE             test fixture: append FILE's bytes to the
+#                             Space header's allocator area (requires SOURCE).
 #   GEFS=FILE                 userspace gefs (default
 #                             build/selfroot/amd64/bin/gefs)
 set -e
@@ -32,10 +34,13 @@ src=$3
 native=${NATIVEEXEC:-}
 mpexec=${MPEXEC:-}
 nompexec=${NOMPEXEC:-}
+regalloc=${REGALLOC:-}
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
 [ -z "$native" ] || [ -r "$native" ] || { echo "mkovol: NATIVEEXEC: no $native" >&2; exit 1; }
 [ -z "$mpexec" ] || [ -r "$mpexec" ] || { echo "mkovol: MPEXEC: no $mpexec" >&2; exit 1; }
 [ -z "$nompexec" ] || [ -z "$mpexec" ] || { echo "mkovol: NOMPEXEC and MPEXEC are exclusive" >&2; exit 2; }
+[ -z "$regalloc" ] || [ -r "$regalloc" ] || { echo "mkovol: REGALLOC: no $regalloc" >&2; exit 1; }
+[ -z "$regalloc" ] || [ -n "$src" ] || { echo "mkovol: REGALLOC requires SOURCE" >&2; exit 2; }
 [ -z "$native" ] || [ -n "$src" ] || { echo "mkovol: NATIVEEXEC requires SOURCE" >&2; exit 2; }
 [ -z "$mpexec" ] || [ -n "$src" ] || { echo "mkovol: MPEXEC requires SOURCE" >&2; exit 2; }
 [ -z "$nompexec" ] || [ -n "$src" ] || { echo "mkovol: NOMPEXEC requires SOURCE" >&2; exit 2; }
@@ -60,6 +65,10 @@ if [ -n "$src" ]; then
 	if [ -n "$mpexec" ]; then
 		cp "$mpexec" "$b/mpexec"
 		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./mpexec
+	fi
+	if [ -n "$regalloc" ]; then
+		cp "$regalloc" "$b/regalloc"
+		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./regalloc
 	fi
 fi
 truncate -s $(( $(stat -c %s "$b/in.img") / 1048576 + 16 ))M "$b/in.img"
