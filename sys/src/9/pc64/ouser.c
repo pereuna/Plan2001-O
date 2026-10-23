@@ -104,6 +104,12 @@ ouserproc(void *arg)
 	up->seg[TSEG] = ts;
 
 	up->seg[SSEG] = newseg(SG_STACK|SG_NOEXEC, USTKTOP-USTKSIZE, USTKSIZE/BY2PG);
+	/* Fault in and zero the top stack page so the Tos slot is valid. */
+	p = newpage(USTKTOP-BY2PG, nil);
+	k = kmap(p);
+	memset(VA(k), 0, BY2PG);
+	kunmap(k);
+	segpage(up->seg[SSEG], p);
 
 	up->kp = 0;
 	up->noswap = 0;
