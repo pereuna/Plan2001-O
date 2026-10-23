@@ -1,103 +1,101 @@
-# Plan2001-O — Boot Experiment C: ring-3 OID executable, no pathname
+# Plan2001-O — Boot Experiment D1: O-resident MicroPython entry and first real blocker
 
-**Task for the continuing OpenCode agent.** Repository: `pereuna/Plan2001-O`, current main. Continue **in the existing OpenCode session** if the actual context budget permits, using the repository as source of truth. This is a single bounded implementation-and-QEMU experiment, not a general redesign.
+**Task for OpenCode; repository `pereuna/Plan2001-O`, current `main`.** Continue from successful Boot Experiment C (`3374eb9`; report `docs/O-BOOT-EXPERIMENT-C.md`). The aim is a **bounded diagnostic experiment**, not a console implementation. Keep the coding agent focused on the actual first failed operation.
 
-## Goal
+## Research question
 
-Combine two **already proven, separate** paths:
+Can the existing kernel start the **real, unchanged O-resident MicroPython executable** at `OID_MP_EXEC = 0x4f45584543000003` by the proven pathless first-user-process path, and **how far does MicroPython initialize before it needs any inherited Plan 9 namespace, file descriptor or console facility?**
 
-- **Boot Experiment B:** `oboot=user` makes a real ring-3 process from an embedded flat probe, without `userinit/proc0/init0/startboot`; real `alarm` and `sleep` syscall round trips, zero pathname counters. Implementation `ba6b8ab` + `ddf9899`; evidence `docs/O-BOOT-EXPERIMENT-B.md`.
-- **Storage Level A:** a native `PARTUUID=` GE/O volume opens and reads via SD block I/O without kernel `Chan`/`namec`; `tools/test-o-pathless.sh`, implementation `e384300`.
+Expected execution prefix:
 
-**Experiment C:** The Boot-B first userspace process opens a real disposable GE/O volume via `ovolopen(spec, len)`, opens `init` Space via `ospaceopen(1, "init", 4)`, and invokes `oexecute(space, oid, nil, 0)` for a **genuine binary stored on that O volume**. The existing `execo` should replace the running process image. Prove the *new O-resident program*, after the exec transition, executes ring-3 instructions and performs observable syscall round trips. The entire selected boot must require no runtime pathname lookup, `Chan`, `/boot`, `bind`, `mount`, path `exec`, or FD-backed console.
-
-**Not** required: MicroPython, Python Environment, interactive REPL, device interface redesign or full elimination of unused legacy code. This is **Boot Experiment C**; do not rename earlier top-down Storage Levels A/B/C.
-
-## 0. Safeguards and initial inspection
-
-Run `git status --short`, `git log -6 --oneline`; verify prior B commits and evidence on current branch. Never overwrite concurrent local edits, force push, use destructive reset or blindly stage another agent's changes. Preserve **default normal O/MicroPython boot**, `oboot=probe`, `oboot=user`, all old regression tests and the seeded O image format. Use disposable images only.
-
-Read `AGENTS.md`, `docs/STATUS.md`, `docs/O-BOOT-EXPERIMENT-B.md`, `docs/O-BOOT-DEPENDENCIES.md`, `docs/O-FORMAT.md` and the actual implementations:
-
-- `sys/src/9/pc64/main.c`, `ouser.c`, `trap.c` and `sys/src/9/pc/obootuser.c`.
-- `sys/src/9/port/devgefs.c`: `sysovolopen`, `sysospaceopen`, `sysoexecute`, process-local `Ohand` and `oprocexec`.
-- `sys/src/9/port/sysproc.c`: `execo`, `execparse`, `execcommit`, `execregs`; `sys/src/9/pc64/trap.c` for `Ureg` provided by a real user syscall.
-- `sys/src/cmd/oinit/oinit.c` for the actual call signatures and Space/volume semantics; `sys/src/cmd/oexec/oexec.c` and `ohello/ohello.c` for prior loader tests.
-- `tools/mkovol`, `tools/oseed.py`, `tools/gefsdisk`, `tools/test-o-exec.sh`, `tools/test-oboot-user.sh`.
-
-Check the syscall numbers/ABI and whether any native O syscall actually assumes `Fgrp/Egrp/Rgrp` or nonnil `slash/dot`. Do not assume because it used to be called after `/boot/oinit`. Assess GE worker start, locks, `oprocexec` handle disposal, Tos and stack/argv creation before modifications.
-
-## 1. A separate opt-in C mode
-
-Prefer `oboot=oid` (keeping existing `oboot=user` for B). Reuse the proven `o_user_bootstrap` ring-3 loader with the smallest safe mode selection or second tiny image; **do not copy the complete B bootstrap** and do not change the legacy default. For OID mode, the embedded first userspace program calls the existing **user** native O syscalls, not new direct kernel helper calls pretending to be userspace.
-
-Give it the disposable image's correct `PARTUUID=` string without accessing any filesystem. **Important:** `tools/gefsdisk` generates a new GPT partition GUID per image; hard-coding a GUID in a kernel binary is not a valid repeatable gate. The kernel may read a bounded `plan9.ini` setting such as `obootvol=PARTUUID=...` with `getconf` and hand the string to the first userspace process in its initialized stack/argv, or use another equally safe and explicitly documented mechanism. The existing `INI=` support in `tools/gefsdisk` currently **does not substitute** `@PARTUUID@` in arbitrary INI fields (only the `INIT=` value gets that substitution). If adapting that tool, make a small narrowly scoped, backward-compatible substitution, and verify the final saved `plan9.ini`. Avoid exporting a kernel pointer into userspace or assuming ordinary C global variables are writable in the Boot-B image (the B one-page probe currently requires data=BSS=0).
-
-Run:
-```c
-/* conceptual sequence; verify real headers/ABI */
-v = ovolopen(volspec, strlen(volspec));  /* expect 1 */
-h = ospaceopen(1, "init", 4);            /* expect positive handle */
-oexecute(h, EXEC_OID, nil, 0);          /* success replaces process image */
 ```
-No path operations may be used to acquire either the volume or the executable. The Space identifier here is the existing name `init` passed to a native Space API: it is **not a directory path**. Check all return values; on error, retain an observable userspace-to-kernel failure report without FD I/O, using existing opt-in instrumentation, and remain schedulable rather than crashing silently.
+UEFI -> kernel -> scheduler -> small embedded ring-3 O loader
+     -> OVOLOPEN(PARTUUID=...) -> OSPACEOPEN(1, "init")
+     -> OEXECUTE(OID_MP_EXEC, actual argc/argv) -> real MicroPython ring 3
+     -> observe actual startup stages and first legacy dependency
+```
 
-The O volume-open call and the actual O read must travel through the already-native `oblockopenpart -> oopenblk -> GE/O` path. Do not alter the disk engine just to make this test pass.
+**Success is not defined as a working interactive REPL, Python boot, persistence, or zero namespace operations indefinitely.** D1 must prove the OID-to-MicroPython image transition and diagnose exactly where the interpreter goes next, without disguising an expected missing-console failure as a complete system boot.
 
-## 2. Choose a real O-resident target that has no FD dependency
+The eventual serial console / stdin / stdout / `boot.py` modernization is **D2 and NOT PART OF D1**.
 
-**Critical trap:** `sys/src/cmd/ohello/ohello.c` is the existing O executable test target, but it uses `write(1,...)` and `exits`; this is *not* appropriate for a first user process whose `Fgrp` and fd 1 are deliberately absent. Make a tiny **separate** target program compiled by the existing Plan 9 amd64 toolchain which, after successful OID `oexecute`, uses only safe non-file syscalls (e.g. `alarm`, `sleep`) to demonstrate continued userspace execution. It should not return from `_main`, call file I/O, or require startup console state. Preserve the old ohello tests.
+## 0. Keep controls and current work safe
 
-**Second critical trap:** `tools/oseed.py` unconditionally patches the BSS header of its `NATIVEEXEC` input (`x[:12] + b"\xff\xff\xff\xff" + x[16:]`) for an older targeted test. A new payload must NOT accidentally be treated as unchanged under that path. Prefer a small **test-fixture-only** opt-in raw seeding mode / new target seed input which preserves the executable bytes verbatim under a documented fixed OID, without changing the legacy `NATIVEEXEC` behavior or any on-disk GE/O format. If you can use existing seeding correctly with no change, prove it by comparing original versus O-read bytes/hash and explaining the intentional header mutation. Do not replace `OID_MP_EXEC`, alter existing ohello semantics, or corrupt the regression fixture.
+Before editing: `git status --short`, `git log -6 --oneline`. Make sure Boot A (`6c6e112`), B (`ba6b8ab`+`ddf9899`), C (`3374eb9`), and native storage (`e384300`) are in history. If another agent has uncommitted changes in overlapping files, do not overwrite or stage them; use a clean checkout/branch or stop with a specific conflict report. No destructive reset, forced push or blind `git add .`.
 
-A bounded extra fixture OID is fine for this experiment; use a known exact OID and document its value. Do not implement a universal program catalog.
+Preserve `oboot=probe`, `oboot=user`, `oboot=oid`, default legacy-compatible O/MicroPython boot, all previously passing gates, GE/O on-disk format and `OID_MP_EXEC`. Do not edit `/boot/oinit` or `boot.py` to suppress failures. No physical-disk tests.
 
-## 3. Proof instrumentation and negative test
+Read `AGENTS.md`, `docs/STATUS.md`, `docs/O-BOOT-EXPERIMENT-C.md`, `docs/O-BOOT-DEPENDENCIES.md`, `docs/O-FORMAT.md` and the actual source for:
+- `sys/src/9/pc64/main.c`, `ouser.c`, `trap.c`, `l.s`; `sys/src/9/pc/obootoid.c`.
+- `sys/src/9/port/devgefs.c` (`OVOLOPEN`, `OSPACEOPEN`, `OEXECUTE`); `sys/src/9/port/sysproc.c` (`execo`, argv handling, `execcommit` / `execregs`).
+- `sys/src/cmd/oinit/oinit.c` (`argvec` and exact existing MicroPython arguments).
+- `sys/src/cmd/micropython/main.c`, `p9console.c`, `p9space.c`, `boot.py`, and the actual C/Plan9-libc startup path.
+- `tools/mkovol`, `tools/oseed.py`, `tools/gefsdisk`, `tools/test-oboot-oid.sh`, `tools/test-o-boot.sh`.
 
-Use `OBOOT-C:` markers, guarded to the selected mode and PID, with existing `opath` counters unchanged. Observe and discriminate:
+**Known from source — verify on current HEAD:** `oinit.c:argvec` uses six args for the persistent init mode:
 
-1. Boot-B-style **first** userspace entry, actual user mode selectors `cs=0x2b`, `ss=0x23`.
-2. `OVOLOPEN` syscall return **1**, exact correct `PARTUUID`; `OSPACEOPEN` returns positive handle. Prove O engine started and the requested real OID bytes were actually fetched from the disposable image (not an embedded substitute). Record OID, exact byte length and target checksum or a comparable independently anchored identity.
-3. `OEXECUTE` syscall is entered **from ring 3**, successfully performs `execo`/image commit and changes the current user instruction image. Be careful: on success the syscall handler may return through a modified `Ureg` rather than returning normally to the instruction after `oexecute`. Instrument the **actual register/stack transition**, not a fake “success” print placed before commit.
-4. **After** replacement, show at least two real user-originated **target** syscalls with successful returns and continued target execution. Prefer a distinctive syscall sequence or arguments making it unambiguous that the post-exec target ran; track its program counter and user image identity. A pre-exec kernel marker or the original Boot B probe's `sleep` loop alone is insufficient.
-5. Entire boot through post-exec proof: `userinit=proc0=init0=0`, `namec=newchan=walk=devwalk=mount=path_exec=0` **at both pre-exec and post-exec checkpoints**. No reset of instrumentation to conceal early events. `up->slash/dot` remain nil; report any other structs initialized or dependencies encountered.
-6. `Ohand` lifecycle: inspect `oprocexec(up)` and show that the prior process-local O Space handle is not unintentionally accessible by the replaced image, or report/fix a narrowly scoped proven bug. Do not loosen isolation/rollback rules.
-7. Negative case on a **separate disposable boot**: missing OID must return an error without a kernel panic or unintentional replacement; if possible, then execute the valid OID in the same process to prove rollback/handle survival. A wrong PARTUUID should fail clearly without an unexpected filesystem fallback. Keep bounded runtime and actual FAIL detection.
+```
+argv = { "micropython", "-O", "PARTUUID=<GUID>", "-S", "init", "-B", nil }
+argc = 6
+```
 
-The target may sleep indefinitely after the verified marker. Distinguish expected host timeout from panic. Use host-visible kernel serial output; never add `/dev/cons` just to print.
+`micropython/main.c` runs `mp_init()`, then `p9_space_o(ovol)`, then **executes `boot.py` before opening/restoring `init` Space when `-S init -B` is selected**. Current `boot.py` calls `plan9.bind`, tries `/boot/kbdfs` with `spawn` and touches `/dev/cons`. Current `p9console.c` uses `fd2path(0)`, `/dev/consctl`, `readn(0)`, and `write(1)`. These are **potential expected blockers**; test which one is first rather than inferring from file order that every call executed.
 
-## 4. Reproducible gates
+## 1. A separate opt-in D1 mode
 
-Implement `tools/test-oboot-oid.sh` (or similarly named bounded test). Prepare a fresh **disposable** native O image with the target seeded, build an ESP + O GPT disk with **no root= and no init=**, and boot with `oboot=oid` plus the current generated PARTUUID safely passed to userspace. Prove the test fails if:
+Prefer `oboot=mp`, preserving `oboot=oid` as the C test. Reuse the existing embedded OID loader (and its `otouser`/ring-3 setup), not an additional copy of the loader or an alternative kernel-side executable loader. The `PARTUUID` must still come from the **newly generated disposable GPT** using `obootvol=PARTUUID=@PARTUUID@`, not a hard-coded GUID.
 
-- GUID/volume wrong; executable OID missing/corrupt; loader syscall fails;
-- post-exec user code never ran; ring-3 selectors wrong; only kernel-side marker observed;
-- path counters nonzero, unexpected panic/user fault, or output ordering incorrect;
-- test fixture O bytes do not match the intended target.
+In `oboot=mp` only, select `OID_MP_EXEC`, the actual MicroPython executable and appropriate argv supplied entirely from valid user memory. Be exact about the one-page initial loader image's constraints: Plan9 C literals / static state, stack argument block, pointers and lengths must be checked. `oexecute` snapshots user argument pointers and strings; ensure all six arguments are addressable in the initial user image/stack and survive until syscall copying. Validate `argc`, `argv[argc]=nil`, bounded strings and a fresh PARTUUID. Retain C's fixed test OID and original argv unchanged.
 
-Run the actual baseline build and previous gates. At minimum:
+The O volume and program read must use the **existing** `PARTUUID -> direct native SD/GE/O -> onativeget -> execo` path. `execo` should replace the initial ring-3 process with the real MicroPython executable without any `/boot` lookup. Do not embed the MicroPython executable in the kernel and do not use `NATIVEEXEC` or the `RAWEXEC` fixture OID as a substitute. Use the existing default `tools/mkovol ... tools/odemo.py` seeding of `OID_MP_EXEC`, unchanged.
 
+## 2. Diagnostic measurement, not a fake passing runtime
+
+Build a **time-bounded and phase-aware** observation path with `OBOOT-D1:` serial markers, guarded by `oboot=mp` (including after the process image is replaced). Preserve the global `opath` counters as cumulative, not reset. At minimum record:
+
+1. Actual first user-mode entry from the embedded loader, successful `OVOLOPEN`/`OSPACEOPEN` and the precise `OEXECUTE` call with OID `0x4f45584543000003`.
+2. Binary provenance: host MicroPython executable SHA-256, unchanged O seed SHA-256, and independently verified OID read bytes / digest. Reuse the existing `oinit` hash algorithm/tool if practical; **do not use only an 8-bit sum as proof for a 2 MB interpreter**. Keep instrumentation bounded and optional.
+3. Actual **post-exec `Ureg` change** (`text=micropython` or verified program name, new user PC and valid user `CS/SS`), then one or more *real* MicroPython-originated user-mode syscalls / subsequent execution. Do not claim the interpreter initialized merely because `OEXECUTE` reached `execcommit`.
+4. Distinguish milestones as facts rather than guesses: program entry/libc startup; `main` reached; `mp_init` entered/completed; `p9_space_o` entered/completed; `boot.py` entered; first `bind/open/spawn/fd` request; `space.open('init')` reached; `p9_space_boot` reached; durable commit reached. Show `REACHED`, `NOT REACHED`, or `UNKNOWN` with actual source lines / traced PCs and runtime evidence. It is acceptable to leave late milestones NOT REACHED if an earlier dependency blocks.
+5. **First actual inherited dependency attempted**: capture the first user-originated namespace/FD/path/console operation including attempted syscalls and return value, even if `namec` is never entered because the syscall rejects a missing `Fgrp` earlier. Identify the precise function, source file:line, syscall/arguments where safely observable, and error. Do not confuse zero `opath` counters with no attempted file operations.
+6. Classify process fate: successful scheduled execution, trapped fault, returned error, unhandled MicroPython exception, idle/sleep, exit, QEMU timeout. A process that panics or hangs is a diagnostic result, not a hidden PASS. Do not suppress `panic`, swallow exceptions or inject fake FD-backed console support.
+
+**Measurement methods:** first prefer existing `OBOOT-C` syscall/exec instrumentation extended *only* for the D1 PID and boot mode. Existing 8-syscall cap is too short for a real interpreter: use a **bounded** trace budget, with phase/checkpoint filtering to prevent massive logs. If needed, add the smallest opt-in diagnostic check in interpreter startup (e.g., calls to an **existing non-file syscall** producing kernel-side observed markers, with a `-T` test-only option), but avoid modifying normal interpreter behavior, creating a debug syscall, or treating injected markers as proof of unmodified startup. Keep any required extra interpreter instrumentation localized and explain what it does. Do not add new global console dependencies. If `main` cannot be reached, demonstrate that honestly from traces.
+
+**Mandatory scope distinction:** During the *prefix up to OID exec*, path counters should remain zero as in Boot C. After MicroPython starts, D1 must measure and report any forbidden operations **rather than requiring zero**; they are the subject of D2. Report cumulative counts at both points, not a fabricated whole-boot "pathless PASS".
+
+## 3. Reproducible positive and negative tests
+
+Implement `tools/test-oboot-mp.sh` or equivalent:
+
+- Build `WHAT=all tools/build.sh`, `tools/selfroot` as required by the existing tree; use a fresh disposable O image with the existing `init` Space, MicroPython binary and odemo code, `NOROOTFS=1`, **no `root=`, no `init=/boot/oinit`**. Use `INI='oboot=mp;obootvol=PARTUUID=@PARTUUID@'`.
+- Verify the generated `plan9.ini`, OID image hash and exact argv supplied to `OEXECUTE`. Log all QEMU serial output and stop at a precise observation milestone or bounded timeout. Never rely on a VM continuing forever as evidence of success.
+- One additional **negative test** using `NOMPEXEC=1` so `OID_MP_EXEC` is absent: `OEXECUTE` must return an error without launching `micropython`, must not fall back to `/boot`, and must preserve the existing O handle (as in C). Document this as a separate negative, not as a crash.
+- Distinguish `D1 EXEC PASS` (real target image replacement + at least one real post-exec syscall) from `D1 STARTUP REACHED: <verified highest milestone>`. An observed missing-console failure is compatible with **D1 diagnostic success** but must NOT be called a working O-resident MicroPython boot.
+- Do not change Python code, `boot.py`, the default O executable bytes or a format just to make an early startup marker pass. If a userlib/libc assumption blocks MP entry, document exactly and stop unless the fix is a genuinely tiny, safe compatibility repair independent of D2.
+
+For controls, *run* and report PASS/FAIL/NOT RUN with actual logs:
 ```sh
 WHAT=all tools/build.sh
 tools/test-oboot-user.sh
+tools/test-oboot-oid.sh
 tools/test-o-boot.sh
 tools/test-o-pathless.sh
 tools/test-o-exec.sh
 tools/test-o-exec-args.sh
+tools/test-o-handles.sh
 ```
+Plus Boot A `oboot=probe` from its documented QEMU recipe. All work in throwaway images. If an existing regression fails, do not mark D1 clean or alter an unrelated test's acceptance criteria.
 
-Boot A's `oboot=probe` control must also remain demonstrated; use its documented QEMU gate. Report **PASS/FAIL/NOT RUN** with exact invoked commands and logs, not an inference from earlier runs. If feasible, rerun the specific O-handle rollback regression. If any mandatory baseline fails, do not declare C PASS.
+## 4. Stop conditions and documentation
 
-## 5. Stop line and deliverables
+**STOP before D2.** Specifically do NOT implement direct UART read/write, FD emulation, `/dev/cons` replacement, kbdfs alternatives, Python `plan9` API redesign, fake tree mounts, `namec`/Chan removal, new O graph semantics, or unrelated user-process semantics. Do not broadly refactor `boot.py` to "skip" its dependency. Prioritize the observed first blocker over speculative changes.
 
-**C PASS** means the complete observed chain is `UEFI -> native kernel/scheduler -> embedded minimal user loader -> OVOLOPEN -> OSPACEOPEN -> OEXECUTE(OID) -> new ring-3 binary from O`, with proven post-exec code execution and zero forbidden pathname activity. Both the initial kernel-embedded probe and the true O-resident target must be identified distinctly.
+Deliver:
 
-If `execo` fails because it assumes a valid `Fgrp`/Egrp/process parent or a particular `Ureg` shape, isolate the **smallest actual failing dependency**; fix only if small and safe. If a more general console/runtime/process model is necessary, **STOP at C NOT YET** with a precise trace; do not reconstruct Plan 9's namespace merely to pass the gate.
+- `docs/O-BOOT-EXPERIMENT-D1.md`: actual boot call graph; full six-argument contract; exact OID/host/O digest evidence; phase-by-phase startup table; first missing dependency with source:line, trace, syscall results and limits; why this is **not D2**.
+- `docs/STATUS.md`: dated factual D1 results and executed commands/logs, preserving all A/B/C and Storage Level A histories.
+- `docs/to_chatgpt_review.md`: concise evidence and the single concrete D2 boundary supported by D1; respect the OpenCode final summary automation.
+- Small opt-in source/test edits only; commit and push with the project's established workflow, avoiding duplicate commits or concurrent writes.
 
-Update:
-- `docs/O-BOOT-EXPERIMENT-C.md`: call chains, byte provenance, OID and GUID handoff, image/stack/exec evidence, counters, negative cases, exact logs/commands, remaining limits.
-- `docs/STATUS.md`: current evidence without overwriting earlier PASS records.
-- `docs/to_chatgpt_review.md`: concise factual summary; respect existing OpenCode final-output automation.
-- Minimal source/build/test changes. Commit and push intended files via existing automation, without racing it or staging unrelated files.
-
-**Conclusion required:** **Boot C PASS** or **Boot C NOT YET**; which inherited Plan 9 structures **must actually execute** on this path versus simply remaining linked/initialized; and one sentence on the smallest next experiment toward O-resident MicroPython (do not implement it in C).
+**Final verdict format:** `D1 EXEC PASS / NOT YET`; `D1 STARTUP highest proven milestone = ...`; `FIRST LEGACY DEPENDENCY = <actual function/path/FD requirement and failure>`; `NEXT D2 EXPERIMENT = <one minimal evidence-driven objective>`. Never claim full pathless MicroPython boot solely because `OEXECUTE` succeeds.
