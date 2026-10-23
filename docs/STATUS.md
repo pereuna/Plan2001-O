@@ -24,6 +24,11 @@ Levels A/B/C.
 it starts the unchanged O-resident MicroPython, proves the image
 transition and diagnoses its first inherited FD dependency. It is a
 diagnostic result, not a working pathless MicroPython boot.
+**Boot Experiment D2a** was implemented at `4c2ae36` plus `182be33`
+(23 October 2026); it adds a process-local native output stream over the
+existing UART, fixes the nil-`Fgrp` `fdtochan` panic, and diagnoses the
+next downstream `bind`/`namec` blocker. It is not D2b or a functional
+console.
 
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -47,11 +52,84 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Boot Experiment B (ring-3 userspace probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=user`, the normal `9pc64` kernel built a user address space from a 113-byte embedded image, entered ring 3 at `0x200028` (`cs=0x2b`, `ss=0x23`), and observed user syscalls `alarm(0)` and `sleep(100)` with returns and continued execution. `userinit/proc0/init0=0`, all path counters `0`, `slash/dot=nil`, and the normal O and Boot A controls remained PASS. This is not Storage Level B and does not use GE/O or MicroPython; see [O-BOOT-EXPERIMENT-B.md](O-BOOT-EXPERIMENT-B.md). |
 | **Boot Experiment C (ring-3 OID executable)** | **PASS (23 October 2026):** with `plan9.ini oboot=oid` and a generated `obootvol=PARTUUID=...`, the embedded first user loader ran `OVOLOPEN` (ret 1), `OSPACEOPEN` (h=1) and `OEXECUTE` for OID `0x4f45584543000004`; the 2,088-byte O-resident target replaced the image and ran its own `ospaceget`, `alarm(0x42)` and `sleep` syscalls in ring 3. `userinit/proc0/init0=0` and every path counter stayed 0 before and after exec. Wrong-PARTUUID and missing-OID negatives passed. This is not Storage Level B/C and does not run MicroPython; see [O-BOOT-EXPERIMENT-C.md](O-BOOT-EXPERIMENT-C.md). |
 | **Boot Experiment D1 (O-resident MicroPython diagnosis)** | **PASS (23 October 2026), diagnostic only:** with `plan9.ini oboot=mp` and the generated `obootvol=PARTUUID=...`, the embedded loader ran `OEXECUTE` for `OID_MP_EXEC` and the kernel verified the unchanged 2,194,156-byte MicroPython image by SHA-256. MicroPython entered ring 3 (`text=micropython`, `pc=0x275abc`), completed `mp_init`/`main` and a second native `OVOLOPEN` inside `p9_space_o`. Its first `fprint(2, ...)` caused `PWRITE` (nr 51, fd 2) and a kernel fault because `up->fgrp` is nil; `boot.py` was not reached. This is not a working boot or a D2 console result; see [O-BOOT-EXPERIMENT-D1.md](O-BOOT-EXPERIMENT-D1.md). |
+| **Boot Experiment D2a (native output stream)** | **PASS (23 October 2026), diagnostic only:** `oboot=mp` grants process-local OUT/DIAG handles to the initial process; the new `iowrite` syscall copied user bytes into kernel memory and put them on the existing console UART with `up->fgrp=nil`. The literal `space: O volume selected: PARTUUID=...` appeared on host UART from `iowrite`, with no post-MP `PWRITE(fd=2)`. MicroPython then reached `boot.py` and its first `bind`; the `/dev` destination `namec` faulted on nil `up->slash`. `fdtochan` now returns `Ebadfd` for nil `Fgrp`. This is not D2b/D2c; see [O-BOOT-EXPERIMENT-D2A.md](O-BOOT-EXPERIMENT-D2A.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment D2a — 23 October 2026
+
+**Source state:** implementation commits
+`4c2ae36f00ad976cf9a3efa7b258dc479f2e323c` (kernel/port/output) and
+`182be33cd976439f6dff68a07356e3396bef5714` (gate native probing to
+`-O`), plus this documentation follow-up.
+
+**Implemented**
+
+- `Proc.iomask` (`sys/src/9/port/portdat.h:714`) is a process-local
+  output grant. `newproc` clears it; `oboot=mp` sets `Iomout|Iomdiag`
+  before ring 3; `OEXECUTE` preserves it on the same PID.
+- New `IOWRITE` syscall 62 (`sys/src/libc/9syscall/sys.h:61`,
+  `systab.h:129`) implements `long iowrite(int h, void *buf, long n)`.
+  It checks the grant, rejects absent handles and negative/over-64-KiB
+  lengths, returns 0 for a zero-length probe, checks the console UART,
+  `validaddr`s the user buffer, copies it, and sends it through the
+  existing `putstrn` UART/serial queue path. It never uses `Fgrp`,
+  `Chan`, `namec`, a path or a fake FD.
+- `fdtochan` now returns `Ebadfd` when `up->fgrp == nil` instead of
+  `lock(nil)` panicking.
+- MicroPython `p9_console_write` uses native handle 1 when available;
+  `p9_dprintf` routes existing `main.c`/`p9space.c` diagnostics through
+  handle 2. `p9_console_native` is enabled only for `-O` runs, so the
+  build VM's `micropython /tmp/oseed.py` seed path never probes the new
+  syscall; normal legacy output is unchanged.
+- `tools/test-oboot-output.sh` covers the positive and missing-OID
+  negative cases. The old D1 harness is marked historical/superseded.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-d2a.log
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot \
+  2>&1 | tee build/verification/selfroot-experiment-d2a.log
+tools/test-oboot-output.sh 2>&1 | tee build/verification/test-oboot-output-experiment-d2a.log
+tools/test-oboot-user.sh
+tools/test-oboot-oid.sh
+tools/test-o-boot.sh
+tools/test-o-pathless.sh
+tools/test-o-exec.sh
+tools/test-o-exec-args.sh
+tools/test-o-handles.sh
+# Boot A oboot=probe disposable QEMU boot
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; `9pc64` md5 `cca9f4f64b7b819ec9cf1ddc51bdfd72`, test-only `9pc64mp` md5 `644b90f7e2a80b818e8770ca7594aae2`. |
+| selfroot | **PASS** | clean at `182be33`; MicroPython 2,195,102 bytes, SHA-256 `96a82678e03dbd2c1425b50c4e97fcbfb60b6b344af564a741b8bff80bf5c086`. |
+| D2a output gate | **PASS** | `PASS: D2a native output over UART and downstream blocker diagnosis`. `build/verification/test-oboot-output-experiment-d2a.log`, `...-pos-...log`, `...-missing-...log` |
+| Image identity | **PASS** | host/seed/kernel `OEXECUTE` SHA agree on `96a82678...`; `len=2195102`. |
+| Native diagnostic | **PASS** | `IOWRITE h=2 n=72 ret=72`; UART prints `space: O volume selected: PARTUUID=...`; `OBOOT-D2A: OUTPUT ... counters namec=0 newchan=0 walk=0 devwalk=0 mount=0 exec=0`; no post-MP `PWRITE(fd=2)`. |
+| Negative syscalls | **PASS** | User `iowrite` with handle 99, length -1 and length 65537 all return -1; legacy `pwrite(2,...)` returns -1 with no panic. |
+| Next blocker | **PASS (diagnosis)** | `boot.py` reached; first `bind` enters `namec`; the `/dev` destination `namec` faults on `up->slash=nil` at `chan.c:1342-1343`, `kernel fault read addr=0x0`. Not fixed in D2a. |
+| Missing OID | **PASS (negative)** | `OEXECUTE=-1`; handle survives via `OSPACEGET ret=0xd1`; `alarm(0xbaf)`; no MicroPython text/output/panic. |
+| Boot A/B/C, normal O, pathless, exec, argv, handles | **PASS** | Logs `build/verification/test-oboot-probe-experiment-d2a.log`, `test-oboot-user-experiment-d2a.log`, `test-oboot-oid-experiment-d2a.log`, `test-o-boot-experiment-d2a.log`, `test-o-pathless-experiment-d2a.log`, `test-o-exec-*-experiment-d2a.log`, `test-o-handles-experiment-d2a.log`. |
+
+**Stream API limits:** process-local `iomask` and fixed handles `1`
+(OUT) / `2` (DIAG) to the one console UART; `putstrn` CRLF/serial-queue
+behavior; syscall number 62; grant only for `oboot=mp`. No general
+stream registry, input, PTY, screen, kbmap, 9P, path or device model.
+The process-local handle/grant contract is intended to survive; the
+backend and numbering are experimental.
+
+**Next D2b objective:** give `boot.py`'s device `bind`/`namec` path the
+minimal namespace root/destination it requires, or identify a smaller
+equivalent explicit capability, then observe the next dependency. Do not
+call this a functional server boot.
 
 ## Boot Experiment D1 — 23 October 2026
 

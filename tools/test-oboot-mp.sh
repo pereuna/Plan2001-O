@@ -1,4 +1,6 @@
 #!/bin/bash
+# HISTORICAL D1 HARNESS: expects the pre-D2a nil-Fgrp PWRITE panic.
+# Superseded by tools/test-oboot-output.sh; do not use against a D2a kernel.
 # Plan2001 Boot Experiment D1: start the unchanged O-resident MicroPython
 # by the pathless first-user process, then record the highest reached
 # startup milestone and the first inherited FD/namespace dependency.
