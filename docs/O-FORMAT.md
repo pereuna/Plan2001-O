@@ -290,6 +290,39 @@ References: `sys/src/9/port/devgefs.c`, `sys/src/9/port/sysproc.c`,
 `sys/src/cmd/oinit/oinit.c`, `tools/test-o-boot-omp.sh`,
 `tools/test-o-exec-args.sh`.
 
+### 5.3 Direct byte-object binding in MicroPython
+
+The built-in `space` module exposes a small PoC binding over the same
+native calls; it does not add a storage layer or change the format:
+
+```python
+import space
+space.oput(42, b"hello\n")   # ospaceput + ospacecommit (publish and sync)
+assert space.oget(42) == b"hello\n"
+```
+
+`space.oget(oid)` queries the published object size, then reads that
+whole value; the size/read pair is retried up to three times if a
+concurrent commit changes it. Empty published content returns `b""`;
+a missing OID raises `OSError`. `space.oput(oid, data)` accepts
+bytes-like data and commits before returning, so it does not depend on
+the Python graph's dirty flag or the next automatic commit. Both are
+available only while a native `-O` volume and `-S` Space are open;
+otherwise they fail with `OSError` rather than falling back to files.
+
+The binding refuses writes to the implementation-reserved OIDs: 0,
+`OID_ROOTS`/`OID_FIRST`, the whole region at and above `OID_CODE`
+(host-assigned code OIDs, `OID_ENV`, `OID_GRAPH`, upgrade metadata), and
+the native-exec test/boot OIDs `0x4f45584543000001`-`03`. Its
+whole-object limit is **1 MiB**, conservative relative to the kernel's
+64 MiB transaction cap. `space.oid(x)` is unrelated: it is a Python
+logical graph OID inside the `OID_GRAPH` payload, even when the number
+coincidentally matches a native OID.
+
+The demonstrated OIDs are PoC identifiers, not an allocation scheme.
+References: `sys/src/cmd/micropython/p9space.c`, `tools/obytefile.py`,
+`tools/test-o-bytefile.sh`.
+
 ## 6. Reserved OIDs and MicroPython payloads
 
 The current seeded `init` Space reserves:

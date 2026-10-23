@@ -1568,6 +1568,130 @@ static mp_obj_t space_oid(mp_obj_t o) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(space_oid_obj, space_oid);
 
+/*
+ * Direct native GE/O byte objects (docs/OBJECT-MODEL.md, docs/O-FORMAT.md):
+ * oget/oput address one published O object by OID, not a Python logical
+ * OID and not the OID_GRAPH payload.  This is a small binding over the
+ * existing ospaceget/ospaceput/ospacecommit syscalls, not a general OID
+ * allocator.  A numeric value may coincide with a Python graph OID; the
+ * two namespaces are independent.
+ */
+enum {
+	Obytemax = 1*1024*1024,	/* a whole-object read/write PoC limit */
+	Oidexecfirst = 0x4f45584543000001ULL,
+	Oidexecbad = 0x4f45584543000002ULL,
+	Oidexecmp = 0x4f45584543000003ULL,
+};
+
+static void
+obyteopen(void)
+{
+	if (ovol < 0 || osp < 0 || !sp.isopen) {
+		mp_raise_msg(&mp_type_OSError,
+			MP_ERROR_TEXT("space: no native O Space is open"));
+	}
+}
+
+static uint64_t
+obyteoid(mp_obj_t o)
+{
+	mp_uint_t u;
+
+	if (!mp_obj_is_int(o)) {
+		mp_raise_TypeError(MP_ERROR_TEXT("space: OID must be an int"));
+	}
+	u = mp_obj_get_uint(o);	/* negative or too wide: OverflowError */
+	return (uint64_t)u;
+}
+
+static int
+obytereserved(uint64_t oid)
+{
+	if (oid <= OID_FIRST) {		/* 0, the roots record, the first object */
+		return 1;
+	}
+	if (oid >= OID_CODE) {		/* code OIDs, OID_ENV, OID_GRAPH, metadata */
+		return 1;
+	}
+	return oid >= Oidexecfirst && oid <= Oidexecmp;
+}
+
+static mp_obj_t
+space_oput(mp_obj_t oidobj, mp_obj_t dataobj)
+{
+	mp_buffer_info_t b;
+	unsigned long long ver;
+	uint64_t oid;
+	long r;
+
+	obyteopen();
+	oid = obyteoid(oidobj);
+	if (obytereserved(oid)) {
+		mp_raise_msg(&mp_type_ValueError,
+			MP_ERROR_TEXT("space.oput: OID is reserved"));
+	}
+	if (mp_obj_is_str(dataobj) || !mp_get_buffer(dataobj, &b, MP_BUFFER_READ)) {
+		mp_raise_TypeError(MP_ERROR_TEXT("space.oput: data must be bytes-like"));
+	}
+	if (b.len > Obytemax) {
+		mp_raise_msg_varg(&mp_type_ValueError,
+			MP_ERROR_TEXT("space.oput: %d bytes over the %d-byte PoC limit"),
+			(int)b.len, (int)Obytemax);
+	}
+	r = ospaceput(osp, oid, b.buf, (long)b.len);
+	if (r < 0) {
+		raise_err();
+	}
+	/* publish and sync now: no graph dirty flag or later commit waits */
+	if (ospacecommit(osp, &ver) < 0) {
+		raise_err();
+	}
+	return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(space_oput_obj, space_oput);
+
+static mp_obj_t
+space_oget(mp_obj_t oidobj)
+{
+	unsigned long long ver;
+	uint64_t oid;
+	long n, r;
+	byte *buf;
+	mp_obj_t o;
+	int i;
+
+	obyteopen();
+	oid = obyteoid(oidobj);
+	/* a bounded size/read retry: a concurrent commit may change the size */
+	for (i = 0; i < 3; i++) {
+		n = ospaceget(osp, oid, nil, 0, &ver);
+		if (n < 0) {
+			mp_raise_msg(&mp_type_OSError,
+				MP_ERROR_TEXT("space.oget: no such O object"));
+		}
+		if (n > Obytemax) {
+			mp_raise_msg_varg(&mp_type_ValueError,
+				MP_ERROR_TEXT("space.oget: %d bytes over the %d-byte PoC limit"),
+				(int)n, (int)Obytemax);
+		}
+		if (n == 0) {
+			return mp_const_empty_bytes;
+		}
+		buf = m_new(byte, n);
+		r = ospaceget(osp, oid, buf, n, &ver);
+		if (r == n) {
+			o = mp_obj_new_bytes(buf, n);
+			m_del(byte, buf, n);
+			return o;
+		}
+		m_del(byte, buf, n);
+	}
+	mp_raise_msg(&mp_type_OSError,
+		MP_ERROR_TEXT("space.oget: object changed while reading"));
+	return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(space_oget_obj, space_oget);
+
 // info() -> (name, version, Environment) of the open Space, or None
 static mp_obj_t space_info(void) {
     mp_obj_t t[3];
@@ -2379,6 +2503,8 @@ static const mp_rom_map_elem_t space_globals[] = {
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&space_open_obj) },
     { MP_ROM_QSTR(MP_QSTR_info), MP_ROM_PTR(&space_info_obj) },
     { MP_ROM_QSTR(MP_QSTR_oid), MP_ROM_PTR(&space_oid_obj) },
+    { MP_ROM_QSTR(MP_QSTR_oget), MP_ROM_PTR(&space_oget_obj) },
+    { MP_ROM_QSTR(MP_QSTR_oput), MP_ROM_PTR(&space_oput_obj) },
     { MP_ROM_QSTR(MP_QSTR_view), MP_ROM_PTR(&space_view_obj) },
     { MP_ROM_QSTR(MP_QSTR_upgrade), MP_ROM_PTR(&space_upgrade_obj) },
     { MP_ROM_QSTR(MP_QSTR_View), MP_ROM_PTR(&view_type) },

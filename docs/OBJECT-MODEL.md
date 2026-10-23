@@ -50,6 +50,27 @@ MicroPython is an execution environment and a consumer of persistent objects. It
 
 **Current implementation boundary:** GE/O v1 stores versioned opaque byte values identified by `(SpaceID, OID)` within a volume. `OID` is currently 64 bits; a single globally allocated OID across all machines is **not implemented**. Persistent Python objects in today's PoC are serialized together into the `OID_GRAPH` object, not independently stored as native GE/O graph edges. A generic `file` type field, relationship index, and the example above are **proposed**, not working APIs.
 
+### 3.1 Implemented direct byte-object API (PoC)
+
+The first implemented slice of this model is a small binding in the existing built-in `space` module. It stores and fetches one native GE/O published byte value by explicit numeric OID, independently of the Python graph:
+
+```python
+import space
+space.oput(42, b"hello\n")       # publish and sync six raw bytes
+assert space.oget(42) == b"hello\n"
+```
+
+- `space.oget(oid)` returns an exact `bytes` value, including embedded NULs; empty content is `b""`. A missing OID raises `OSError`; it is not fabricated as empty.
+- `space.oput(oid, data)` accepts bytes-like data, writes it with the native O write and calls the native commit/sync before returning. It does not wait for Python-graph dirty tracking.
+- Both require an open native `-O` volume and `-S` Space. Without one they raise `OSError`; there is no pathname or file API fallback.
+- Writes reject the implementation-reserved OIDs (the Python graph `OID_GRAPH`, `OID_ENV`, the code/metadata region, and the native-exec test/boot OIDs). Reads of those OIDs are not treated as user API.
+- The whole-object read/write limit is 1 MiB, a conservative PoC bound below the kernel's 64 MiB transaction limit.
+- `space.oid(x)` still returns a *Python logical graph OID*. Its number may coincide with a native OID, but the two identity spaces are independent: one names an object inside the serialized `OID_GRAPH`; the other names a separate native GE/O `Kobj` record.
+
+OIDs 42, 44-49 in the demonstration are **PoC identifiers**, not globally allocated identities, and there is no native allocator. The `implements`/`purpose`/`target` relations of OID 43/100 remain conceptual and are not implemented by this API. No `type=file` field, Python `File`/`object` class, directory, or on-disk v1 change is involved.
+
+References: `sys/src/cmd/micropython/p9space.c`, `tools/obytefile.py`, `tools/test-o-bytefile.sh`.
+
 ## 4. Legacy files are imported as bytes, not as namespaces
 
 The Plan 9/9front tree and Unix trees are **inputs to migration**, not templates for Plan2001-O's native information model.
