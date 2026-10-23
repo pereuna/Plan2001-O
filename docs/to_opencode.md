@@ -1,92 +1,109 @@
-# Plan2001-O — Experiment A: bottom-up boot without the legacy first user process
+# Plan2001-O — Boot Experiment B: first native userspace process without a pathname
 
-**Task for OpenCode. Repository:** `pereuna/Plan2001-O`, current `main`.  
-**Scope:** one small, reversible kernel boot experiment. This replaces only the **pending assignment text in this shared instruction file**, NOT the earlier committed work, measurements or documentation. The preceding top-down pathless-storage assignment already reported **Level A PASS (native GE/O storage)** and **Levels B/C NOT YET**, as recorded in `docs/O-BOOT-DEPENDENCIES.md`. The new **Experiment A (kernel-only bootstrap bypass)** is a different test despite the similar letter. Never overwrite, rename or invalidate the earlier Level A evidence. Do not continue the earlier Level B/C loader/console refactors as part of this new experiment.
+**Repository:** `pereuna/Plan2001-O`, current `main`. **Task:** implement and test the smallest bottom-up **user-mode** continuation of successful Boot Experiment A. Work on today's source, not on an older snapshot.
 
-## Question
+## Objective and terminology
 
-Can the existing amd64 9front-derived kernel initialize its normal hardware and scheduler, then run a minimal **kernel process** without starting the inherited Plan 9 user-process bootstrap and its pathname/namespace setup?
+Experiment A (`6c6e112`, evidence `docs/O-BOOT-EXPERIMENT-A.md`) proved that `oboot=probe` schedules a kernel task without the inherited `userinit -> proc0 -> init0 -> startboot` chain or executed pathname operations. The prior **Storage Level A** (`e384300`, `docs/O-BOOT-DEPENDENCIES.md`) independently proved direct native GE/O block access. Both must stay working.
 
-Approach this **bottom-up**, starting from `sys/src/9/pc64/main.c:main()`, not by removing filesystem APIs from the top. The experiment must distinguish code **present in the kernel binary**, code **initialized at boot**, and code **actually executed on the chosen boot path**.
+**Boot Experiment B asks only: Can this same kernel create its first genuine amd64 ring-3 userspace process from an already available binary image, without constructing a pathname namespace, accessing a filesystem or invoking legacy `exec(path)`?**
 
-The aim is **NOT** to remove `Chan`, `Dev`, `namec`, `devroot`, the filesystem source, or any existing O interface. It is to demonstrate that the traditional user-boot chain can be bypassed at a narrow branch point while the rest of the kernel remains usable.
+Do not conflate **Boot Experiment B** with the older top-down **Storage Level B** goal of loading MicroPython from GE/O. **Boot Experiment B does not require GE/O, OID_MP_EXEC, MicroPython, an interactive console, or persistent storage**. A small, build-time embedded **flat byte image** is an acceptable proof artifact; a source-tree filename is not a runtime pathname. The actual kernel-to-user transition, not the storage source of the bytes, is the subject of this test.
 
-## 0. Working-tree and concurrent-agent safety
+A genuinely running userspace instruction sequence and return through a user-originated syscall/trap are required. A kernel `kproc` that merely calls a C function or prints "USERMODE" does NOT pass.
 
-Before changing any source file, run `git status --short`, `git branch --show-current` and `git log -5 --oneline`. Confirm that the earlier native SD block path (implementation `e384300`) and its dependency report (`1229bca`) are already in the current history. If another OpenCode process/agent has uncommitted work on overlapping files or is still acting on the old assignment, **do not modify, discard, stage or commit that work**; report the collision and work only from a separate clean checkout/branch once safe. Do not use `git reset --hard`, `git checkout -- .`, `git clean -fd`, forced push, or blind `git add .` to resolve it. Avoid two agents writing concurrently to `docs/to_chatgpt_review.md` or `docs/STATUS.md`.
+## 0. Protect completed work and other agents
 
-Keep the existing native `sysovolopen -> ovolopenblk -> SD` path, `tools/test-o-pathless.sh`, and `docs/O-BOOT-DEPENDENCIES.md` as preserved baselines. This task is **not** a rollback of the top-down Level A changes. In `docs/STATUS.md` explicitly label its results `Boot Experiment A`, distinct from `Storage Level A`. Never change existing PASS evidence without a new test and source-level explanation.
+Before editing, inspect `git status --short`, `git log -6 --oneline` and current HEAD. Confirm `6c6e112` (Boot A), `e384300` (native O storage), and `235ad0d` (Boot A evidence) are ancestors. If an old agent still owns uncommitted overlapping files, do not overwrite or stage them; use a clean separate checkout/branch or report the collision. Never use a destructive reset, force-push, `git clean -fd`, or blind `git add .` to resolve overlapping work.
 
-## 1. Source check before edits
+Preserve:
+- default boot (existing `/boot/oinit` -> O-resident MicroPython) and its persistence gates;
+- `oboot=probe` (Boot A) and its heartbeats;
+- native `PARTUUID` GE/O and `tools/test-o-pathless.sh`;
+- the prior experiment reports. New results go into a **new** report.
 
-Read `AGENTS.md`, `docs/STATUS.md`, and at least:
+Read `AGENTS.md`, `docs/STATUS.md`, `docs/O-BOOT-EXPERIMENT-A.md`, `docs/O-BOOT-DEPENDENCIES.md`.
 
-- `sys/src/9/pc64/main.c`: `main`, `init0`, and the `userinit(); schedinit();` transition.
-- `sys/src/9/port/userinit.c`: `userinit`, `proc0`, `namec("#/")`, segment creation, `init0`.
-- `sys/src/9/port/initcode.c`: `startboot` with `bind/open/exec`.
-- `sys/src/9/port/proc.c`: `kproc`, `newproc`, `schedinit`, `sched` and sleep/delay facilities.
-- `sys/src/9/port/chan.c`: `chandevreset`, `chandevinit` and pre-existing `opath` counters.
-- `sys/src/9/port/devroot.c`: `rootreset`; `sys/src/9/port/devsd.c`: `sdreset`.
-- `sys/src/9/pc64/pc64`, existing QEMU scripts and boot configuration.
+## 1. Inspect the real process/loader boundary before writing code
 
-Verify the actual call chain and relevant runtime preconditions. In particular, **`kproc()` is not independent of all namespace-related data structures**: in current `proc.c`, it initializes/holds a `Pgrp` (`kpgrp = newpgrp()`). When `up == nil`, it gives its new kernel process `slash=nil` and `dot=nil`. Do not claim “no Pgrp” just because the process avoids path lookup. Also note `userinit()` initializes `eve` before calling `kproc`; any replacement must safely preserve required initialization without entering the legacy `proc0` path.
+Follow and record source-backed call chains for:
 
-## 2. Implement a small, opt-in probe path
+- `sys/src/9/pc64/main.c`: `oboot=probe` branch, `userinit`, `schedinit`, `init0`, `touser` and stack/argv setup.
+- `sys/src/9/port/userinit.c`: existing `proc0` creates `Pgrp`, `Egrp`, `Fgrp`, `Rgrp`, `slash/dot`, text and stack segments, and invokes `init0`. Which operations are **required** to execute user code, and which only implement the legacy namespace/descriptor model?
+- `sys/src/9/port/proc.c`: `kproc`/scheduler, `kp` transition, lifetime and `pexit`. Remember `kproc` already allocates a `Pgrp`; do not claim a structure-free process.
+- `sys/src/9/port/sysproc.c`: `execparse`, `segload`, `execcommit`, `execo`, `newseg`/segments and rollback. **Important:** `execo` ends in `execregs()`, which uses `up->dbgreg` to modify an existing syscall/trap `Ureg`. A newly scheduled kernel process may not have such a user register frame. DO NOT directly call `execo()` from a kernel bootstrap task on the assumption that it is equivalent to `touser()`. Reuse its proven validation/memory mechanisms only where safe.
+- `sys/src/9/pc64/trap.c` and `sys/src/9/pc64/l.s`: `touser`, `execregs`, `userureg`, `syscall`, privilege selectors/register handling and what actually establishes ring 3.
+- `sys/src/9/port/segment.c`, `sys/src/9/pc64/mmu.c`, `sys/src/9/port/portmkfile`, `sys/src/9/pc64/pc64`: executable mapping, build-time flat image generation and user memory safety.
+- Existing tiny userspace image/toolchain examples; prefer an already functioning toolchain/ABI over a new loader framework.
 
-Introduce one explicit experimental boot option, preferably `oboot=probe`, read using the existing early boot-configuration interface. The ordinary boot with no such option MUST remain unchanged.
+Produce a short dependency table: indispensable kernel processes, segments and user stack; old pathname/Chan/FD setup; any residual `Pgrp`/`Fgrp` fields. Be explicit about the moment user mode begins.
 
-Near the current handoff in `main()`, implement conceptually:
+## 2. Implement one new opt-in mode while retaining both old modes
+
+Add `oboot=user` (or similarly unambiguous value) alongside existing `oboot=probe` and normal default in the same `main()` boundary:
 
 ```c
-if(/* explicit oboot=probe */)
-    ouserinit();      /* experimental kernel-only first task */
+/* illustrative dispatch, not drop-in code */
+if(oboot_is_user_probe)
+    o_user_bootstrap();
+else if(oboot_probe)
+    ouserinit();             /* Experiment A */
 else
-    userinit();       /* untouched normal path */
+    userinit();              /* normal legacy-compatible O boot */
 schedinit();
 ```
 
-Names and exact placement are suggestions; use the repository's actual conventions.
+Keep all earlier device/hardware reset calls untouched. Do not route the new image through `devroot`, `/boot`, `namec`, `Chan`, 9P, `bind`, `mount`, `open`, path `exec` or a fake in-memory filesystem.
 
-`ouserinit()` should create one minimal `kproc` that:
+Create one very small userspace probe image, compiled by the repo's ordinary build tools and included as raw kernel bytes (or an equivalently direct static image). This probe should need **no stdin/stdout/stderr, C runtime file initialization, file descriptor 0/1/2, directory lookup, environment, console server or `/boot` program**. Its job is to exercise the user execution boundary. Keep any new build recipe narrow; do not pull MicroPython or GE/O into this step.
 
-1. Runs **after** the scheduler starts, with a clear serial/kernel-console marker, e.g. `OBOOT-A: KPROC-RUNNING`.
-2. Prints basic safe evidence (PID, `slash/dot` state, possibly a scheduler heartbeat using an existing scheduler-safe primitive).
-3. Remains schedulable or sleeping after the marker; do not return into an uninitialized/empty run queue or busy-spin forever at interrupt-disabled priority.
-4. Does not call `namec`, `open`, `bind`, `mount`, `exec`, `rootmount`, `init0`, `touser`, or construct a user-mode namespace.
-5. Uses only existing kernel scheduling, logging and memory primitives. No O volume, disk I/O, MicroPython, bootstrap binary, custom syscall, 9P, REPL or filesystem operation.
+The kernel startup code must:
+1. Allocate and initialize a safe first `Proc`, with correct user/process IDs, ownership and scheduler state.
+2. Establish user address space and valid text/data/BSS/stack/Tos from that byte image. Validate binary bounds/entry/alignment; avoid simply jumping to a kernel virtual address.
+3. Set up the correct amd64 privilege boundary, register state and stack according to the existing kernel ABI, and enter ring 3 via the established architecture mechanism. Avoid fabricating a `Ureg` solely to placate `execo` unless it is proved consistent with the trap/return ABI.
+4. Avoid `proc0`'s `namec("#/")`/`cclone` and the entire `init0`/initcode `bind/open/exec` chain. Prefer `slash=nil` and `dot=nil`. If an unrelated process bookkeeping structure must remain (e.g. `Pgrp`, `Fgrp`, `Egrp`, `Rgrp`), document the minimum and prove it does not allocate a `Chan`.
+5. Arrange for the user probe to make at least **two successful, non-file syscalls or an equivalently observable user-originated trap sequence** (e.g. getpid and timer sleep/yield, after verifying actual ABI/support). Keep it alive long enough to observe scheduling and user/kernel/user transitions; do not leave a CPU-burning infinite busy loop. Do not change generic error handling just to mask pid-1 exit/panic.
 
-Avoid modifications to generic `kproc`, `schedinit`, low-level driver code or the standard `userinit/proc0` implementation unless the exact measured blocker makes a tiny change unavoidable. No new abstraction framework.
+For the user-mode PASS marker, instrument the existing syscall/trap boundary **only when `oboot=user` and for the intended probe PID**, verifying that `userureg(ureg)` is true and recording its user PC/CS, syscall number and return value as applicable. Produce a host-visible serial log from kernel `print` (not from `/dev/cons` and not by introducing a debug syscall that hides the intended proof). A user program writing to memory without an observed user-mode syscall/trap is NOT sufficient evidence.
 
-**Critical distinction:** `main()` still executes `links()` and `chandevreset()` before this branch. The latter calls `devtab[i]->reset()` and currently includes both hardware probing (e.g. SD) and `devroot`'s directory-list initialization. Experiment A does **not** prove there was no filesystem-related initialization whatsoever. Leave the device reset sequence intact; inventory these effects rather than claiming that removing the first user process removed the whole filesystem.
+Keep code changes small and reversible. No new generic executable/object/device abstraction, no rewritten scheduler, no syscall redesign. If the safest solution differs from this sketch, document why and preserve the same verifiable behavior.
 
-## 3. Verification and instrumentation
+## 3. Instrumented QEMU acceptance gate
 
-- Record the `main` HEAD commit and relevant source line anchors. Find and use the repository's **actual** amd64 build and QEMU invocation; run only in a disposable VM. If a kernel configuration requires an ESP or image, use a throwaway image; **no physical disk writes**.
-- Build the experimental kernel and boot once with `oboot=probe`. Save complete serial output. Assert ordered markers for `main` entry, pre-scheduler handoff, probe `kproc` execution after scheduling, and a second heartbeat or similarly observable liveness event. A mere successful compilation or pre-scheduler print is **not PASS**.
-- Demonstrate that the selected branch did NOT call `userinit -> proc0 -> init0 -> startboot` or launch `/boot/oinit`. Use guarded markers/counters or another equally direct test; do not mistake absence of output for proof.
-- Measure `namec`, `newchan`, `devwalk`, `mount/bind` and path-based `exec` using existing `opath` instrumentation where suitable, with enough extra **gated** instrumentation to characterize the selected boot. Clearly separate **whole-boot counts before the handoff** from **counts during the experimental task**. Do not silently discard early calls. A positive-control normal boot should establish that the instrumentation detects a real legacy call. No filesystem-backed logging.
-- Demonstrate the **unchanged normal boot** without `oboot=probe` still reaches the existing O-resident MicroPython path; run the relevant existing regression gate(s), especially the normal O boot gate. Run the build/test commands actually present in the repo. Report PASS/FAIL/NOT RUN honestly, with logs and any timeout diagnostics.
-- If the probe cannot safely pass scheduling or encounters an early dependency, STOP, retain the normal working path, and document the exact blocking function and a minimal next experiment. Do not expand scope into filesystem removal.
+Prefer a repeatable `tools/test-oboot-user.sh` rather than only a one-off manual QEMU command. Use an **isolated disposable ESP/QEMU image**, `oboot=user`, no `root=` and no `init=`; never test on a physical disk. Adapt the actual working Boot A QEMU recipe (`docs/O-BOOT-EXPERIMENT-A.md`), including bounded timeout and full serial capture.
 
-## 4. Acceptance criteria
+A **Boot Experiment B PASS** requires *all* of:
 
-**Experiment A PASS** only if:
+- Normal machine initialization and scheduler entry with `oboot=user`.
+- Kernel creates the first process from a byte image without runtime filesystem access, verifies image format/entry/stack/segment bounds, and successfully transfers to **ring 3**, not just a kernel trampoline.
+- At least two user-originated syscall/trap observations from that process with valid user selectors/state; where syscalls return, prove user code continued after the return (not merely that syscall entry happened).
+- `userinit=0`, `proc0=0`, `init0=0` plus `namec=newchan=walk=devwalk=mount=path_exec=0` over the full measured **selected boot**. Keep baseline whole-boot versus phase counts distinct; do not reset counters to manufacture zero.
+- No `up->slash` or `up->dot`, and no hidden reliance on `fd`/path/console setup. List residual initialized-but-not-used directory metadata and the `kproc` `Pgrp` accurately.
+- No panics, user faults, invalid memory permission jumps or unexpected process exits **before** the success marker. A host timeout *after* proven liveness is acceptable if explicitly explained.
+- Three controls still PASS or are clearly marked NOT RUN/FAIL with reasons: `oboot=probe` Boot A, normal `tools/test-o-boot.sh` (MicroPython/three persistent boots), and `tools/test-o-pathless.sh` (native O storage).
+- Build works with the repository's known `WHAT=all tools/build.sh` route. Earlier `WHAT=kernel` by itself is not a valid assumed build in this tree; it lacked `ohandle/oexec` bootdir prerequisites.
 
-1. Normal kernel initialization completes in QEMU using the opt-in path.
-2. `schedinit()` schedules the experimental kernel process, and liveness is verified after scheduler entry.
-3. Legacy `userinit/proc0/init0/startboot` is not executed on the probe path.
-4. Probe itself does not instantiate `slash/dot` or perform a path lookup / mount / user path-exec operation.
-5. Default normal O boot remains functional, and output includes real tests and logs.
-6. All residual `Pgrp`, `Dev`, `Chan`, reset-time directory metadata and background activity are stated accurately. In particular, **do not assert “zero filesystem code running anywhere in kernel” without instrumented evidence**.
+Use stable `OBOOT-B:` markers. Assert order and fail the gate if an unexpected panic occurs. Do not equate log markers printed before `touser` with successful entry into user mode.
 
-This is explicitly **not** a PASS for GE/O native block access, OID persistence, pathless O executables, pathless MicroPython, or full kernel removal of `Chan`/`namec`.
+If practical, include one malformed/truncated user image failure check that stops before executing an invalid address, without altering default boot. Do not inflate scope to satisfy this optional check.
+
+## 4. Stop conditions and evidence discipline
+
+If safe ring-3 entry requires redesigning generic `Proc`, global syscall ABI, full file descriptor semantics or replacing `execo` wholesale, **STOP at the last verified working step** and report exact function, reason and minimal alternative. Do not weaken the acceptance test. A compile-only attempt or kernel-only simulation is **B NOT YET**, not PASS.
+
+Do not yet:
+- execute O-resident MicroPython, change `OID_MP_EXEC`, implement a Python console or native imports;
+- remove `Dev/Chan/namec` from the source or build, change GE/O on-disk format or storage path;
+- implement graph/tag semantics, new IPC/network protocols, or migrate to another base kernel.
+
+The goal is one precisely bounded proof: **first user-process entry from bytes, without inherited path semantics**. The later possibility of supplying those bytes from the already pathless GE/O provider is a **next experiment**, not part of B.
 
 ## 5. Deliverables
 
-- A minimal, reviewable source diff with the opt-in boot option and experimental kernel process.
-- `docs/O-BOOT-EXPERIMENT-A.md`: accurate actual boot call graph, test design, collected serial markers/counters, detailed observations and the key distinction between linked, initialized and executed code.
-- `docs/STATUS.md`: dated status and PASS/FAIL/NOT RUN with exact commit and commands.
-- `docs/to_chatgpt_review.md`: concise findings for architectural review, without overclaiming the scope. Respect any existing OpenCode automation that writes the final summary to this file.
-- Commit and push the intended work through the project's normal completion automation, avoiding duplicate/racing commits.
+1. Small source/build/test patch with the new opt-in mode, preserving `oboot=probe` and default boot.
+2. `docs/O-BOOT-EXPERIMENT-B.md`: current HEAD, minimal executed call graph, exact code:line dependencies, binary source/build mechanics, privilege-boundary evidence, counters, actual QEMU transcript, limitations, and distinct labels **Boot Experiment B** vs previous **Storage Level B**.
+3. `docs/STATUS.md`: dated PASS / FAIL / NOT RUN and exact commands, results and log paths; do not rewrite previous history.
+4. `docs/to_chatgpt_review.md`: compact factual technical summary. Respect the OpenCode final-summary/commit automation and do not race its writes.
+5. Commit and push only intended edits via existing completion automation; no duplicate concurrent git actions.
 
-**Final question for the review:** Given what Experiment A executes, what is the smallest *next* boot-boundary change that would permit a userspace process without pathname initialization? **Answer only; do not implement Experiment B yet.**
+**Conclude with:** `Boot B PASS` or `Boot B NOT YET`; the exact earliest remaining dependence on legacy pathname/FD/namespace machinery; and the **smallest proposed next step** to load a real OID-resident executable through the already-native SD/GE/O path **without implementing that next step**.
