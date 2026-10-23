@@ -1,5 +1,7 @@
 # Plan2001-O — instructions for coding agents
 
+Read the [Finnish philosophical manifesto](docs/OLIO-OBJEKTI-MANIFESTI.md) and the [English general software specification](docs/GENERAL-SOFTWARE-SPECIFICATION.md) for the new proposed ontology. They distinguish uninterpreted *olios*, relational *objects*, and manifestations; byte sequences are only a chosen digital carrier. Their proposal does not alter the implemented O storage or authorize a migration by itself. Earlier byte-file-centered architectural language below describes the existing PoC/previous proposal, not a universal definition of existence.
+
 Read [README.md](README.md) for overview, [docs/OBJECT-MODEL.md](docs/OBJECT-MODEL.md) for the object/file model and Python hierarchy prohibition, [docs/STATUS.md](docs/STATUS.md) for current verification and tests, [docs/POC.md](docs/POC.md) for demonstrated experiments, and [docs/O-FORMAT.md](docs/O-FORMAT.md) for the implemented on-disk contract. Inherited Plan 9/9front documentation is reference material, not a specification for Plan2001-O.
 
 ## Evidence and reporting
