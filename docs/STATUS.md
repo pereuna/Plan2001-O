@@ -10,6 +10,10 @@ OID); earlier baselines were
 `016ccffebfe8c9baa93f09c7e6599315e65e4751`,
 `b41a102384efa81b17cdc5f923415b123341f8ca` and
 `4678fada0d66f83b310291320e57aba12068934d`.
+**Boot Experiment A** was separately implemented and verified at
+`6c6e112efb201bd5d927e3276877714d56c1a92f` (23 October 2026); it is a
+boot-boundary result and does not replace the storage Level A baseline.
+
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -28,11 +32,71 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
 | **Runtime verified in Plan2001-O** | **PASS:** on 23 October 2026 the full amd64 build, selfroot, the new native byte-object gate (`tools/test-o-bytefile.sh`) and all nine existing O-only gates passed with KVM at implementation commit `bf2117e`; earlier runs used `016ccff`, `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
 | **Pathless storage, Level A** | **PASS (23 October 2026):** a `PARTUUID=` O volume is discovered in GPT from enumerated SD units and used for GE block I/O, sync and driver flush with no new kernel `Chan`/`namec`/walk/mount/path-exec event in the measured window. Bootstrap and console remain legacy, so Levels B/C are **NOT YET**. See [O-BOOT-DEPENDENCIES.md](O-BOOT-DEPENDENCIES.md). |
+| **Boot Experiment A (kernel-only probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=probe`, the normal `9pc64` kernel initialized hardware and the scheduler, ran a minimal `kproc` (`pid=1`, `slash=nil`, `dot=nil`), produced two post-scheduler heartbeats, and did not execute `userinit`/`proc0`/`init0`/`startboot` or any `namec`/walk/mount/path-exec. The normal O boot remained PASS. This is not a storage or pathless-executable claim; see [O-BOOT-EXPERIMENT-A.md](O-BOOT-EXPERIMENT-A.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment A — 23 October 2026
+
+**Source state:** implementation commit
+`6c6e112efb201bd5d927e3276877714d56c1a92f` (`kernel: add opt-in
+kernel-only boot probe`), plus this documentation follow-up. The full
+build and runtime logs were produced from that source content with
+disposable QEMU images. This is distinct from **Storage Level A** above
+and does not change its evidence.
+
+**Implemented:** an opt-in `plan9.ini oboot=probe` branch at the
+existing `main()` handoff (`sys/src/9/pc64/main.c:225`, `:268`). It calls
+`ouserinit()` instead of `userinit()`. `ouserinit()`
+(`sys/src/9/port/userinit.c:140`) sets `up = nil`, keeps `eve`, and
+creates one `kproc` that prints its PID and namespace state, sleeps on
+the existing timer primitive, prints two heartbeats, and then sleeps
+indefinitely. Guards count entry to `userinit`, `proc0` and `init0`.
+There is no new driver, filesystem, O-storage, console, syscall or
+user-image work. `chandevreset` and all device reset hooks remain in the
+boot before the branch.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-a.log
+NOROOTFS=1 CONSOLE=0 ROOTIMG=build/amd64/ohand-root.gefs KERNEL=9pc64 \
+  INI='oboot=probe' tools/gefsdisk build/amd64/obootprobe.img
+# one QEMU boot of obootprobe.img with OVMF, serial to a file,
+# intentionally stopped after 30 s once both heartbeats appeared
+tools/test-o-boot.sh 2>&1 | tee build/verification/test-o-boot-experiment-a.log
+tools/test-o-pathless.sh 2>&1 | tee build/verification/test-o-pathless-experiment-a.log
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; normal `9pc64` md5 `0fcf61f2bd1e8c6dd700fce08e2be30b`, test-only `9pc64mp` md5 `845997f60d9fde2d987923b4ec5a017e`. `build/verification/build-experiment-a.log` |
+| Probe boot | **PASS** | No root filesystem and no `init=`: `OBOOT-A: MAIN entry oboot=probe`, `OBOOT-A: HANDOFF probe ouserinit`, `KPROC-RUNNING pid=1 slash=nil dot=nil`, `legacy-calls userinit=0 proc0=0 init0=0`, `path-calls namec=0 newchan=0 walk=0 devwalk=0 mount=0 exec=0`, `HEARTBEAT 1 ticks=103`, `HEARTBEAT 2 ticks=204`. `build/verification/test-oboot-probe-experiment-a.log`, `build/amd64/obootprobevm/serial.log` |
+| Probe task lifetime | **PASS** | The task remained alive and used `tsleep` after scheduler entry; QEMU was stopped by the host after 30 s (`timeout` exit 124), not by a kernel panic. `build/amd64/obootprobevm/qemu.log` |
+| Legacy chain skipped | **PASS** | Direct counters and the existing `opath` counters show `userinit=0 proc0=0 init0=0` and `exec=0`; the boot has no `/boot/oinit` execution. `build/verification/test-oboot-probe-experiment-a.log` |
+| Normal O boot unchanged | **PASS** | `PASS: three O-only boots, persistent Counter and run() from O (no FS)`; `run()` 1 -> 2 -> 3, no `OBOOT-A` marker. `build/verification/test-o-boot-experiment-a.log` |
+| Positive control | **PASS** | Normal `tools/test-o-pathless.sh` boot showed real namespace activity: `namec=38 newchan=110 walk=57 devwalk=82 mount=7 exec=1`. `build/verification/test-o-pathless-experiment-a.log` |
+
+**Residual effects:** `kproc` still creates and shares a `Pgrp`; the
+probe task has `slash=nil` and `dot=nil`. `chandevreset` ran before the
+branch, including `devroot`'s `rootreset` (static directory entries) and
+`devsd`'s `sdreset` (visible as `#S/sdE: ich: sata-I with 6 ports`).
+`chandevinit`, the `alarm` kproc and the `closeproc` kproc were not
+called on the probe path. No claim of zero filesystem-related reset code
+is made.
+
+**Remaining limits:** this is a first-process bypass, not a device,
+storage, console or user-image experiment. The embedded `/boot` entries
+and all `Chan`/`namec`/`devroot` code remain linked. The normal boot
+still uses the legacy `userinit`/`proc0`/`init0`/`initcode` chain. The
+suggested next boundary (not implemented) is to build a user process
+from already-available bytes and enter user mode directly, skipping the
+namespace seeding and path exec.
 
 ## Normal O-loaded MicroPython boot — 22 October 2026
 
