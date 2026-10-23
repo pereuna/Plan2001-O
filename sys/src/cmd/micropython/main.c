@@ -158,6 +158,8 @@ int main(int argc, char **argv) {
         p9_dprintf("usage: micropython [-O volume] [-E env | -S space] [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
+    // D2a: only an -O run may look for the process-local native stream.
+    p9_console_native(ovol != NULL);
     // inf and nan as results, as in C: Plan 9 traps them by default
     setfcr(getfcr() & ~(FPINVAL | FPZDIV | FPOVFL));
     // Plan2001's user stack is 16 MiB (USTKSIZE): half of it for C's

@@ -11,8 +11,14 @@ enum {
 	Iohdiag	= 2,
 };
 
-static int nativeout = -1;
+static int nativeout = 0;
 static int consctl = -1;
+
+void
+p9_console_native(int on)
+{
+	nativeout = on ? -1 : 0;
+}
 
 int
 p9_native_output(void)
