@@ -13,6 +13,10 @@
 extern int irqhandled(Ureg*, int);
 extern void irqinit(void);
 
+extern uvlong oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0;
+extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
+extern uvlong opath_mount, opath_exec;
+
 static void debugexc(Ureg*, void*);
 static void debugbpt(Ureg*, void*);
 static void faultamd64(Ureg*, void*);
@@ -419,13 +423,31 @@ void
 syscall(Ureg* ureg)
 {
 	ulong scallnr;
+	int trace;
 
 	if(!kenter(ureg))
 		panic("syscall: cs 0x%4.4lluX", ureg->cs);
 	fpukenter(ureg);
 	scallnr = ureg->bp;	/* RARG */
+	trace = oboot_user && up->pid == oboot_userpid &&
+		userureg(ureg) && oboot_usernsys < 8;
+	if(trace)
+		print("OBOOT-B: SYSCALL-ENTRY pid=%lud nr=%lud pc=%#llux sp=%#llux cs=%#llux ss=%#llux user=%d\n",
+			up->pid, scallnr, ureg->pc, ureg->sp, ureg->cs, ureg->ss,
+			userureg(ureg));
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->ax))
 		((void**)&ureg)[-1] = (void*)noteret;	/* loads RARG */
+	if(trace){
+		print("OBOOT-B: SYSCALL-RETURN pid=%lud nr=%lud ret=%#llux pc=%#llux cs=%#llux ss=%#llux user=%d\n",
+			up->pid, scallnr, ureg->ax, ureg->pc, ureg->cs, ureg->ss,
+			userureg(ureg));
+		oboot_usernsys++;
+		if(oboot_usernsys == 4)
+			print("OBOOT-B: AFTER-SYSCALLS legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+				oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
+				opath_namec, opath_newchan, opath_walk, opath_devwalk,
+				opath_mount, opath_exec);
+	}
 	if(scallnr == EXEC && (vlong)ureg->ax != -1)
 		bootmark(BMExec);	/* the first successful exec is /boot/boot */
 	if((up->procctl || up->nnote) && donotify(ureg))

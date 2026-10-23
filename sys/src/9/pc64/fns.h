@@ -153,6 +153,10 @@ void*	sigsearch(char*, int);
 void	syncclock(void);
 void	syscallentry(void);
 void	touser(void*);
+
+/* pc64/ouser.c: Boot Experiment B */
+extern int	oboot_user, oboot_userpid, oboot_usernsys;
+void	o_user_bootstrap(void);
 void	trapenable(int, void (*)(Ureg*, void*), void*, char*);
 void	trapinit(void);
 void	trapinit0(void);

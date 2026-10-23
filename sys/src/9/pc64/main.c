@@ -14,6 +14,7 @@ Conf conf;
 int idle_spin;
 
 extern int oboot_probe;
+extern int oboot_user;
 extern uvlong oboot_legacy_init0;
 
 extern void (*i8237alloc)(void);
@@ -224,6 +225,7 @@ main(void)
 	bootargsinit();
 	p = getconf("oboot");
 	oboot_probe = p != nil && strcmp(p, "probe") == 0;
+	oboot_user = p != nil && strcmp(p, "user") == 0;
 	trapinit0();
 	ioinit();
 	i8250console();
@@ -231,6 +233,8 @@ main(void)
 	print("\nPlan 9\n");
 	if(oboot_probe)
 		print("OBOOT-A: MAIN entry oboot=probe\n");
+	if(oboot_user)
+		print("OBOOT-B: MAIN entry oboot=user\n");
 	cpuidentify();
 	meminit0();
 	archinit();
@@ -265,7 +269,10 @@ main(void)
 	bootmark(BMDevs);
 	preallocpages();
 	pageinit();
-	if(oboot_probe){
+	if(oboot_user){
+		print("OBOOT-B: HANDOFF user o_user_bootstrap\n");
+		o_user_bootstrap();
+	}else if(oboot_probe){
 		print("OBOOT-A: HANDOFF probe ouserinit\n");
 		ouserinit();
 	}else

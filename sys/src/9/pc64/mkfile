@@ -46,6 +46,7 @@ PORT=\
 
 OBJ=\
 	l.$O\
+	ouser.$O\
 	fpu.$O\
 	i8253.$O\
 	i8259.$O\
@@ -145,6 +146,11 @@ virtio10pc.$O:	../port/virtio10.h
 
 initcode.out:		init9.$O initcode.$O /$objtype/lib/libc.a
 	$LD -l -R1 -s -o $target $prereq
+
+obootuser.out:		obootuser.$O /$objtype/lib/libc.a
+	$LD -l -R1 -s -o $target $prereq
+
+ouser.$O:		obootuser.i
 
 $O.rebootcode:		rebootcode.$O
 	$LD -l -R1 -s -o $target -T$REBOOTADDR $prereq
