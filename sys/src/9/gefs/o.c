@@ -77,13 +77,18 @@ orecput(Gefs *fs, char *name, void *val, int nval)
  * and version, and the init Space's catalog entry.  An FS volume is
  * rejected here, before any write.
  */
-void*
-oopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
+static void*
+oopen0(char *dev, Kchan *c, void *oblk, vlong off, vlong size, int rw,
+	long (*oblkrw)(void*, void*, long, uvlong, int),
+	int (*oblkflush)(void*))
 {
 	Gefs *fs;
 	uvlong v;
 
-	fs = geopen(dev, c, off, size, rw);
+	if(oblk != nil)
+		fs = geopenblk(dev, oblk, off, size, rw, oblkrw, oblkflush);
+	else
+		fs = geopen(dev, c, off, size, rw);
 	if(!(fs->flag & Ovolflag))
 		error("O: not an O volume (legacy FS profile)");
 	v = fs->flag & Ovolvermask;
@@ -92,6 +97,20 @@ oopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
 	if(ospaceid(fs, "init") != OspaceInit)
 		error("O: init Space id mismatch");
 	return fs;
+}
+
+void*
+oopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
+{
+	return oopen0(dev, c, nil, off, size, rw, nil, nil);
+}
+
+void*
+oopenblk(char *dev, void *oblk, vlong off, vlong size, int rw,
+	long (*oblkrw)(void*, void*, long, uvlong, int),
+	int (*oblkflush)(void*))
+{
+	return oopen0(dev, nil, oblk, off, size, rw, oblkrw, oblkflush);
 }
 
 /* Stage 2's QEMU gate: a persistent plain O record, no FS involved. */

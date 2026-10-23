@@ -673,6 +673,7 @@ execo(uvlong oid, void *vbuf, long n, char **uargv, int argc)
 uintptr
 sysexec(va_list list)
 {
+	extern uvlong opath_exec;
 	union {
 		struct {
 			Exec;
@@ -691,6 +692,7 @@ sysexec(va_list list)
 	Tos *tos;
 	Chan *tc;
 
+	opath_exec++;
 	file = va_arg(list, char*);
 	validaddr((uintptr)file, 1, 0);
 	argp = va_arg(list, char**);

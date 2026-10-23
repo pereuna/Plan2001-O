@@ -574,8 +574,13 @@ viorio(SDreq *r)
 	if(vd->typ == TypSCSI)
 		return vioscsireq(r);
 	if(r->cmd[0] == 0x35 || r->cmd[0] == 0x91){
+		static int traced;
 		if(vioblkreq(vd, 4, nil, 0, 0, 0) != 0)
 			return sdsetsense(r, SDcheck, 3, 0xc, 2);
+		if(!traced && getconf("sdflushlog") != nil){
+			traced = 1;
+			print("sdvirtio: flush PASS\n");
+		}
 		return sdsetsense(r, SDok, 0, 0, 0);
 	}
 	if((i = sdfakescsi(r)) != SDnostatus)

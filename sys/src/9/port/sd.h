@@ -207,6 +207,16 @@ extern void addmmcio(SDio *io);
 extern SDio* annexsdio(char*);
 
 /* devsd.c */
+typedef struct Sditer Sditer;
+struct Sditer {
+	int	idno;
+	int	subno;
+};
+extern SDunit* sdunititer(Sditer*);
+extern void sdunitput(SDunit*);
+extern int sdunitready(SDunit*);
+extern long sdblockrw(SDunit*, int, void*, long, uvlong);
+extern int sdblockflush(SDunit*);
 extern void sdadddevs(SDev*);
 extern int sdsetsense(SDreq*, int, int, int, int);
 extern int sdfakescsi(SDreq*);

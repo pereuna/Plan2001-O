@@ -474,7 +474,7 @@ newgfd(Gefs *fs, Kchan *c, char *name, vlong off, vlong size)
 static Gfd*
 getgfd(Gefs *fs, int fd)
 {
-	if(fd < 3 || fd >= Nfd || fs->k.fd[fd].c == nil){
+	if(fd < 3 || fd >= Nfd || (fs->k.fd[fd].c == nil && fs->oblk == nil)){
 		werrstr("bad fd %d", fd);
 		return nil;
 	}
@@ -507,7 +507,7 @@ gclose(Gefs *fs, int fd)
 	f->c = nil;
 	f->name = nil;
 	qunlock(&fs->k);
-	if(!waserror()){
+	if(c != nil && !waserror()){
 		cclose(c);
 		poperror();
 	}
@@ -539,7 +539,9 @@ rw(Gefs *fs, int fd, void *buf, long n, vlong off, int write)
 	}
 	if(waserror())
 		return -1;
-	if(write)
+	if(fs->oblk != nil)
+		n = fs->oblkrw(fs->oblk, buf, n, off, write);
+	else if(write)
 		n = devtab[c->type]->write(c, buf, n, off);
 	else
 		n = devtab[c->type]->read(c, buf, n, off);
@@ -613,6 +615,19 @@ gflushdev(Gefs *fs)
 	Kchan *c;
 	long n;
 
+	if(fs->oblk != nil){
+		if(waserror()){
+			if(!fs->k.flushwarned)
+				print("gefs: %s: cache flush: %s\n", "native block", up->errstr);
+			fs->k.flushwarned = 1;
+			return;
+		}
+		if(fs->oblkflush(fs->oblk) < 0)
+			error(Eio);
+		poperror();
+		fs->k.nflush++;
+		return;
+	}
 	if(fs->k.raw == nil)
 		return;
 	if(waserror()){
@@ -909,8 +924,10 @@ cachemb(void)
  * arenas, logs and recovery.  It loads no FS mount or user metadata and
  * starts no 9P server; gefsserve adds those for the legacy root.
  */
-void*
-geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
+static void*
+geopen0(char *dev, Kchan *c, void *oblk, vlong off, vlong size, int rw,
+	long (*oblkrw)(void*, void*, long, uvlong, int),
+	int (*oblkflush)(void*))
 {
 	static int nvol;	/* instances made, for their names */
 	Gefs *fs;
@@ -959,10 +976,33 @@ geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
 
 	d = nil;
 	kstrdup(&d, dev);
-	fs->k.raw = rawfile(d);
-	newgfd(fs, c, d, off, size);
+	if(oblk != nil){
+		fs->oblk = oblk;
+		fs->oblksize = size;
+		fs->oblkrw = oblkrw;
+		fs->oblkflush = oblkflush;
+		fs->k.raw = nil;
+		fs->fd = newgfd(fs, nil, d, 0, size);
+	}else{
+		fs->k.raw = rawfile(d);
+		newgfd(fs, c, d, off, size);
+	}
 	loadge(fs, d);
 	return fs;
+}
+
+void*
+geopen(char *dev, Kchan *c, vlong off, vlong size, int rw)
+{
+	return geopen0(dev, c, nil, off, size, rw, nil, nil);
+}
+
+void*
+geopenblk(char *dev, void *oblk, vlong off, vlong size, int rw,
+	long (*oblkrw)(void*, void*, long, uvlong, int),
+	int (*oblkflush)(void*))
+{
+	return geopen0(dev, nil, oblk, off, size, rw, oblkrw, oblkflush);
 }
 
 /*

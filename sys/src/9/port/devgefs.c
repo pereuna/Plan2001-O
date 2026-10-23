@@ -22,6 +22,7 @@
 #include "dat.h"
 #include "fns.h"
 #include "../port/error.h"
+#include "../port/sd.h"
 
 /*
  * Plan2001: a GE instance (../gefs, GE engine per-volume instance model (sys/src/9/gefs/kern.c)) is opaque here:
@@ -35,10 +36,20 @@ void*	geopen(char*, Chan*, vlong, vlong, int);
 void	gestart(void*);
 void	geprobe(void*);
 void*	oopen(char*, Chan*, vlong, vlong, int);
+void*	oopenblk(char*, void*, vlong, vlong, int,
+		long (*)(void*, void*, long, uvlong, int), int (*)(void*));
 void	oprobe(void*);
 void	oobjprobe(void*);
 typedef struct Gefs Gefs;
 typedef struct Ospace Ospace;
+typedef struct Oblock Oblock;
+struct Oblock {
+	SDunit	*unit;
+	vlong	start;		/* partition byte offset in the unit */
+	vlong	size;		/* partition bytes, for bounds */
+};
+extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
+extern uvlong opath_mount, opath_exec;
 void*	onativeopen(void*, char*);
 long	onativeget(void*, uvlong, void*, long, uvlong*);
 void	onativeput(void*, uvlong, void*, long);
@@ -164,6 +175,122 @@ gptpart(Chan *c, char *guid, vlong *off, vlong *size)
 	}
 	free(ents);
 	return found;
+}
+
+/*
+ * Plan2001: the same GPT parse over a native SD unit, with no Chan and
+ * no #S path.  The unit is read at absolute byte offsets; off and size
+ * are the matching partition's bounds or nil if it is absent/malformed.
+ */
+static long
+oblockrw(void *v, void *buf, long n, uvlong off, int write)
+{
+	Oblock *b;
+	uvlong end;
+
+	b = v;
+	end = b->size;
+	if(off > end || n < 0 || (uvlong)n > end - off){
+		if(write)
+			error(Eio);
+		return 0;
+	}
+	if(n == 0)
+		return 0;
+	return sdblockrw(b->unit, write, buf, n, b->start + off);
+}
+
+static int
+oblockflush(void *v)
+{
+	Oblock *b;
+
+	b = v;
+	return sdblockflush(b->unit);
+}
+
+static int
+oblockgptpart(Oblock *b, char *guid, vlong *off, vlong *size)
+{
+	uchar h[92], *e, *ents;
+	char s[37];
+	vlong lb, elba;
+	ulong ne, esz;
+	int i, bs, found;
+	uvlong first, last;
+
+	bs = 0;
+	for(lb = 512; lb <= 4096; lb *= 8){
+		if(oblockrw(b, h, sizeof h, lb, 0) == sizeof h && memcmp(h, "EFI PART", 8) == 0){
+			bs = lb;
+			break;
+		}
+	}
+	if(bs == 0)
+		return 0;
+	elba = le(h+72, 8);
+	ne = le(h+80, 4);
+	esz = le(h+84, 4);
+	if(esz < 128 || esz > 1024 || ne == 0 || ne > 1024)
+		return 0;
+	ents = smalloc(ne*esz);
+	if(waserror()){
+		free(ents);
+		return 0;
+	}
+	if(oblockrw(b, ents, ne*esz, elba*bs, 0) != ne*esz)
+		error(Eio);
+	poperror();
+	found = 0;
+	for(i = 0; i < ne && !found; i++){
+		e = ents + i*esz;
+		if(le(e, 8) == 0 && le(e+8, 8) == 0)
+			continue;
+		guidstr(s, e+16);
+		if(cistrcmp(s, guid) == 0){
+			first = le(e+32, 8);
+			last = le(e+40, 8);
+			if(last < first || last >= b->unit->sectors)
+				continue;
+			*off = first*bs;
+			*size = (last - first + 1)*bs;
+			found = 1;
+		}
+	}
+	free(ents);
+	return found;
+}
+
+static Oblock*
+oblockopenpart(char *guid, char *dev, int ndev, vlong *off, vlong *size)
+{
+	Sditer it;
+	SDunit *unit;
+	Oblock *b;
+
+	memset(&it, 0, sizeof it);
+	while((unit = sdunititer(&it)) != nil){
+		if(!sdunitready(unit)){
+			sdunitput(unit);
+			continue;
+		}
+		if((b = mallocz(sizeof *b, 1)) == nil){
+			sdunitput(unit);
+			error(Enomem);
+		}
+		b->unit = unit;
+		b->start = 0;
+		b->size = (uvlong)unit->sectors * unit->secsize;
+		if(oblockgptpart(b, guid, off, size)){
+			b->start = *off;
+			b->size = *size;
+			snprint(dev, ndev, "#S/%s/data", unit->name);
+			return b;
+		}
+		free(b);
+		sdunitput(unit);
+	}
+	return nil;
 }
 
 /* The disk of #S (#S/sdXX/data, in dev) with the partition guid */
@@ -434,6 +561,80 @@ struct Ohtab
 
 static Gefs *ovol;
 
+/*
+ * Plan2001: meter the legacy namespace/Chan entry points on the executed
+ * boot path.  Instrumentation is only printed when plan9.ini has opath=.
+ */
+static void
+opathdump(char *tag)
+{
+	print("opath: %s namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+		tag, opath_namec, opath_newchan, opath_walk, opath_devwalk,
+		opath_mount, opath_exec);
+}
+
+/*
+ * Plan2001: gated block-range diagnostics for the pathless gate.  A
+ * write past the partition must fail in oblockrw before any driver call;
+ * an oversized read is clamped to SDmaxio.
+ */
+static void
+oblockprobe(Oblock *b, vlong size)
+{
+	uchar *buf;
+	long r;
+
+	if(size < 3*MiB)
+		return;
+	buf = smalloc(3*MiB);
+	if(waserror()){
+		free(buf);
+		nexterror();
+	}
+	r = oblockrw(b, buf, 4096, size-4096, 0);
+	if(r != 4096){
+		print("oblocktest: FAIL in-range read returned %ld\n", r);
+		error("oblocktest: in-range read");
+	}
+	print("oblocktest: PASS in-range-read\n");
+	r = oblockrw(b, buf, 512, size, 0);
+	if(r != 0){
+		print("oblocktest: FAIL read at end returned %ld\n", r);
+		error("oblocktest: read at end");
+	}
+	print("oblocktest: PASS read-at-end\n");
+	r = oblockrw(b, buf, 3*MiB, 0, 0);
+	if(r != SDmaxio){
+		print("oblocktest: FAIL oversized read returned %ld\n", r);
+		error("oblocktest: oversized read");
+	}
+	print("oblocktest: PASS oversized-read-clamped\n");
+	if(waserror()){
+		print("oblocktest: PASS write-past-end\n");
+	}else{
+		r = oblockrw(b, buf, 512, size, 1);
+		print("oblocktest: FAIL write-past-end returned %ld\n", r);
+		poperror();
+	}
+	free(buf);
+	poperror();
+}
+
+static void*
+ovolopenblk(char *spec, char *dev, int ndev, vlong *off, vlong *size, int rw)
+{
+	Oblock *b;
+
+	if(cistrncmp(spec, "PARTUUID=", 9) != 0)
+		return nil;
+	b = oblockopenpart(spec+9, dev, ndev, off, size);
+	if(b == nil)
+		error("no disk has that partition");
+	if(getconf("oblocktest") != nil)
+		oblockprobe(b, *size);
+	return oopenblk(dev, b, *off, *size, rw, oblockrw, oblockflush);
+}
+
 uintptr
 sysovolopen(va_list list)
 {
@@ -441,7 +642,7 @@ sysovolopen(va_list list)
 	vlong off, size;
 	Chan *c;
 	void *v;
-	int n;
+	int n, trace;
 
 	p = va_arg(list, char*);
 	n = va_arg(list, int);
@@ -460,18 +661,39 @@ sysovolopen(va_list list)
 		poperror();
 		return 1;
 	}
-	c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
-	if(waserror()){
-		cclose(c);
-		nexterror();
+	trace = getconf("opath") != nil;
+	if(trace)
+		opathdump("volopen-enter");
+	if(cistrncmp(spec, "PARTUUID=", 9) == 0){
+		if(trace){
+			if(waserror()){
+				opathdump("volopen-error");
+				nexterror();
+			}
+			v = ovolopenblk(spec, dev, sizeof dev, &off, &size, 1);
+			poperror();
+		}else
+			v = ovolopenblk(spec, dev, sizeof dev, &off, &size, 1);
+		print("o: O volume %s@%lld, %lld MiB, opened without FS (native SD block)\n",
+			dev, off, size/MiB);
+	}else{
+		c = gevolume(spec, 1, dev, sizeof dev, &off, &size);
+		if(waserror()){
+			cclose(c);
+			nexterror();
+		}
+		v = oopen(dev, c, off, size, 1);
+		poperror();	/* c is the O volume's now */
+		print("o: O volume %s@%lld, %lld MiB, opened without FS\n",
+			dev, off, size/MiB);
 	}
-	v = oopen(dev, c, off, size, 1);
-	poperror();	/* c is the O volume's now */
-	print("o: O volume %s@%lld, %lld MiB, opened without FS\n",
-		dev, off, size/MiB);
+	if(trace)
+		opathdump("volopen-opened");
 	gestart(v);
 	addvol(v);
 	ovol = v;
+	if(trace)
+		opathdump("volopen-started");
 	free(spec);
 	poperror();
 	return 1;

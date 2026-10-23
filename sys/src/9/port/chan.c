@@ -5,6 +5,10 @@
 #include	"fns.h"
 #include	"../port/error.h"
 
+/* Plan2001: counters for the pathless-boot proof (port/devgefs.c). */
+uvlong	opath_namec, opath_newchan, opath_walk, opath_devwalk;
+uvlong	opath_mount, opath_exec;
+
 enum
 {
 	PATHSLOP	= 20,
@@ -182,6 +186,8 @@ Chan*
 newchan(void)
 {
 	Chan *c;
+
+	opath_newchan++;
 
 	lock(&chanalloc);
 	c = chanalloc.free;
@@ -654,6 +660,8 @@ int
 cmount(Chan *new, Chan *old, int flag, char *spec)
 {
 	int order;
+
+	opath_mount++;
 	Mhead *m, **l, *mh;
 	Mount *nm, *f, *um;
 	Pgrp *pg;
@@ -981,6 +989,8 @@ int
 walk(Chan **cp, char **names, int nnames, int nomount, int *nerror)
 {
 	int dev, didmount, dotdot, i, n, nhave, ntry, type;
+
+	opath_walk++;
 	Chan *c, *nc, *mtpt;
 	Path *path;
 	Mhead *mh, *nmh;
@@ -1296,6 +1306,8 @@ Chan*
 namec(char *aname, int amode, int omode, ulong perm)
 {
 	int len, n, t, nomount;
+
+	opath_namec++;
 	Chan *c;
 	Chan *volatile cnew;
 	Path *volatile path;

@@ -645,6 +645,12 @@ struct Gefs {
 	Along	rdonly;
 	int	noauth;
 
+	/* Plan2001: optional pathless native block provider (devgefs.c). */
+	void	*oblk;
+	vlong	oblksize;
+	long	(*oblkrw)(void*, void*, long, uvlong, int);
+	int	(*oblkflush)(void*);
+
 	/* user list */
 	RWLock	userlk;
 	User	*users;

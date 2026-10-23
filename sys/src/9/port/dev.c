@@ -165,7 +165,10 @@ devclone(Chan *c)
 Walkqid*
 devwalk(Chan *c, Chan *nc, char **name, int nname, Dirtab *tab, int ntab, Devgen *gen)
 {
+	extern uvlong opath_devwalk;
 	int i, j, alloc;
+
+	opath_devwalk++;
 	Walkqid *wq;
 	char *n;
 	Dir dir;

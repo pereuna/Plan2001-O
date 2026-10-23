@@ -26,6 +26,8 @@ static SDev *devs[sizeof devletters-1];
 static QLock devslock;
 static SDunit topctlunit;
 
+static long sdrio(SDreq*, void*, long);
+
 enum {
 	Ahdrsz		= 2,
 };
@@ -368,6 +370,222 @@ sdgetunit(SDev* sdev, int subno)
 	}
 	qunlock(&sdev->unitlock);
 	return unit;
+}
+
+/*
+ * Plan2001: iterate the enumerated units without a Chan or namec, for
+ * the native O block backend.  The returned unit keeps its SDev
+ * reference; sdunitput drops it.
+ */
+SDunit*
+sdunititer(Sditer *it)
+{
+	SDev *sdev;
+	SDunit *unit;
+
+	if(it->idno < 0)
+		it->idno = 0;
+	for(; it->idno < nelem(devs); it->idno++, it->subno = 0){
+		if((sdev = sdgetdev(devletters[it->idno])) == nil)
+			continue;
+		for(; it->subno < sdev->nunit; it->subno++){
+			if((unit = sdgetunit(sdev, it->subno)) != nil){
+				it->subno++;
+				return unit;
+			}
+		}
+		decref(&sdev->r);
+	}
+	return nil;
+}
+
+void
+sdunitput(SDunit *unit)
+{
+	if(unit != nil)
+		decref(&unit->dev->r);
+}
+
+/*
+ * Plan2001: make a probed unit's geometry available to the native
+ * block backend, with the same online/partition initialization as the
+ * #S data file.  No Chan is created.
+ */
+int
+sdunitready(SDunit *unit)
+{
+	int ok;
+
+	qlock(&unit->ctl);
+	if(waserror()){
+		qunlock(&unit->ctl);
+		return 0;
+	}
+	if(unit->sectors == 0)
+		sdinitpart(unit);
+	ok = unit->sectors != 0 && unit->secsize != 0;
+	poperror();
+	qunlock(&unit->ctl);
+	return ok;
+}
+
+/*
+ * Plan2001: absolute block I/O for the native O backend.  This is
+ * sdbio's bounds, alignment, bounce-buffer and media-change behavior
+ * without a Chan or partition qid; off is a byte offset in the unit.
+ */
+long
+sdblockrw(SDunit *unit, int write, void *a, long len, uvlong off)
+{
+	int allocd, locked, nchange;
+	long l;
+	uchar *b;
+	ulong max, nb, offset;
+	uvlong bno, end;
+
+	if(unit == nil || len < 0)
+		error(Ebadarg);
+	qlock(&unit->ctl);
+	nchange = 0;
+	while(waserror()){
+		if(strcmp(up->errstr, Eio) == 0 && unit->sectors == 0 && nchange++ == 0){
+			sdinitpart(unit);
+			continue;
+		}
+		qunlock(&unit->ctl);
+		nexterror();
+	}
+	if(unit->sectors == 0 && !sdinitpart(unit))
+		error(Eio);
+	if(unit->secsize == 0)
+		error(Eio);
+	end = (uvlong)unit->sectors * unit->secsize;
+	if(off > end || (uvlong)len > end - off)
+		error(Eio);
+	if(len == 0){
+		qunlock(&unit->ctl);
+		poperror();
+		return 0;
+	}
+	bno = off/unit->secsize;
+	nb = ((off + len + unit->secsize - 1)/unit->secsize) - bno;
+	max = SDmaxio/unit->secsize;
+	if(nb > max)
+		nb = max;
+	if(bno + nb > unit->sectors)
+		nb = unit->sectors - bno;
+	if(nb == 0)
+		error(Eio);
+	locked = (unit->inquiry[1] & 0x80) != 0;
+	if(!locked){
+		qunlock(&unit->ctl);
+		poperror();
+	}
+
+	offset = off%unit->secsize;
+	if(offset+len > nb*unit->secsize)
+		len = nb*unit->secsize - offset;
+	if(offset || write && len%unit->secsize)
+		allocd = 2;
+	else
+		allocd = (uintptr)a > KZERO && ((uintptr)a & (BY2PG-1)) == 0 ? 0 : 1;
+	if(allocd == 0)
+		b = a;
+	else{
+		while((b = sdmalloc(nb*unit->secsize)) == nil)
+			resrcwait("no memory for sdblockrw");
+		if(waserror()){
+			sdfree(b);
+			nexterror();
+		}
+	}
+
+	if(write){
+		if(offset || len%unit->secsize){
+			l = (*unit->dev->ifc->bio)(unit, 0, 0, b, nb, bno);
+			if(l < 0)
+				error(Eio);
+			if(l < nb*unit->secsize){
+				nb = l/unit->secsize;
+				if(nb == 0)
+					error(Eio);
+				l = nb*unit->secsize - offset;
+				if(len > l)
+					len = l;
+			}
+		}
+		if(allocd != 0)
+			memmove(b+offset, a, len);
+		l = (*unit->dev->ifc->bio)(unit, 0, 1, b, nb, bno);
+		if(l < 0)
+			error(Eio);
+		if(l < offset)
+			len = 0;
+		else if(len > l - offset)
+			len = l - offset;
+	}else{
+		l = (*unit->dev->ifc->bio)(unit, 0, 0, b, nb, bno);
+		if(l < 0)
+			error(Eio);
+		if(l < offset)
+			len = 0;
+		else if(len > l - offset)
+			len = l - offset;
+		if(allocd != 0)
+			memmove(a, b+offset, len);
+	}
+
+	if(allocd != 0){
+		sdfree(b);
+		poperror();
+	}
+	if(locked){
+		qunlock(&unit->ctl);
+		poperror();
+	}
+	return len;
+}
+
+/*
+ * Plan2001: synchronize-cache through the driver's raw request path,
+ * without opening #S/.../raw.  This is the same 0x35 SCSI command that
+ * gflushdev used to write through a Chan.
+ */
+int
+sdblockflush(SDunit *unit)
+{
+	SDreq *r;
+	uchar cmd[10];
+	int rv;
+
+	if(unit == nil)
+		error(Ebadarg);
+	qlock(&unit->raw);
+	if(waserror()){
+		qunlock(&unit->raw);
+		nexterror();
+	}
+	r = smalloc(sizeof *r);
+	if(waserror()){
+		free(r);
+		nexterror();
+	}
+	memset(r, 0, sizeof *r);
+	memset(cmd, 0, sizeof cmd);
+	cmd[0] = 0x35;
+	r->unit = unit;
+	memmove(r->cmd, cmd, sizeof cmd);
+	r->clen = sizeof cmd;
+	r->proto = SDcdb;
+	r->status = ~0;
+	rv = sdrio(r, nil, 0);
+	if(rv < 0 || r->status != SDok)
+		error(Eio);
+	free(r);
+	poperror();
+	poperror();
+	qunlock(&unit->raw);
+	return 0;
 }
 
 static void

@@ -86,10 +86,14 @@ void	loadarena(Arena*, Bptr);
 void	loadge(Gefs*, char*);
 void	loadfs(Gefs*);
 void*	geopen(char*, Kchan*, vlong, vlong, int);
+void*	geopenblk(char*, void*, vlong, vlong, int,
+		long (*)(void*, void*, long, uvlong, int), int (*)(void*));
 void	gestart(void*);
 void	geprobe(void*);
 void	gesync(Gefs*, int);
 void*	oopen(char*, Kchan*, vlong, vlong, int);
+void*	oopenblk(char*, void*, vlong, vlong, int,
+		long (*)(void*, void*, long, uvlong, int), int (*)(void*));
 void	oprobe(void*);
 void	oobjprobe(void*);
 uvlong	ospaceid(Gefs*, char*);
