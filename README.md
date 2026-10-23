@@ -1,14 +1,23 @@
 # Plan2001-O
 
-> **New conceptual direction (proposal, 23 October 2026):** [Olio and object — epistemological manifesto](docs/OLIO-OBJEKTI-MANIFESTI.md) (Finnish) and [A computer implementation of the manifesto](docs/GENERAL-SOFTWARE-SPECIFICATION.md) (English). An *olio* is an uninterpreted registered occurrence; an *object* is its role in a relation or observation. Octets and files are implementation/interpretation choices, not a universal ontology. The byte-centered model below documents the earlier proposal and the working PoC; [O-FORMAT](docs/O-FORMAT.md) and [STATUS](docs/STATUS.md) remain authoritative for implemented behavior.
+> **Philosophy and engineering are separate:** [Olio and object — epistemological manifesto](docs/OLIO-OBJEKTI-MANIFESTI.md) (Finnish) distinguishes *olio*, *object*, relation and manifestation. [General software specification](docs/GENERAL-SOFTWARE-SPECIFICATION.md) (English) describes **one practical computer implementation**. Plan2001-O intentionally implements its PoC with ordinary eight-bit bytes and existing Plan2001 code on conventional 64-bit hardware. The manifesto does not require unconventional hardware or abandoning byte-oriented storage. [O-FORMAT](docs/O-FORMAT.md) and [STATUS](docs/STATUS.md) remain authoritative for implemented behavior.
 
-**An experimental object-native operating system: a file is an OID-addressable object's byte content, without a mandatory root directory or filesystem hierarchy. Native relationships remain a research goal.**
+**A limited, byte-oriented operating-system proof of concept: persistent Space occurrences (olios), contextual objects, observations and eventually relations, using existing code and conventional hardware wherever possible.**
 
-Plan2001-O explores an operating system in which **objects are fundamental persistent entities, and a file is the byte-content abstraction of an object**. The architecture removes the obligatory hierarchical *filesystem*, not files. An object's identity is independent of paths and locations; its bytes may be read, written, executed when meaningful, or transferred by streams. **Today's PoC stores versioned native O byte objects, but its Python graph is still serialized into one `OID_GRAPH` object.**
+Plan2001-O explores a computer realization of independently stored *olios*, whose roles as *objects* arise through operations and relations. **In this PoC, their storage carriers are ordinary byte sequences**; a file is a useful byte-content abstraction and does not require a hierarchical filesystem. Stored occurrences are individually addressed without canonical paths, and their bytes can be read, written, executed when valid, or streamed. **Today's PoC already stores versioned native O byte values, but its Python graph is still serialized into one `OID_GRAPH` object.** These are engineering facts, not universal claims about what an olio inherently is.
 
-The project is derived from Plan 9 / 9front, but it is **not an effort to reproduce Plan 9, Unix, POSIX, or their file-based interfaces**. Existing code is a starting point, not an architectural constraint. The goal is to discover a smaller, coherent object-native system through working experiments.
+The project is derived from Plan2001 and its Plan 9 / 9front code base. **The existing implementation is the preferred engineering foundation:** reuse its working kernel, storage, drivers, networking, console and execution mechanisms, changing only what the PoC needs. The goal is neither to reproduce Unix/Plan 9 namespace semantics nor to rewrite all inherited functionality. Prefer small, buildable experiments that preserve working paths.
 
 > **Core principle:** GE/O owns object identity and byte storage, and is intended to own native relationships. A file is bytes, not a mandatory metadata-plus-directory-entry structure. Python is a client of this model, **not its type system or ontology**.
+
+## Practical target machine and interaction
+
+- **Hardware:** an ordinary 64-bit computer with RAM, a persistent disk and a network interface; eight-bit bytes are the PoC's concrete representation.
+- **Desktop:** local display and keyboard using existing drivers and interfaces wherever possible; no new graphical desktop is required merely to exercise the model.
+- **Server:** remote access over the network, with a text/command interface as an initial practical option; no local display or keyboard required for normal remote operation.
+- **Development:** preserve the existing GE/O implementation and executable/console/network paths. Do not generalize toward analogue, seven-bit or other physical representations in this PoC simply because the philosophical model permits them.
+
+These are target constraints, not claims that every access mode has already passed runtime tests.
 
 ## Current implementation versus target
 
