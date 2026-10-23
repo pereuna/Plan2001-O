@@ -13,6 +13,9 @@ OID); earlier baselines were
 **Boot Experiment A** was separately implemented and verified at
 `6c6e112efb201bd5d927e3276877714d56c1a92f` (23 October 2026); it is a
 boot-boundary result and does not replace the storage Level A baseline.
+**Boot Experiment B** was separately implemented at `ba6b8ab` plus
+`ddf9899` (23 October 2026); it is a distinct userspace-entry result and
+does not replace either storage Level A or Boot A.
 
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -33,11 +36,95 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Runtime verified in Plan2001-O** | **PASS:** on 23 October 2026 the full amd64 build, selfroot, the new native byte-object gate (`tools/test-o-bytefile.sh`) and all nine existing O-only gates passed with KVM at implementation commit `bf2117e`; earlier runs used `016ccff`, `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
 | **Pathless storage, Level A** | **PASS (23 October 2026):** a `PARTUUID=` O volume is discovered in GPT from enumerated SD units and used for GE block I/O, sync and driver flush with no new kernel `Chan`/`namec`/walk/mount/path-exec event in the measured window. Bootstrap and console remain legacy, so Levels B/C are **NOT YET**. See [O-BOOT-DEPENDENCIES.md](O-BOOT-DEPENDENCIES.md). |
 | **Boot Experiment A (kernel-only probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=probe`, the normal `9pc64` kernel initialized hardware and the scheduler, ran a minimal `kproc` (`pid=1`, `slash=nil`, `dot=nil`), produced two post-scheduler heartbeats, and did not execute `userinit`/`proc0`/`init0`/`startboot` or any `namec`/walk/mount/path-exec. The normal O boot remained PASS. This is not a storage or pathless-executable claim; see [O-BOOT-EXPERIMENT-A.md](O-BOOT-EXPERIMENT-A.md). |
+| **Boot Experiment B (ring-3 userspace probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=user`, the normal `9pc64` kernel built a user address space from a 113-byte embedded image, entered ring 3 at `0x200028` (`cs=0x2b`, `ss=0x23`), and observed user syscalls `alarm(0)` and `sleep(100)` with returns and continued execution. `userinit/proc0/init0=0`, all path counters `0`, `slash/dot=nil`, and the normal O and Boot A controls remained PASS. This is not Storage Level B and does not use GE/O or MicroPython; see [O-BOOT-EXPERIMENT-B.md](O-BOOT-EXPERIMENT-B.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment B — 23 October 2026
+
+**Source state:** implementation commits
+`ba6b8ab325d5e222539b5a050bedfd1a4f636d7b` (opt-in ring-3 boot
+probe) and `ddf98993353c02f8ef6df59e715cf7e37aec904a` (pre-fault the
+`Tos` page), plus this documentation follow-up. The build and runtime
+evidence were produced from that source content with disposable QEMU
+images. This is **Boot Experiment B**, distinct from **Storage Level B**
+(MicroPython from GE/O), which remains **NOT YET**.
+
+**Implemented**
+
+- `plan9.ini oboot=user` is a third branch at the existing `main()`
+  handoff (`sys/src/9/pc64/main.c:228`, `:272`). It calls
+  `o_user_bootstrap()` instead of `userinit()` or Boot A's
+  `ouserinit()`.
+- `sys/src/9/pc64/ouser.c` creates one `kproc`, validates a flat
+  a.out image (`magic`, expanded entry `UTZERO+0x28`, alignment, text
+  and whole-image bounds, zero data/BSS), copies it to one user text
+  page, builds a 16 MiB user stack with a zeroed top stack page for the
+  `Tos` slot, sets `kp=0`, and enters ring 3 through the existing
+  `touser()` `SYSRET` path.
+- The image is built by the ordinary amd64 tools from
+  `sys/src/9/pc/obootuser.c` to `obootuser.out`
+  (`6l -l -R1 -s`) and `obootuser.i`; it is linked into the kernel, not
+  embedded in `devroot`. It performs `alarm(0)`, `sleep(100)`,
+  `sleep(100)` and then sleeps. It has no console, FD, environment or
+  pathname dependency.
+- `sys/src/9/pc64/trap.c` prints guarded `OBOOT-B: SYSCALL-ENTRY` and
+  `SYSCALL-RETURN` records for the probe PID when `userureg()` is true,
+  and reprints the legacy/path counters after four user syscalls. No
+  generic syscall ABI, error handling or driver was changed.
+- `tools/test-oboot-user.sh` is the repeatable gate. It builds a
+  disposable ESP with `oboot=user`, no `root=` and no `init=`, boots
+  QEMU, asserts ordered markers, user selectors, syscall round trips,
+  distinct user PCs and zero counters, and stops the VM.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-b.log
+tools/test-oboot-user.sh 2>&1 | tee build/verification/test-oboot-user-experiment-b.log
+# controls
+# oboot=probe QEMU boot (documented in docs/O-BOOT-EXPERIMENT-A.md)
+tools/test-o-boot.sh 2>&1 | tee build/verification/test-o-boot-experiment-b.log
+tools/test-o-pathless.sh 2>&1 | tee build/verification/test-o-pathless-experiment-b.log
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; normal `9pc64` md5 `f27c24cc102ed216b2deae098763a4b4`, test-only `9pc64mp` md5 `d260f7c2d934f9b268c5eb3057809d37`. `build/verification/build-experiment-b.log` |
+| Boot B gate | **PASS** | `PASS: Boot Experiment B ring-3 user probe, two syscall round trips`. `build/verification/test-oboot-user-experiment-b.log`, `build/verification/test-oboot-user-boot-experiment-b.log` |
+| Ring-3 entry | **PASS** | `KERNEL-READY entry=0x200028 text=73 image=113 slash=nil dot=nil`; `KERNEL-TO-USER pc=0x200028`; user `cs=0x2b ss=0x23 user=1`. |
+| User syscalls and return | **PASS** | `nr=6` `alarm`, `nr=17` `sleep`; entry/return pairs, with subsequent user entries at `0x200070` and `0x200061`; `AFTER-SYSCALLS` counters all zero. |
+| Legacy/path machinery absent | **PASS** | `legacy-calls userinit=0 proc0=0 init0=0`; `path-calls namec=0 newchan=0 walk=0 devwalk=0 mount=0 exec=0`; no `OBOOT-A`, panic, fault or suicide. |
+| Boot A control | **PASS** | `KPROC-RUNNING`, heartbeats 1/2, legacy/path counters zero. `build/verification/test-oboot-probe-experiment-b.log` |
+| Normal O boot control | **PASS** | Three O-only boots, `run()` 1 -> 2 -> 3, MicroPython from O. `build/verification/test-o-boot-experiment-b.log` |
+| Native O storage control | **PASS** | `PASS: Level A pathless native GE/O storage window, persistence and bounds`. `build/verification/test-o-pathless-experiment-b.log` |
+| Malformed user image | **NOT RUN** | Kernel validation exists and panics before execution, but no injection mode was added (optional check). |
+
+**Residual state:** `kproc` creates the process `Pgrp`; it is present and
+unused. `slash`, `dot`, `fgrp`, `egrp`, `rgrp`, `parent`, `tt` and
+`trend` are explicitly nil, and `alarm=0`, `parentpid=0`. The top stack
+page including the `Tos` slot is zeroed. `chandevreset` still ran before
+the branch, including `rootreset` directory metadata and `sdreset`
+hardware probing (`#S/sdE: ich: sata-I with 6 ports`); `chandevinit`,
+the `alarm` kproc and the `closeproc` kproc did not run.
+
+**Remaining limits:** the probe is a 113-byte flat image with no
+console, FDs, environment or writable data outside its stack. It is not
+a general userspace runtime, not Storage Level B, and does not load
+MicroPython or any OID. The optional malformed-image injection test was
+not implemented.
+
+**Next step (not implemented):** from this ring-3 process, use the
+existing `OVOLOPEN PARTUUID=`, `OSPACEOPEN` and `OEXECUTE` syscalls over
+the native SD/GE/O provider. Because the call originates in user mode,
+the existing syscall path supplies `up->dbgreg`, so `execo()` can make
+the next process transition without `namec`, `Chan`, `bind`, `mount` or
+a `/boot` pathname.
 
 ## Boot Experiment A — 23 October 2026
 
