@@ -1,10 +1,11 @@
 # Implementation status — Plan2001-O
 
-**Status date:** 22 October 2026. **Current runtime evidence baseline:**
-`main` at `016ccffebfe8c9baa93f09c7e6599315e65e4751` plus this task's
-uncommitted working-tree changes (normal O-loaded MicroPython boot below);
-the previous clean-tree baselines were `b41a102384efa81b17cdc5f923415b123341f8ca`
-and `4678fada0d66f83b310291320e57aba12068934d`.
+**Status date:** 23 October 2026. **Current runtime evidence baseline:**
+`main` at `bf2117e0c6a01310d5cfc7acaaeb06534ad10eca` (native O byte
+objects by OID), plus this STATUS/report documentation follow-up; the
+previous baselines were `016ccffebfe8c9baa93f09c7e6599315e65e4751`,
+`b41a102384efa81b17cdc5f923415b123341f8ca` and
+`4678fada0d66f83b310291320e57aba12068934d`.
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
 (20 October 2026); imported without its Git ancestry.
@@ -21,7 +22,7 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Implemented** | The imported source contains GE/O O-profile volumes, versioned `(SpaceID, OID)` objects, the native O syscall boundary with process-owned O Space handle tables, a bounded native executable-object path with a snapshot-based, capacity-bounded argv copy, an O-resident Environment and `.mpy` loader, and a persistent MicroPython `init` Space. The normal amd64 `pc64` boot now embeds only `oinit`/`kbdfs` (and the separate `ohandle`/`oexec` harnesses) and loads the real MicroPython executable from O. A `pc64mp` kernel remains explicitly test-only for historical embedded-MicroPython gates. |
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
-| **Runtime verified in Plan2001-O** | **PASS:** the full amd64 build, selfroot, and all nine O-only gates (including both boot gates, REPL persistence, and the focused native-exec argv gate) passed on 22 October 2026 with KVM. This run used HEAD `016ccff` plus the uncommitted normal-O-boot working tree; earlier runs used `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
+| **Runtime verified in Plan2001-O** | **PASS:** on 23 October 2026 the full amd64 build, selfroot, the new native byte-object gate (`tools/test-o-bytefile.sh`) and all nine existing O-only gates passed with KVM at implementation commit `bf2117e`; earlier runs used `016ccff`, `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
@@ -107,6 +108,75 @@ and embedded `oinit`/`kbdfs`; there is no program catalog, architecture
 selection, permissions framework, dynamic linking or general
 executable-object format support. The `pc64mp` kernel is test-only and is
 never a normal or fallback boot path. The on-disk format is unchanged.
+
+## Native O byte objects by OID — 23 October 2026
+
+**Source state:** implementation commit
+`bf2117e0c6a01310d5cfc7acaaeb06534ad10eca`
+(`micropython: add native O byte objects by OID`), plus this docs-only
+STATUS/report follow-up. The runtime commands below ran from that
+committed tree; `tools/selfroot` cloned `bf2117e`.
+
+**Implemented**
+
+- The built-in `space` module now has `space.oget(oid)` and
+  `space.oput(oid, data)` in `sys/src/cmd/micropython/p9space.c`. They
+  bind directly to the existing `ospaceget`/`ospaceput`/`ospacecommit`
+  syscalls; there is no new kernel driver, storage service, pathname,
+  directory, 9P adapter or on-disk v1 change.
+- `oput` writes bytes-like data and calls the native commit/sync before
+  returning, independently of the Python graph dirty flag and of the
+  next automatic `OID_GRAPH` commit. `oget` returns exact `bytes`
+  (embedded NULs and `b""` included), raises `OSError` for a missing
+  OID, and retries a changed size/read pair at most three times.
+- Both require an open native `-O` volume and `-S` Space; otherwise they
+  raise `OSError`. Writes reject `OID_ROOTS`/`OID_FIRST`, the whole
+  `OID_CODE`-and-above region (`OID_ENV`, `OID_GRAPH`, upgrade metadata)
+  and the native-exec OIDs `0x4f45584543000001`-`03`. The PoC
+  whole-object limit is 1 MiB.
+- `space.oid()` is unchanged and still reports a Python logical graph
+  OID; native byte objects and Python graph OIDs are independent even
+  when numbers coincide. OIDs 42 and 44-49 are PoC identifiers, not an
+  allocator.
+- Added `tools/obytefile.py` and `tools/test-o-bytefile.sh`, and
+  regenerated `genhdr/qstrdefs.generated.h` for the two new qstrs.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+tools/test-o-bytefile.sh
+for gate in test-o-boot test-o-boot-omp test-o-exec test-o-exec-args \
+            test-o-handles test-ge test-o-volume test-o-objects test-o-space; do
+    "tools/$gate.sh" 2>&1 | tee "build/verification/$gate-bytefile.log"
+done
+```
+
+The host login was not in the `kvm` group; the QEMU commands ran with the
+`kvm` supplementary group (still the target's normal `-accel kvm -cpu
+host`). No physical disk was used.
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; normal `9pc64` md5 `e31ae9fb0aa0c1a816b5ef55062b8896`, test-only `9pc64mp` md5 `17a87e214c6016f612dfd668a10bbdc1`, UEFI loader and userspace binaries present. `build/verification/build-bytefile.log` |
+| selfroot | **PASS** | `build/selfroot` at `bf2117e`; MicroPython object SHA-256 `d3f715cd111c15986de66929acfbee6ea4b52dc58720f231d50e77fe12fb75f1`, seeded unchanged at `OID_MP_EXEC`. `build/verification/selfroot-bytefile.log` |
+| Native byte objects by OID | **PASS** | One ESP + O disk, normal `9pc64`, three boots and no FS root. Boot 1 stored and read `OID 42 = b"hello\n"`, empty bytes, `b"\x00\xff\x00"`, a 2048-byte value (over `Objchunk = 480`), two OIDs with identical bytes then changed one independently, and first overwrite data. Boots 2 and 3 restored `OID 42` as the same six bytes (`Obyte: PASS reboot-hello`), verified overwrite across reboot, and re-ran all error checks. Invalid/negative/overflow/non-int OIDs, missing OID, reserved writes, over-limit writes and non-bytes data failed predictably while `OID_GRAPH` restoration and seeded code stayed intact. `build/verification/test-o-bytefile.log`, `build/amd64/obytevm/three-boots.log` |
+| Unsupported mode | **PASS** | `oinit -repl` (`-O` without `-S`) reached the O-loaded REPL; `space.oget(42)` and `space.oput(42, b"x")` both failed with `space: no native O Space is open` instead of a path fallback. `build/verification/test-o-bytefile.log`, `build/amd64/obytevm/repl.log` |
+| Existing O boot | **PASS** | `PASS: three O-only boots, persistent Counter and run() from O (no FS)`. `build/verification/test-o-boot-bytefile.log` |
+| O-loaded MicroPython/REPL | **PASS** | `PASS: MicroPython loaded from a native O object (no embedded mp)`, including REPL persistence and missing/malformed diagnostics. `build/verification/test-o-boot-omp-bytefile.log` |
+| Native executable object | **PASS** | `PASS: native executable object from O, exec and rollback`. `build/verification/test-o-exec-bytefile.log` |
+| Native argv bounds | **PASS** | `PASS: native O argv bounds, rollback and race`. `build/verification/test-o-exec-args-bytefile.log` |
+| Process-local O handles | **PASS** | `PASS: process-local O handles, isolation/lifetime/cleanup`. `build/verification/test-o-handles-bytefile.log` |
+| GE, O volume, O objects, Python/O | **PASS** | `PASS: GE volume, raw key/value, no FS`; `PASS: O volume, no FS`; `PASS: native O objects, no FS`; `PASS: Stage 4 Environment, code and Space graph from O (no FS)`. `build/verification/test-ge-bytefile.log`, `test-o-volume-bytefile.log`, `test-o-objects-bytefile.log`, `test-o-space-bytefile.log` |
+
+**Remaining limits:** no OID allocator, listing, deletion, permissions,
+native relationships or per-Python-object native records; the 1 MiB
+whole-object bound is a PoC limit; concurrent readers see a published
+version, not an immutable history API. OID 43/100's `implements`
+relations remain conceptual. The on-disk format is unchanged.
 
 ## Phase C validation record
 
