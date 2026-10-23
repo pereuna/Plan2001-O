@@ -20,6 +20,10 @@ does not replace either storage Level A or Boot A.
 it combines Boot B's ring-3 entry with native O reads and an
 `OEXECUTE` image replacement, and does not rename the earlier Storage
 Levels A/B/C.
+**Boot Experiment D1** was implemented at `4d1d75f` (23 October 2026);
+it starts the unchanged O-resident MicroPython, proves the image
+transition and diagnoses its first inherited FD dependency. It is a
+diagnostic result, not a working pathless MicroPython boot.
 
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -42,11 +46,80 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Boot Experiment A (kernel-only probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=probe`, the normal `9pc64` kernel initialized hardware and the scheduler, ran a minimal `kproc` (`pid=1`, `slash=nil`, `dot=nil`), produced two post-scheduler heartbeats, and did not execute `userinit`/`proc0`/`init0`/`startboot` or any `namec`/walk/mount/path-exec. The normal O boot remained PASS. This is not a storage or pathless-executable claim; see [O-BOOT-EXPERIMENT-A.md](O-BOOT-EXPERIMENT-A.md). |
 | **Boot Experiment B (ring-3 userspace probe)** | **PASS (23 October 2026):** with `plan9.ini oboot=user`, the normal `9pc64` kernel built a user address space from a 113-byte embedded image, entered ring 3 at `0x200028` (`cs=0x2b`, `ss=0x23`), and observed user syscalls `alarm(0)` and `sleep(100)` with returns and continued execution. `userinit/proc0/init0=0`, all path counters `0`, `slash/dot=nil`, and the normal O and Boot A controls remained PASS. This is not Storage Level B and does not use GE/O or MicroPython; see [O-BOOT-EXPERIMENT-B.md](O-BOOT-EXPERIMENT-B.md). |
 | **Boot Experiment C (ring-3 OID executable)** | **PASS (23 October 2026):** with `plan9.ini oboot=oid` and a generated `obootvol=PARTUUID=...`, the embedded first user loader ran `OVOLOPEN` (ret 1), `OSPACEOPEN` (h=1) and `OEXECUTE` for OID `0x4f45584543000004`; the 2,088-byte O-resident target replaced the image and ran its own `ospaceget`, `alarm(0x42)` and `sleep` syscalls in ring 3. `userinit/proc0/init0=0` and every path counter stayed 0 before and after exec. Wrong-PARTUUID and missing-OID negatives passed. This is not Storage Level B/C and does not run MicroPython; see [O-BOOT-EXPERIMENT-C.md](O-BOOT-EXPERIMENT-C.md). |
+| **Boot Experiment D1 (O-resident MicroPython diagnosis)** | **PASS (23 October 2026), diagnostic only:** with `plan9.ini oboot=mp` and the generated `obootvol=PARTUUID=...`, the embedded loader ran `OEXECUTE` for `OID_MP_EXEC` and the kernel verified the unchanged 2,194,156-byte MicroPython image by SHA-256. MicroPython entered ring 3 (`text=micropython`, `pc=0x275abc`), completed `mp_init`/`main` and a second native `OVOLOPEN` inside `p9_space_o`. Its first `fprint(2, ...)` caused `PWRITE` (nr 51, fd 2) and a kernel fault because `up->fgrp` is nil; `boot.py` was not reached. This is not a working boot or a D2 console result; see [O-BOOT-EXPERIMENT-D1.md](O-BOOT-EXPERIMENT-D1.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment D1 — 23 October 2026
+
+**Source state:** implementation commit
+`4d1d75f969e2fd4ed35247af43bbfac1c33393cb`, plus this documentation
+follow-up. This is a **diagnostic** experiment; it does not claim a
+working O-resident MicroPython boot.
+
+**Implemented**
+
+- `plan9.ini oboot=mp` is a fifth branch at `main()`
+  (`sys/src/9/pc64/main.c:232`, `:286`). It reuses C's embedded
+  `obootoid` loader and `otouser` ring-3 setup; only the OID and the six
+  MicroPython arguments differ.
+- The six arguments are exactly the existing `oinit.c:argvec` form:
+  `micropython -O PARTUUID=<fresh> -S init -B`, delivered in the user
+  `Oargs`/argv block and copied by the existing `oexecute` argv path.
+- D1-specific `OBOOT-D1:` markers trace the selected PID through a
+  bounded 64-syscall window and print cumulative legacy/path counters at
+  n=4, 16, 32 and 64. `devgefs.c` prints the OID length and SHA-256 read
+  by `onativeget` for D1, using libsec, instead of a small checksum.
+- The unchanged default MicroPython is seeded at `OID_MP_EXEC` by the
+  normal `tools/mkovol` path. No MicroPython source, `boot.py`,
+  `p9console.c`, default executable bytes or O on-disk format was
+  changed.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-d1.log
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot \
+  2>&1 | tee build/verification/selfroot-experiment-d1.log
+tools/test-oboot-mp.sh 2>&1 | tee build/verification/test-oboot-mp-experiment-d1.log
+tools/test-oboot-user.sh
+tools/test-oboot-oid.sh
+tools/test-o-boot.sh
+tools/test-o-pathless.sh
+tools/test-o-exec.sh
+tools/test-o-exec-args.sh
+tools/test-o-handles.sh
+# Boot A: separate oboot=probe QEMU boot
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; `9pc64` md5 `7b5e22d1816371a131849ea0aa308740`, test-only `9pc64mp` md5 `0a79d3513f1c071507e812486113836e`. `build/verification/build-experiment-d1.log` |
+| selfroot | **PASS** | clean at `4d1d75f`; MicroPython SHA `41157020158b3e295475bc40fb79eefae188dad27f852d5eb2dd5e33cfb751bc`, 2,194,156 bytes, unchanged. `build/verification/selfroot-experiment-d1.log` |
+| D1 gate | **PASS (diagnostic)** | `PASS: D1 EXEC, OID_MP_EXEC image transition and first-dependency diagnosis`. `build/verification/test-oboot-mp-experiment-d1.log`, `build/verification/test-oboot-mp-pos-experiment-d1.log` |
+| OID image transition | **PASS** | `OEXECUTE oid=0x4f45584543000003 len=2194156 sha256=411570... ver=0x1`; post-exec `text=micropython pc=0x275abc cs=0x2b ss=0x23`. |
+| MicroPython startup | **REACHED `p9_space_o`** | Post-exec native `OVOLOPEN` (nr 54) at PC `0x281060` returned 1; first fd-2 `PWRITE` (nr 51, arg0=2) at PC `0x279db4`. |
+| First dependency | **PASS (diagnosis)** | `fprint(2, ...)` at `p9space.c:366` -> `pwrite` -> `fdtochan` (`sysfile.c:145-147`) with `up->fgrp == nil` -> `kernel fault: write addr=0x8`. |
+| `boot.py` / `space.open` / boot/commit | **NOT REACHED** | Blocked by the first fd-2 write; reported, not hidden. |
+| Counters | **PASS** | Pre-entry and `AFTER-SYSCALLS n=4` both show `userinit=proc0=init0=0`; all `namec/newchan/walk/devwalk/mount/exec` zero. |
+| Missing `OID_MP_EXEC` | **PASS (negative)** | `OEXECUTE` returns `-1`; the same handle reads the existing 209-byte code object (`OSPACEGET` ret `0xd1`); `alarm(0xbaf)`; no `micropython` text and no panic. `build/verification/test-oboot-mp-missing-experiment-d1.log` |
+| Boot A/B/C/normal O/pathless/exec/argv/handles controls | **PASS** | Logs `build/verification/test-oboot-probe-experiment-d1.log`, `test-oboot-user-experiment-d1.log`, `test-oboot-oid-experiment-d1.log`, `test-o-boot-experiment-d1.log`, `test-o-pathless-experiment-d1.log`, `test-o-exec-*-experiment-d1.log`, `test-o-handles-experiment-d1.log`. |
+
+**Fate:** the process reaches MicroPython `p9_space_o`, attempts `PWRITE`
+to fd 2, and the kernel panics on the nil `Fgrp` in `fdtochan`. This is
+an observed diagnostic result, not a successful MicroPython boot. No
+console, FD emulation, `boot.py` change, pathname machinery or fallback
+was added.
+
+**Next D2 objective:** supply the smallest process-local FD/console
+facility that lets MicroPython's fd-2 diagnostic write return normally,
+without a `/dev/cons` pathname or `kbdfs`, then observe the next actual
+startup dependency.
 
 ## Boot Experiment C — 23 October 2026
 
