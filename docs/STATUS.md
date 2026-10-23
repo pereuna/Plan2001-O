@@ -29,6 +29,9 @@ diagnostic result, not a working pathless MicroPython boot.
 existing UART, fixes the nil-`Fgrp` `fdtochan` panic, and diagnoses the
 next downstream `bind`/`namec` blocker. It is not D2b or a functional
 console.
+**Boot Experiment D2b** was implemented at `3cfd4ed` (23 October 2026);
+it adds native `-N` server startup, three same-disk durable boots and
+the negative failure cases.
 
 Original imported source: `pereuna/Plan2001`, branch `poc-o-only`,
 commit `436ed30c894c4060638341ecebe82004d457f496`
@@ -53,11 +56,82 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Boot Experiment C (ring-3 OID executable)** | **PASS (23 October 2026):** with `plan9.ini oboot=oid` and a generated `obootvol=PARTUUID=...`, the embedded first user loader ran `OVOLOPEN` (ret 1), `OSPACEOPEN` (h=1) and `OEXECUTE` for OID `0x4f45584543000004`; the 2,088-byte O-resident target replaced the image and ran its own `ospaceget`, `alarm(0x42)` and `sleep` syscalls in ring 3. `userinit/proc0/init0=0` and every path counter stayed 0 before and after exec. Wrong-PARTUUID and missing-OID negatives passed. This is not Storage Level B/C and does not run MicroPython; see [O-BOOT-EXPERIMENT-C.md](O-BOOT-EXPERIMENT-C.md). |
 | **Boot Experiment D1 (O-resident MicroPython diagnosis)** | **PASS (23 October 2026), diagnostic only:** with `plan9.ini oboot=mp` and the generated `obootvol=PARTUUID=...`, the embedded loader ran `OEXECUTE` for `OID_MP_EXEC` and the kernel verified the unchanged 2,194,156-byte MicroPython image by SHA-256. MicroPython entered ring 3 (`text=micropython`, `pc=0x275abc`), completed `mp_init`/`main` and a second native `OVOLOPEN` inside `p9_space_o`. Its first `fprint(2, ...)` caused `PWRITE` (nr 51, fd 2) and a kernel fault because `up->fgrp` is nil; `boot.py` was not reached. This is not a working boot or a D2 console result; see [O-BOOT-EXPERIMENT-D1.md](O-BOOT-EXPERIMENT-D1.md). |
 | **Boot Experiment D2a (native output stream)** | **PASS (23 October 2026), diagnostic only:** `oboot=mp` grants process-local OUT/DIAG handles to the initial process; the new `iowrite` syscall copied user bytes into kernel memory and put them on the existing console UART with `up->fgrp=nil`. The literal `space: O volume selected: PARTUUID=...` appeared on host UART from `iowrite`, with no post-MP `PWRITE(fd=2)`. MicroPython then reached `boot.py` and its first `bind`; the `/dev` destination `namec` faulted on nil `up->slash`. `fdtochan` now returns `Ebadfd` for nil `Fgrp`. This is not D2b/D2c; see [O-BOOT-EXPERIMENT-D2A.md](O-BOOT-EXPERIMENT-D2A.md). |
+| **Boot Experiment D2b (native O server)** | **PASS (23 October 2026):** `oboot=server` runs `micropython -O PARTUUID=... -S init -N`, skips `boot.py`, opens the native `init` Space, runs `run()`, commits and reports `init: done`. One combined ESP+O disk booted three times unchanged: `run()` 1/2/3, init versions 1/2/3, O versions 2/3/4, Counter OID/alias 7/7. Zero legacy syscall attempts and zero path counters at n=4/16/32/64. A `run()`-raises and a missing-`OID_MP_EXEC` negative both pass without `init: done` or commit. See [O-BOOT-EXPERIMENT-D2B.md](O-BOOT-EXPERIMENT-D2B.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
 a **current-repository runtime PASS**. A missing result is **NOT RUN**,
 not PASS and not FAIL.
+
+## Boot Experiment D2b — 23 October 2026
+
+**Source state:** implementation commit
+`3cfd4ed27082c98e009030797290c6b1f84be380`, plus this documentation
+follow-up. Runtime evidence was produced from that committed source with
+disposable QEMU images.
+
+**Implemented**
+
+- MicroPython `-N` native noninteractive server mode, accepted only with
+  `-O` and `-S`. It skips `boot.py`, calls the existing native
+  `space.open('init')`, `p9_space_boot()`, `p9_space_commit(1)` and
+  `p9_space_report()`, then sleeps without `p9_console_init()` or input.
+  `-B` remains unchanged.
+- `oboot=server` boot selector at `main.c:234,293`, reusing the
+  `obootoid` loader, `otouser` ring-3 path, generated PARTUUID transport
+  and `OEXECUTE(OID_MP_EXEC)`; the sixth argv is `-N`. The process-local
+  D2a `Iomout|Iomdiag` grant is extended to server mode.
+- Hidden legacy fixes in the `-N` path only: `p9_spacetime`/`getenv`
+  bypass via native mode; `p9_now()` uses `_NSEC` (`nr=53`) rather than
+  `/dev/bintime`; native `loadmod` avoids `libpath`/`getuser` (`STAT
+  /proc/...`). Legacy `-B` and normal O boot behavior remain.
+- `tools/test-oboot-server.sh`: one O image, one ESP+O disk, three
+  consecutive boots, plus `run()` failure and missing-MP negatives. No
+  host reseed or O-volume copy between boots.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh 2>&1 | tee build/verification/build-experiment-d2b.log
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot \
+  2>&1 | tee build/verification/selfroot-experiment-d2b.log
+tools/test-oboot-server.sh 2>&1 | tee build/verification/test-oboot-server-experiment-d2b.log
+tools/test-oboot-output.sh
+tools/test-oboot-oid.sh
+tools/test-oboot-user.sh
+tools/test-o-boot.sh
+tools/test-o-pathless.sh
+tools/test-o-exec.sh
+tools/test-o-exec-args.sh
+tools/test-o-handles.sh
+# Boot A oboot=probe QEMU boot
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full build | **PASS** | `BUILD-DONE`; `9pc64` md5 `5efa866b985bd766b6e5c3df3b37b8cf`, `9pc64mp` md5 `26169ae05bd177d899912bcf01cc4298`. |
+| selfroot | **PASS** | clean at `3cfd4ed`; MicroPython 2,195,994 bytes, SHA-256 `cb3fe6159cf9e6ea148da15ccca71cbc8d118de42b82fd28120a44ba70723eaa`. |
+| Boot 1 | **PASS** | fresh `init`, one-time `odemo` init, `run() -> 1`, commit version 1 (O version 2), Counter n=1 OID/alias 7/7, `init: done`. `test-oboot-server-boot1-experiment-d2b.log` |
+| Boot 2 | **PASS** | restored version 1, no module initialization, `run() -> 2`, commit version 2 (O version 3), Counter n=2 OID/alias 7/7, `init: done`. `...-boot2-...log` |
+| Boot 3 | **PASS** | restored version 2, no module initialization, `run() -> 3`, commit version 3 (O version 4), Counter n=3 OID/alias 7/7, `init: done`. `...-boot3-...log` |
+| Same disk | **PASS** | one `build/amd64/obootd2b.img` used for all three boots; no host reseed/copy between. |
+| Native only | **PASS** | zero `LEGACY-ATTEMPT` records; all path counters zero at n=4/16/32/64; no post-MP `BIND/OPEN/PWRITE/FD2PATH`; native `IOWRITE` delivered messages. |
+| `run()` failure | **PASS (negative)** | `init: run failed`, `init: failed, no commit`; no `init: done`, `COMMIT` or new version; no panic. `test-oboot-server-fail-experiment-d2b.log` |
+| Missing `OID_MP_EXEC` | **PASS (negative)** | `OEXECUTE=-1`; handle survives (`OSPACEGET ret=0xd1`); `alarm(0xbaf)`; no MicroPython/done/commit/panic. `test-oboot-server-missing-experiment-d2b.log` |
+| D2a output diagnostic | **PASS** | `test-oboot-output-experiment-d2b.log` |
+| Boot A/B/C, normal O, pathless, exec/argv/handles | **PASS** | `build/verification/test-oboot-*-experiment-d2b.log`, `test-o-*-experiment-d2b.log` |
+
+**Limits:** fixed `init`/`odemo` Space and `OID_MP_EXEC`; no input,
+REPL, serial RX, keyboard, line discipline, screen, general stream
+registry, `/dev`, 9P or file tree. The positive disk was not corrupted;
+the graph failure negative used a separate `run()`-raises source image.
+
+**Next D2c objective:** add the smallest pathless serial input/line
+discipline (or equivalent native stdin stream) to `p9_console_read` and
+observe a real REPL interaction, without implementing `/dev/cons` or
+`kbdfs`.
 
 ## Boot Experiment D2a — 23 October 2026
 
