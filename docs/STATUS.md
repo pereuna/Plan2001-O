@@ -12,7 +12,7 @@ commit `436ed30c894c4060638341ecebe82004d457f496`
 This document is the **single source of truth for current verification**.
 The architecture is in [README.md](../README.md), past source-branch
 experiments in [POC.md](POC.md), and the implemented on-disk contract in
-[O-FORMAT.md](O-FORMAT.md).
+[O-FORMAT.md](O-FORMAT.md). The [OBJECT-MODEL.md](OBJECT-MODEL.md) document is an **architectural proposal**, not a new implementation claim: a file is object byte content without a mandatory directory root or Unix metadata; GE/O does not inherit Python's class/type hierarchy. This documentation-only refinement does not alter the runtime evidence below.
 
 ## Evidence levels
 

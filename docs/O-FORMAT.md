@@ -6,7 +6,7 @@ This document describes the **implemented** O profile and its current
 MicroPython payloads, not the proposed native relationship graph.
 It is an experimental format; it has no production compatibility promise.
 See [POC.md](POC.md) for experiment history and [STATUS.md](STATUS.md)
-for current verification.
+for current verification. For the proposed semantics of files as byte-content objects (without mandatory Python classes or a directory hierarchy), see [OBJECT-MODEL.md](OBJECT-MODEL.md). It is **not** a new v1 disk-layout specification.
 
 ## 1. GE volume and O profile
 
@@ -56,7 +56,7 @@ Reference: `sys/src/9/gefs/o.c`.
 
 ## 3. Native object records
 
-Object storage reuses GE's `Kobj` versioning engine. The older
+Object storage reuses GE's `Kobj` versioning engine. Its current values are opaque byte sequences: a future descriptive `file` type or object-property graph is **not encoded by this v1 record format**. A file's bytes are not a Unix-style metadata bundle. The older
 filesystem-backed `DMOBJ` adapter uses a file's `qid.path` as its
 store ID; **native O** instead uses the stable `SpaceID`. Native
 operations enter the engine directly and do not use `fid`, `qid`,

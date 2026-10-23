@@ -1,12 +1,12 @@
 # Plan2001-O
 
-**An experimental object-native operating system: persistent object identity rather than a mandatory filesystem hierarchy. Native relationships and direct executable-object loading are research goals.**
+**An experimental object-native operating system: a file is an OID-addressable object's byte content, without a mandatory root directory or filesystem hierarchy. Native relationships remain a research goal.**
 
-Plan2001-O explores an operating system in which **objects, rather than files, are the fundamental persistent entities**. Objects have identities independent of names or locations. The target architecture stores objects and their relationships natively in **GE/O**, a storage engine operating directly on a block-device partition. **Today's PoC stores versioned native O objects, but its persistent Python graph is still serialized into one `OID_GRAPH` object.**
+Plan2001-O explores an operating system in which **objects are fundamental persistent entities, and a file is the byte-content abstraction of an object**. The architecture removes the obligatory hierarchical *filesystem*, not files. An object's identity is independent of paths and locations; its bytes may be read, written, executed when meaningful, or transferred by streams. **Today's PoC stores versioned native O byte objects, but its Python graph is still serialized into one `OID_GRAPH` object.**
 
 The project is derived from Plan 9 / 9front, but it is **not an effort to reproduce Plan 9, Unix, POSIX, or their file-based interfaces**. Existing code is a starting point, not an architectural constraint. The goal is to discover a smaller, coherent object-native system through working experiments.
 
-> **Core principle:** GE/O owns the persistent object and relationship model. Python is a client and a demonstration of that model—not the definition of it.
+> **Core principle:** GE/O owns object identity and byte storage, and is intended to own native relationships. A file is bytes, not a mandatory metadata-plus-directory-entry structure. Python is a client of this model, **not its type system or ontology**.
 
 ## Current implementation versus target
 
@@ -14,79 +14,58 @@ This README describes the **architectural hypothesis**. The following table dist
 
 | Concern | Imported O-only PoC | Target / open experiment |
 | --- | --- | --- |
-| Persistent identity | Versioned GE/O records addressed by `(SpaceID, OID)` | Keep identity independent of location |
+| Persistent identity | Versioned GE/O records addressed by `(SpaceID, OID)` | Identity independent of pathname and physical address; retain the 64-bit native OID |
+| File content | Versioned opaque byte values | File = a finite ordered byte sequence belonging to an object; not a mandatory `File` subclass or Unix `stat` structure |
 | Relationships | Python graph serialized as one `OID_GRAPH` object | Native, indexed GE/O bindings and relations |
-| Namespaces | Seeded `init` Space and flat catalog | Persistent, shareable, non-hierarchical namespaces |
+| Namespaces | Seeded `init` Space and flat catalog | Design native name/discovery relationships later; do not migrate Plan 9 directory namespaces |
 | Python | MicroPython executable stored in O and loaded by the normal amd64 `oinit` path; code and state from O | Ordinary executable object loaded from O |
 | Native executables | Bounded native loader used by `oinit` for the fixed MicroPython OID plus a test loader for one target OID | General native object-ID-based loader |
 | Process/remote interfaces | Inherited Plan 9 mechanisms for the PoC | Object handles, IPC and remote protocol to be explored |
 
-**Document roles:** [README](README.md) explains the hypothesis; [POC](docs/POC.md) records what the source-branch experiments demonstrated; [STATUS](docs/STATUS.md) reports current verification and test instructions; [O-FORMAT](docs/O-FORMAT.md) specifies the *implemented* format. [AGENTS](AGENTS.md) is the coding-agent contract. Neither this README nor its diagrams establish an implemented API.
+**Document roles:** [README](README.md) gives the overview; [OBJECT-MODEL](docs/OBJECT-MODEL.md) defines the proposed architecture and Python/type-system boundaries; [POC](docs/POC.md) records source-branch experiments; [STATUS](docs/STATUS.md) reports verification and test instructions; [O-FORMAT](docs/O-FORMAT.md) specifies the *implemented* format. [AGENTS](AGENTS.md) is the coding-agent contract. Neither the README nor its example diagrams establish an implemented API.
 
-## 1. Objects are the native storage model
+## 1. Objects, files, and bytes
 
-An object has a stable identity, content, and potentially relationships to other objects:
+An **object** is an individual persistent entity, addressed in the current GE/O implementation by `(SpaceID, OID)`. An OID is an identity, not a pointer, physical block address or canonical pathname. Identical bytes may belong to distinct objects; object identity can remain stable across committed content versions.
+
+A **file** is an object's finite ordered **byte content**. This includes text, source code, images and executable machine code. `file` names a byte-content abstraction or a descriptive category, **not a mandatory superclass, exclusive object type, or a required `type=file` field**.
 
 ```text
-GE/O volume
-  SpaceID 1
-    OID 100   universal text
-    OID 101   Python source or compiled code
-    OID 102   native amd64 executable
-    OID 103   native arm64 executable
-    OID 104   structured application data
-    OID 105   namespace
-
-    relationships and named bindings (native GE/O indexes)
+OID 42
+    content = "hello\n"        # six bytes; a file
 ```
 
-**Identity is not a path.** The current on-disk format identifies object records by `(SpaceID, OID)` and stores their versions in GE's key/value tree. An OID is stable within its Space; it is not a globally unique identifier across all possible volumes and Spaces. Versioning and transactions are part of the object store.
+The file's data does **not** require a Unix/Plan 9 owner, mode, timestamps, pathname, inode or parent directory. Objects may separately have properties and relations, including provenance or original creation time when genuinely known. Those are not bytes in the file or universal filesystem metadata.
 
-Objects are not forbidden from being byte sequences. A source program, UTF-8 text, image, or machine-code binary is still ultimately bytes. **Offset-based read/write and seek-like cursors remain useful** for objects with byte-addressable content. What disappears is the requirement that every resource be represented as a *file in a directory tree*.
+**Stream** denotes a way to read or transfer bytes; it is not a file's identity. Random access by offset, handles, sequential streams and multiple parallel streams remain useful, while disk blocks and memory allocation stay implementation details. A file is not required to occupy one contiguous RAM or disk block.
 
-The native GE/O interface may therefore expose both content access and structured object operations. It must not assume that all object types have identical methods or that a pathname is necessary to obtain an object handle.
+Current GE/O uses an 8-byte OID within a Space and stores versioned opaque byte values; it does not yet implement a generic `file` type field or indexed native object graph. See [the object/file model](docs/OBJECT-MODEL.md) for definitions and [O-FORMAT](docs/O-FORMAT.md) for actual disk layout.
 
 ## 2. The relationship graph belongs to GE/O
 
-**Target architecture:** relationships are native persistent data, indexed by GE/O and accessible independently of Python. They must not remain merely pointers hidden in a serialized MicroPython heap. **This is not yet implemented:** the current Python graph is written to one `OID_GRAPH` record.
-
-A minimal useful model is a named binding:
+**Target architecture:** objects may have native persistent properties and graph relationships, independently of the file's bytes and independently of Python. Relationships can be shared, cyclic, many-to-many, and indexed without a root directory or path traversal.
 
 ```text
-(namespace OID, name) -> target OID
+OID 43
+    content = <6c binary>
+
+OID 100
+    implements → OID 43
+    purpose    → C compiler
+    target     → amd64
 ```
 
-For example:
+`OID 43` is a file: the 6c program's binary bytes. `OID 100` describes a compiler and relates it to one implementation. The relationship labels here are **conceptual**, not an implemented edge record, runtime API or Python class diagram. A compiler can have source objects, multiple architecture-specific implementations, or other relations without being a subclass of `File`.
 
-```text
-Namespace A (OID 10)
-    "foo" -----> Module foo (OID 100)
-    "bar" -----> Module bar (OID 200)
-    "counter" -> Object     (OID 300)
+The graph is not a renamed directory tree. A *namespace*, name binding or tag index might eventually be built **from relations**, but no root, parent directory, or Unix/Plan 9 `bind`/`mount` semantics are required. An OID already addresses an object; a graph traversal is not needed merely to read its bytes.
 
-Namespace B (OID 20)
-    "foo" -----> Module foo (OID 100)
-```
+**Current limitation:** MicroPython's persistent graph is committed as the single serialized `OID_GRAPH` byte object. Independently indexed native GE/O edges and general-purpose binding/tag indexes are not implemented. A Kahn process-network FIFO or other stream-based IPC, if added, concerns runtime transfer and is separate from persistent relationships.
 
-Two namespaces may refer to **the same object**, without copying it and without assigning it a canonical directory location. A namespace can itself be a persistent object. Its bindings can be committed and restored across boots, independently of the processes that use it.
-
-General relationships may later include typed, directed, or multivalued edges. **The exact representation of an edge is still a research question**: it may be an indexed record, an object with its own OID, or both where appropriate. Do not invent a universal edge schema before it is needed by an experiment.
-
-The graph may contain cycles. A cycle is valid persistent structure, not automatically an error. Traversal algorithms must handle cycles when they enumerate reachable objects, but **finding an object must not require traversing the graph**:
-
-```text
-(SpaceID, OID)         -> object
-(namespace OID, name) -> target OID
-(tag / indexed query) -> matching OIDs
-```
-
-Direct lookup and indexed relationships are central to the design. Tags are names or indexed relations, **not disguised filesystem paths**. A general tag index and a fully native relationship schema are goals, not implemented PoC features.
-
-A relationship also need not mean communication. A namespace binding points to an object; a *Kahn process network* FIFO transfers values between running processes. A channel may itself have an object identity and be discoverable through the graph, but its message flow is a separate runtime behavior. Object relationships, process communication, ownership, and execution must not be conflated.
+See [OBJECT-MODEL](docs/OBJECT-MODEL.md) for normative conceptual boundaries and [O-FORMAT](docs/O-FORMAT.md) for the current storage contract.
 
 ## 3. Python is the first object-native programming environment
 
-Python replaces the traditional OS scripting layer: `rc`, `sh`, `awk`, and filesystem-based `init` scripts. It provides a familiar language for boot configuration, administration, automation, and applications, while demonstrating persistent state at much finer granularity than saved files.
+Python is intended to replace the traditional OS scripting layer: `rc`, `sh`, `awk`, and filesystem-based `init` scripts. It provides a familiar language for boot configuration, administration and applications. **Python classes, inheritance, MRO, descriptors and Python object types do not define native GE/O object types or relationships.**
 
 The intended integration extends from distributions and modules down to individual values, functions, and bindings:
 
@@ -114,7 +93,7 @@ def run():
     return foo.process(counter)
 ```
 
-A persistent namespace may bind `foo`, `bar`, `counter`, and `run` to their corresponding persistent representations. The objects can outlive the interpreter process and remain identifiable after reboot. Imports resolve code and establish bindings without requiring `.py` files in directories.
+A future persistent binding mechanism may associate `foo`, `bar`, `counter` and `run` with persistent objects. This is not a requirement to preserve Plan 9 directory namespaces. Imports can resolve code without `.py` files in directories; language-level imports and attributes remain Python's concerns.
 
 **Python semantics remain Python semantics.** `import foo` includes module resolution, loading, and initialization. `a.foo` is attribute access, which may involve descriptors, inheritance, or custom methods. GE/O provides durable identity and bindings; it does not need to implement Python's language-specific attribute rules in the kernel.
 
@@ -122,23 +101,25 @@ Not every Python value needs a separately allocated GE/O record, and not every r
 
 `pip`-style package installation, arbitrary third-party Python compatibility, and fine-grained persistence for every Python object are **not implemented**. Source archives may be used by host-side preparation tools without making a filesystem the native runtime storage model.
 
-## 4. GE/O stores programs—not just Python data
+## 4. Programs can be files and semantic objects
 
-A persistent object may contain text, a module definition, a native executable, or any other byte-addressable or structured content. The target system must be able to load architecture-specific programs **directly from GE/O**.
-
-One possible organization is:
+A native compiler binary is useful first as a **file**: an OID-addressable byte sequence. It may also be the implementation referred to by a different, semantic program object. This does not create a class hierarchy:
 
 ```text
-Program object (OID 500)
-    "source"  -----> Source text  (OID 501)
-    "amd64"   -----> Executable   (OID 502)
-    "arm64"   -----> Executable   (OID 503)
-    "riscv64" -----> Executable   (OID 504)
+OID 43
+    content = <6c binary>       # file content
+
+OID 100
+    implements → OID 43
+    purpose    → C compiler
+    target     → amd64
 ```
 
-Here the arrows illustrate possible native relationships, **not an implemented program schema**. The loader selects the appropriate code representation for the current machine, maps executable memory, and starts a process. It does not need `/bin/program` or a synthetic file interface to do so.
+A future loader can execute the bytes of `OID 43`; a future program/discovery layer can use `OID 100` to choose a suitable implementation. This graph representation is **a design example**, not a native relation implementation. Different languages and architectures may be represented without changing what a file is.
 
-MicroPython is intended to become one such loadable program. **The kernel must not depend on Python**; another native program could serve as the initial user process. Executable formats, ABI compatibility, code integrity, selection policy, and process permissions remain separate engineering questions.
+**Legacy migration boundary:** import concrete 9front/Plan 9 source and binary files as O byte objects. During import distinguish architecture-specific `6c` programs by their explicit source paths; do not reproduce `/bin`, process-local directory views, `bind` or `mount` in O. Source paths may be kept as provenance or in a temporary migration manifest, but are not native object identities. Prospective build tooling may use numeric OID lists; no `mk.py` migration or object-native build system is claimed to work today.
+
+MicroPython is one executable program, not a kernel dependency or the native object ontology. The current bounded O executable-object loader exists; a general loader, program catalog and architecture selection are still experiments.
 
 ## 5. Boot without a root filesystem or initramfs
 
@@ -193,7 +174,7 @@ Do not replace the bootstrap harness with an initramfs or a pseudo-filesystem me
 
 Plan 9 presents files, devices, and services through per-process hierarchical namespaces. Its `Chan` and `Dev` abstractions expose operations such as `walk`, `open`, `read`, and `write`; `devmnt` translates relevant operations into **9P2000** requests when a file server is involved. A `fid` is a connection-scoped protocol handle; a `qid` is a server-scoped file identifier. Neither defines Plan2001's persistent object identity.
 
-Plan2001 retains useful *mechanisms* only where justified by experiments: process scheduling, memory protection, resource lifetime, reference management, device access, and byte-oriented I/O. **It does not adopt the file hierarchy, `walk`, `fid`, `qid`, or 9P2000 as the native object model.**
+Plan2001 retains useful *mechanisms* only where justified by experiments: process scheduling, memory protection, resource lifetime, reference management, device access, **byte-oriented files and streams**. **It does not adopt a root directory, hierarchical filesystem, pathname identity, `walk`, `fid`, `qid`, or 9P2000 as the native object model.**
 
 The following still need deliberate design:
 
@@ -267,4 +248,4 @@ Coding agents must follow [AGENTS.md](AGENTS.md). Verification and regression co
 
 ---
 
-**Plan2001-O asks what an operating system becomes when persistent identity and graph relationships are native, programs are objects, and the filesystem hierarchy is no longer the foundation.**
+**Plan2001-O retains files as object byte content, and removes the filesystem hierarchy as a required abstraction. Object identity and native graph relationships are independent of Python classes and Unix file metadata.**
