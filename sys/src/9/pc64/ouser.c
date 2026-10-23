@@ -24,7 +24,9 @@
 #include	"obootoid.i"
 
 enum {
-	CExecOid	= 0x4f45584543000004ULL,	/* fixture OID, see docs */
+	Maxargv		= 8,
+	CExecOid	= 0x4f45584543000004ULL,	/* C fixture OID */
+	MpOid		= 0x4f45584543000003ULL,	/* OID_MP_EXEC, unchanged */
 };
 
 typedef struct Oargs Oargs;
@@ -38,14 +40,16 @@ struct Oenter
 struct Oargs
 {
 	uvlong	oid;
+	long	argc;
 	long	vollen;
 	char	volspec[128];
 	char	space[8];
-	char	target[64];
+	char	argv[Maxargv][128];
 };
 
 int	oboot_user;
 int	oboot_oid;
+int	oboot_mp;
 int	oboot_userpid;
 int	oboot_usernsys;
 
@@ -124,12 +128,13 @@ ouserproc(void *arg)
 
 	USED(arg);
 	if(waserror())
-		panic("%s: bootstrap: %s", oboot_oid ? "OBOOT-C" : "OBOOT-B",
+		panic("%s: bootstrap: %s",
+			oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B",
 			up->errstr);
 
-	img = oboot_oid ? obootoid : obootuser;
-	imglen = oboot_oid ? sizeof(obootoid) : sizeof(obootuser);
-	tag = oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	img = (oboot_oid || oboot_mp) ? obootoid : obootuser;
+	imglen = (oboot_oid || oboot_mp) ? sizeof(obootoid) : sizeof(obootuser);
+	tag = oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
 	ouserimage(img, imglen, tag, &entry, &text);
 
 	/*
@@ -164,13 +169,25 @@ ouserproc(void *arg)
 
 	argp = 0;
 	sp = USTKTOP-sizeof(Tos)-64;
-	if(oboot_oid){
+	if(oboot_oid || oboot_mp){
 		memset(&oa, 0, sizeof oa);
-		oa.oid = CExecOid;
 		oa.vollen = obootvollen;
 		memmove(oa.volspec, obootvol, obootvollen);
 		memmove(oa.space, "init", 4);
-		memmove(oa.target, "obootctarget", 13);
+		if(oboot_mp){
+			oa.oid = MpOid;
+			oa.argc = 6;
+			memmove(oa.argv[0], "micropython", 12);
+			memmove(oa.argv[1], "-O", 3);
+			memmove(oa.argv[2], obootvol, obootvollen+1);
+			memmove(oa.argv[3], "-S", 3);
+			memmove(oa.argv[4], "init", 5);
+			memmove(oa.argv[5], "-B", 3);
+		}else{
+			oa.oid = CExecOid;
+			oa.argc = 1;
+			memmove(oa.argv[0], "obootctarget", 13);
+		}
 		argp = USTKTOP-2*BY2PG;
 		stackpage(up->seg[SSEG], argp, &oa, sizeof oa);
 		/* The block lives above the initial stack and is not grown into. */
@@ -187,36 +204,36 @@ ouserproc(void *arg)
 	poperror();
 
 	oboot_userpid = up->pid;
-	if(oboot_oid){
-		print("OBOOT-C: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
-			up->pid, entry, text, imglen,
-			up->slash == nil ? "nil" : "set",
-			up->dot == nil ? "nil" : "set");
-		print("OBOOT-C: VOLSPEC len=%d %s\n", obootvollen, obootvol);
-		print("OBOOT-C: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
-			oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
-		print("OBOOT-C: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
-			opath_namec, opath_newchan, opath_walk, opath_devwalk,
-			opath_mount, opath_exec);
-		print("OBOOT-C: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p arg=%#p\n",
-			up->pid, entry, sp, argp);
-	}else{
-		print("OBOOT-B: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
-			up->pid, entry, text, imglen,
-			up->slash == nil ? "nil" : "set",
-			up->dot == nil ? "nil" : "set");
-		print("OBOOT-B: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
-			oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
-		print("OBOOT-B: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
-			opath_namec, opath_newchan, opath_walk, opath_devwalk,
-			opath_mount, opath_exec);
-		print("OBOOT-B: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p\n",
-			up->pid, entry, sp);
+	print("%s: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
+		tag, up->pid, entry, text, imglen,
+		up->slash == nil ? "nil" : "set",
+		up->dot == nil ? "nil" : "set");
+	if(oboot_oid || oboot_mp)
+		print("%s: VOLSPEC len=%d %s\n", tag, obootvollen, obootvol);
+	if(oboot_mp){
+		print("OBOOT-D1: ARGV argc=%d", oa.argc);
+		{
+			int i;
+			for(i = 0; i < oa.argc; i++)
+				print(" <%s>", oa.argv[i]);
+		}
+		print("\nOBOOT-D1: OID=%#llux\n", oa.oid);
 	}
+	print("%s: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
+		tag, oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
+	print("%s: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+		tag, opath_namec, opath_newchan, opath_walk, opath_devwalk,
+		opath_mount, opath_exec);
+	if(oboot_oid || oboot_mp)
+		print("%s: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p arg=%#p\n",
+			tag, up->pid, entry, sp, argp);
+	else
+		print("%s: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p\n",
+			tag, up->pid, entry, sp);
 
 	splhi();
 	fpukexit(nil);
-	if(oboot_oid){
+	if(oboot_oid || oboot_mp){
 		oe.sp = sp;
 		oe.arg = argp;
 		otouser(&oe);
@@ -232,16 +249,19 @@ o_user_bootstrap(void)
 	char *p;
 	int n;
 
-	if(oboot_oid){
+	if(oboot_oid || oboot_mp){
 		p = getconf("obootvol");
 		if(p == nil || strncmp(p, "PARTUUID=", 9) != 0){
-			print("OBOOT-C: bad obootvol\n");
-			panic("OBOOT-C: obootvol must be PARTUUID=...");
+			print("%s: bad obootvol\n", oboot_mp ? "OBOOT-D1" : "OBOOT-C");
+			panic("%s: obootvol must be PARTUUID=...",
+				oboot_mp ? "OBOOT-D1" : "OBOOT-C");
 		}
 		n = strlen(p);
 		if(n <= 0 || n >= sizeof obootvol){
-			print("OBOOT-C: obootvol length %d\n", n);
-			panic("OBOOT-C: obootvol too long");
+			print("%s: obootvol length %d\n",
+				oboot_mp ? "OBOOT-D1" : "OBOOT-C", n);
+			panic("%s: obootvol too long",
+				oboot_mp ? "OBOOT-D1" : "OBOOT-C");
 		}
 		memmove(obootvol, p, n);
 		obootvol[n] = 0;

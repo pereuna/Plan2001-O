@@ -425,15 +425,17 @@ syscall(Ureg* ureg)
 	ulong scallnr;
 	uvlong arg0;
 	char *tag;
-	int trace;
+	int trace, budget;
 
 	if(!kenter(ureg))
 		panic("syscall: cs 0x%4.4lluX", ureg->cs);
 	fpukenter(ureg);
 	scallnr = ureg->bp;	/* RARG */
-	trace = (oboot_user || oboot_oid) && up->pid == oboot_userpid &&
-		userureg(ureg) && oboot_usernsys < 8;
-	tag = oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	budget = oboot_mp ? 64 : 8;
+	trace = (oboot_user || oboot_oid || oboot_mp) &&
+		up->pid == oboot_userpid &&
+		userureg(ureg) && oboot_usernsys < budget;
+	tag = oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
 	arg0 = 0;
 	if(trace)
 		memmove(&arg0, (Sargs*)(ureg->sp+BY2WD), sizeof arg0);
@@ -448,7 +450,15 @@ syscall(Ureg* ureg)
 			tag, up->pid, scallnr, ureg->ax, up->text, ureg->pc,
 			ureg->cs, ureg->ss, userureg(ureg));
 		oboot_usernsys++;
-		if(oboot_usernsys == 4)
+		if(oboot_mp && (oboot_usernsys == 4 ||
+		   oboot_usernsys == 16 || oboot_usernsys == 32 ||
+		   oboot_usernsys == 64))
+			print("%s: AFTER-SYSCALLS n=%d legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+				tag, oboot_usernsys,
+				oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
+				opath_namec, opath_newchan, opath_walk, opath_devwalk,
+				opath_mount, opath_exec);
+		else if(!oboot_mp && oboot_usernsys == 4)
 			print("%s: AFTER-SYSCALLS legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
 				tag, oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
 				opath_namec, opath_newchan, opath_walk, opath_devwalk,
