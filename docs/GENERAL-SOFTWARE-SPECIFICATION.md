@@ -1,6 +1,6 @@
 # A Computer Implementation of the Olio–Object Manifesto
 
-**General software specification — proposal 0.1 — 23 October 2026**
+**General software specification — proposal 0.2 — 23 October 2026**
 
 **Status:** Proposed architecture, not a statement of implemented behavior. This document defines **one possible computer implementation** of the independent [Finnish epistemological manifesto](OLIO-OBJEKTI-MANIFESTI.md). The manifesto supplies the philosophical distinctions; this document makes explicit engineering choices. Neither document proves a metaphysical theory.
 
@@ -8,7 +8,7 @@
 
 Build a computer system in which independently registered **olios** can persist before they have an assigned application meaning. Operations and relations bring these olios into contexts in which they function as **objects**. Observations produce **manifestations**. Persistent named graphs express relationships without making a directory tree, class hierarchy, or preassigned semantic type the prerequisite for existence.
 
-This is a possible implementation, not a universal model of all physical reality. Its storage hardware, encodings, addressing widths, clocks, and execution environments are contingent engineering choices.
+This is a **deliberately limited proof of concept on conventional 64-bit hardware**, not a universal model of physical reality. It uses ordinary eight-bit bytes, an existing kernel and storage code base, a persistent disk, and networking. Local display and keyboard are appropriate for desktop use; servers are accessed remotely over the network. Storage hardware, encodings, addressing widths, clocks, and execution environments are contingent engineering choices. Reusing them is a strength, not a philosophical concession.
 
 The design separates four questions:
 
@@ -37,7 +37,7 @@ Here **entity** is the closest conventional English word for *olio*, but alone i
 
 ## 3. One concrete storage profile
 
-For the first computer implementation, choose a finite digital computer and an opaque, versioned storage engine. Its internal records and transfer buffers may be sequences of eight-bit octets. **That fact describes the chosen carrier, not what every olio inherently is.** A hexadecimal display, byte length, file classification, endianness, numeric value, or character encoding is already a choice of representation or observation.
+For this implementation, choose a **conventional 64-bit digital computer** and reuse the existing opaque, versioned GE/O storage engine as far as practical. Its records and transfer buffers **are ordinary eight-bit octet sequences by design**. This is the simplest useful implementation carrier and is fully compatible with the manifesto; **it does not define what every olio inherently is**. A hexadecimal display, byte length, file classification, endianness, numeric value, or character encoding remains a choice of representation or observation.
 
 This profile may use:
 
@@ -45,13 +45,13 @@ This profile may use:
 - a numeric OID unique and never reused **within that space**;
 - a mapping from (space identifier, OID, version) to an opaque retained carrier;
 - explicit publication of revisions and recoverable committed state;
-- a separate service for persistent graph relations.
+- a distinct **logical layer** for persistent graph relations, implemented incrementally using existing storage code where possible (not necessarily a new service or daemon).
 
 An OID MUST NOT be calculated from content. Independently registered occurrences with equal carriers MUST remain individually distinguishable. The same OID MAY have several committed versions under an explicitly defined revision policy. No globally unique cross-machine identifier is assumed.
 
 The first profile can be backed by the repository's existing GE/O storage, including its currently octet-oriented records and scoped identifiers. This is a compatibility opportunity, **not** a claim that the graph, allocation, observation, or naming APIs below already exist. Existing source and [O-FORMAT.md](O-FORMAT.md) define actual representation; [STATUS.md](STATUS.md) defines verification evidence.
 
-A different profile could transport seven-bit symbols or digitized analogue measurements. The abstract olio model MUST NOT require that such observations be defined as eight-bit bytes. A digital backend can still encode them in octets; that encoding must be explicit at the adapter boundary.
+A different, hypothetical profile could transport seven-bit symbols or digitized analogue measurements. Such alternatives illustrate why the philosophical definition does not equate an olio with a byte sequence; **they are explicitly outside this PoC's implementation scope**. No generalized carrier abstraction, analogue hardware support or alternative-word-size backend is required. Use straightforward octet-based code and existing APIs.
 
 ## 4. Registration and existence
 
@@ -186,7 +186,7 @@ This specification does **not** require an analogue computer, solve the philosop
 
 ## 13. Relationship to the existing proof of concept
 
-The repository's current O profile already offers useful **engineering substrates**: scoped OIDs, versioned opaque octet payloads, and a functioning persistent execution experiment. It does not yet have a general OID allocator, persistent native relation graphs, or an observation API with the semantics above. The existing Python persistence graph is not the proposed independent named-graph layer.
+The repository's current O profile already provides the **preferred implementation base**: scoped OIDs, versioned opaque byte payloads, a functioning persistent execution experiment, and inherited kernel, device, console and network facilities. Reuse these before designing replacements. It does not yet have a general OID allocator, persistent native relation graphs, or an observation API with the semantics above. The existing Python persistence graph is not the proposed independent named-graph layer. **These gaps justify small experiments, not a kernel rewrite.**
 
 Accordingly:
 
@@ -194,6 +194,12 @@ Accordingly:
 - [STATUS.md](STATUS.md) documents demonstrated behavior and tests.
 - [OBJECT-MODEL.md](OBJECT-MODEL.md) records the earlier byte-file-centered architecture; where its philosophical assertions differ, this document is the **new proposed conceptual direction**, not evidence of an implementation change.
 - [OLIO-OBJEKTI-MANIFESTI.md](OLIO-OBJEKTI-MANIFESTI.md) is the independent philosophical foundation.
+
+### Proof-of-concept execution constraints
+
+The target environment is a typical 64-bit machine with RAM, persistent disk and network connectivity. Desktop use exposes available display and keyboard facilities; server use exposes remote control over the existing network path. The first user interface may be a command line or REPL. A new desktop GUI, remote protocol or replacement network stack is not a prerequisite.
+
+Coding work should favor (in order) direct reuse of existing working code, a small adaptation, then a new narrowly scoped component. Keep the existing octet-based representation and on-disk format until a concrete experiment justifies change. Do not replace inherited Plan2001/9front subsystems simply because their terminology differs from the manifesto.
 
 Future implementation changes require separate technical design, code, and verification. No new API, graph index, storage migration, or disk-format revision is authorized merely by publishing this proposal.
 
