@@ -28,14 +28,16 @@ def run():
     except OSError as e:
         if "allocator" not in str(e):
             raise AssertionError("Oreg: FAIL wrong corruption error: %s" % e)
-        print("Oreg: PASS corrupt-allocator-rejected", e)
+        print("Oreg: PASS corrupt-allocator-rejected")
+        print("Oreg: corrupt-allocator-detail", e)
     else:
         raise AssertionError("Oreg: FAIL corrupt allocator accepted")
 
     try:
         space.oregister()
     except OSError as e:
-        print("Oreg: PASS corrupt-allocator-still-rejected", e)
+        print("Oreg: PASS corrupt-allocator-still-rejected")
+        print("Oreg: corrupt-allocator-detail", e)
     else:
         raise AssertionError("Oreg: FAIL corrupt allocator later accepted")
 

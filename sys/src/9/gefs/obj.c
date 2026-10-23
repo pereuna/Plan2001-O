@@ -1104,6 +1104,9 @@ objabortfid(Fid *f, int id)
 static Otx*	ospacetx(Ospace*);
 static void	ospaceputdata(Otx*, uvlong, void*, long);
 
+/* serializes a whole create (or commit) with its sync across handles */
+static QLock	oalloclk;
+
 /*
  * A candidate is never handed out if it falls in a reserved range or if
  * any published record (including a tombstone) already names it.  The
@@ -1206,6 +1209,11 @@ ospacecreate(Ospace *sp, void *data, long n, uvlong *oid)
 	if(oid == nil)
 		error("O: no OID result pointer");
 	fs = sp->fs;
+	qlock(&oalloclk);
+	if(waserror()){
+		qunlock(&oalloclk);
+		nexterror();
+	}
 	qlock(&sp->lk);
 	if(waserror()){
 		qunlock(&sp->lk);
@@ -1257,6 +1265,8 @@ ospacecreate(Ospace *sp, void *data, long n, uvlong *oid)
 	qunlock(&sp->lk);
 	poperror();
 	*oid = cand;
+	qunlock(&oalloclk);
+	poperror();
 	return 0;
 }
 
@@ -1362,6 +1372,11 @@ ospacecommit(Ospace *sp)
 	Ohdr h;
 	uvlong v;
 
+	qlock(&oalloclk);
+	if(waserror()){
+		qunlock(&oalloclk);
+		nexterror();
+	}
 	qlock(&sp->lk);
 	if(waserror()){
 		qunlock(&sp->lk);
@@ -1387,6 +1402,8 @@ ospacecommit(Ospace *sp)
 		gesync(fs, 0);
 	}
 	qunlock(&sp->lk);
+	poperror();
+	qunlock(&oalloclk);
 	poperror();
 	return v;
 }
