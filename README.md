@@ -170,6 +170,8 @@ UEFI / EFI System Partition
            run()
 ```
 
+Since implementation commit `e384300`, a `PARTUUID=` O volume is discovered and used through a direct internal SD block provider for GE reads, writes, sync and cache flush, with no kernel `Chan`/`namec`/walk/mount in that measured storage window (Level A only; see [docs/O-BOOT-DEPENDENCIES.md](docs/O-BOOT-DEPENDENCIES.md)). The bootstrap and console still use the legacy `/boot` and `/dev` paths below.
+
 The normal kernel image embeds the small **`oinit` bootstrap** and the **`kbdfs` console helper**, not MicroPython. `oinit` is reached through the inherited internal boot interface and the read-only `devroot` machinery. It opens the O volume and the flat `init` Space, then calls the bounded native loader for the MicroPython executable stored at fixed OID `0x4f45584543000003`. There is no `/boot/mp` and no pathname-based MicroPython `exec` on the normal path. The embedded files are still a tiny kernel-memory file interface, **not initramfs, a disk filesystem, or the target object architecture**.
 
 Once running, the PoC loads the Python Environment, compiled `.mpy` definitions, and persistent state **from the O partition without mounting a filesystem root**. The EFI System Partition and the developer's build-host files are boot/build inputs, not evidence that the O runtime needs files.

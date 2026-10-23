@@ -1,7 +1,8 @@
 # Implementation status — Plan2001-O
 
 **Status date:** 23 October 2026. **Current runtime evidence baseline:**
-`main` at implementation commits `a9c3247` and `077ba29`, with the
+`main` at implementation commit `e3843009a79f762f30e70a459fffafb7c85e9a8f`
+(pathless Level A O storage), preceded by `a9c3247`/`077ba29`, with the
 registration gate rerun at clean test commit `09cb651` (local native OID
 registration). The previous baseline was
 `bf2117e0c6a01310d5cfc7acaaeb06534ad10eca` (native O byte objects by
@@ -26,6 +27,7 @@ experiments in [POC.md](POC.md), and the implemented on-disk contract in
 | **Demonstrated in the source branch** | Five reported GE/O QEMU regression gates, including three boots of one ESP + O image with counter `1 -> 2 -> 3` and preserved Counter OID/alias. See [POC.md](POC.md). |
 | **Statically verified in Plan2001-O** | Documentation references and repository metadata checked at `5413fc6a1e801f377cd3f428336b3543d7ddf83d`; details below. |
 | **Runtime verified in Plan2001-O** | **PASS:** on 23 October 2026 the full amd64 build, selfroot, the new native byte-object gate (`tools/test-o-bytefile.sh`) and all nine existing O-only gates passed with KVM at implementation commit `bf2117e`; earlier runs used `016ccff`, `b41a102` and `4678fad`. See the records below and `build/verification/*.log`. |
+| **Pathless storage, Level A** | **PASS (23 October 2026):** a `PARTUUID=` O volume is discovered in GPT from enumerated SD units and used for GE block I/O, sync and driver flush with no new kernel `Chan`/`namec`/walk/mount/path-exec event in the measured window. Bootstrap and console remain legacy, so Levels B/C are **NOT YET**. See [O-BOOT-DEPENDENCIES.md](O-BOOT-DEPENDENCIES.md). |
 | **Proposed, not implemented** | Native GE/O relationship indexes/edges, per-Python-object O records, general native executable-object loading (catalog, architecture selection, dynamic linking), general persistent namespaces, object IPC and a remote protocol. |
 
 Never promote source inspection or a successful source-branch test into
@@ -258,6 +260,87 @@ uniqueness, deletion/GC or retention API. A malformed allocator header is
 rejected rather than repaired. The 1 MiB whole-object limit is a PoC
 bound. The underlying GE/O v1 disk layout is unchanged; the allocator is
 an additive interpretation of the existing Space header user part.
+
+## Pathless native O storage — 23 October 2026
+
+**Source state:** implementation commit
+`e3843009a79f762f30e70a459fffafb7c85e9a8f` (`ge/o: route native O
+storage through direct SD blocks`), plus this documentation follow-up.
+The dedicated gate, registration gate, byte-object gate and the nine
+existing O-only gates were run with KVM on disposable QEMU images.
+
+**Implemented (Level A only)**
+
+- A `PARTUUID=` O volume is found by parsing GPT directly from
+  enumerated `SDunit`s (`sdunititer`, `sdunitready`, `oblockgptpart`),
+  with no `#S` directory read or `namec`.
+- GE's block reads, writes, sync and cache flush for this O instance go
+  through `sdblockrw`/`sdblockflush` and the controller's `SDifc.bio` /
+  raw flush path. The legacy `#S/.../raw` flush reopen is bypassed for
+  this instance. No GE/O v1 format or OID allocator change.
+- `opath=1` instrumentation counts the kernel `namec`, `newchan`,
+  `walk`, `devwalk`, `cmount` and path-`sysexec` entry points.
+  `oblocktest=1` checks partition-relative bounds and `SDmaxio`
+  clamping; `sdflushlog=1` confirms the virtio 0x35 flush reached
+  `vioblkreq`.
+- `tools/test-o-pathless.sh` covers three boots of one disk with
+  registration/persistence, missing PARTUUID, a malformed GPT header on
+  another unit, flush evidence and the zero-delta storage window.
+
+**Commands**
+
+```bash
+WHAT=all tools/build.sh
+ORIGIN=https://github.com/pereuna/Plan2001-O.git tools/selfroot build/selfroot
+tools/test-o-pathless.sh
+tools/test-o-register.sh
+tools/test-o-bytefile.sh
+for gate in test-o-boot-omp test-o-boot test-o-exec test-o-exec-args             test-o-handles test-ge test-o-volume test-o-objects test-o-space; do
+    "tools/$gate.sh" > "build/verification/$gate-pathless.log" 2>&1
+done
+```
+
+**Results**
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Full amd64 build | **PASS** | `BUILD-DONE`; `9pc64` md5 `d9f3184e9ab545ef9a433fb220e87d0d`, test-only `9pc64mp` md5 `97ea4dbc4241ff41e84b4dd7b412e108`. `build/verification/build-pathless-final.log` |
+| selfroot | **PASS** | `build/selfroot` at `2c7a244` with the `e384300` binaries. `build/verification/selfroot-pathless-final.log` |
+| Pathless Level A | **PASS** | `PASS: Level A pathless native GE/O storage window, persistence and bounds`. Three boots: `opath: volopen-enter/opened/started namec=38 newchan=110 walk=57 devwalk=82 mount=7 exec=1` unchanged, i.e. zero events added by O open/GE start. `oblocktest` four PASS markers and `sdvirtio: flush PASS` on every boot. `build/verification/test-o-pathless-final.log` |
+| Missing/malformed partition | **PASS** | Both cases printed `no disk has that partition`; `opath: volopen-enter` and `volopen-error` were identical (`namec=34 newchan=94 walk=49 devwalk=70 mount=7 exec=1`), so failed discovery did not fall back to `namec`. The later `panic: boot process died: fail` is the expected init-exit diagnostic for these negative cases. `build/verification/test-o-pathless-final.log` |
+| Local OID registration | **PASS** | Unmodified `tools/test-o-register.sh`: four boots, explicit-ID collision skips, monotonic registration, two-process distinct IDs, corrupt-state rejection and unsupported-mode error. `build/verification/test-o-register-pathless.log` |
+| Native byte objects | **PASS** | Unmodified `tools/test-o-bytefile.sh`: three boots, empty/binary/multi-chunk values, equal bytes/distinct OIDs, revision without allocation and REPL unsupported mode. `build/verification/test-o-bytefile-pathless.log` |
+| Existing O-only gates | **PASS** | `test-o-boot-omp`, `test-o-boot`, `test-o-exec`, `test-o-exec-args`, `test-o-handles`, `test-ge`, `test-o-volume`, `test-o-objects`, `test-o-space`. `build/verification/test-o-*-pathless.log` |
+| Bootstrap pathless (Level B) | **NOT YET** | Executed chain still runs `initcode.c:startboot` `bind`/`open /dev/cons`/path-exec `/boot/oinit`; `proc0` also seeds `namec("#/")`. An attempted in-`initcode` O branch exceeded the one-page image and faulted in `proc0`'s `kmap`/`memset`; it was reverted. |
+| Console pathless (Level C) | **NOT YET** | `boot.py` binds devices, spawns `/boot/kbdfs`, opens `/dev/cons`; `p9console.c` uses fd 1 and `/dev/consctl`. No direct input/REPL path was implemented or claimed. |
+
+**Measured Level A transcript** (final gate, boot 1; boots 2 and 3 are
+identical in the window):
+
+```text
+opath: volopen-enter  namec=38 newchan=110 walk=57 devwalk=82 mount=7 exec=1
+oblocktest: PASS in-range-read
+oblocktest: PASS read-at-end
+oblocktest: PASS oversized-read-clamped
+oblocktest: PASS write-past-end
+o: O volume #S/sdF0/data@68157440, 192 MiB, opened without FS (native SD block)
+opath: volopen-opened namec=38 newchan=110 walk=57 devwalk=82 mount=7 exec=1
+opath: volopen-started namec=38 newchan=110 walk=57 devwalk=82 mount=7 exec=1
+sdvirtio: flush PASS
+```
+
+The pre-window counts are the positive control: the legacy `/boot`
+bootstrap really did allocate Chans, walk names and path-execute before
+the storage window. The zero deltas are the Level A result. The complete
+call-chain audit, classification and B/C blockers are in
+[O-BOOT-DEPENDENCIES.md](O-BOOT-DEPENDENCIES.md).
+
+**Remaining limits:** Level A applies to one active O volume selected by
+`PARTUUID=` on an enumerated SD unit. Explicit device specs still use the
+legacy `namec` path; a second simultaneous O volume, hot unplug, remote
+observation and machine-wide identity are not pathless. The bootstrap and
+console remain the B/C blockers. No physical disk was written or
+reformatted.
 
 ## Phase C validation record
 
