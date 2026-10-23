@@ -666,6 +666,13 @@ struct Schedq
 	int	n;
 };
 
+enum {
+	Iohout		= 1,	/* native stdout stream */
+	Iohdiag		= 2,	/* native diagnostic stream */
+	Iomout		= 1<<0,
+	Iomdiag		= 1<<1,
+};
+
 struct Proc
 {
 	Label	sched;		/* known to l.s */
@@ -704,6 +711,7 @@ struct Proc
 	Egrp 	*egrp;		/* Environment group */
 	Fgrp	*fgrp;		/* File descriptor group */
 	void	*ohandles;	/* Process-local native O Space handles */
+	ulong	iomask;		/* Process-local native output grants */
 	Rgrp	*rgrp;		/* Rendez group */
 
 	Fgrp	*closingfgrp;	/* used during teardown */

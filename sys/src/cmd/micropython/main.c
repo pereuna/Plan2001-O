@@ -155,7 +155,7 @@ int main(int argc, char **argv) {
     } else if (argc >= 2 && argv[1][0] != '-') {
         file = argv[1];
     } else if (argc != 1) {
-        fprint(2, "usage: micropython [-O volume] [-E env | -S space] [-B | -c source | file [arg...]]\n");
+        p9_dprintf("usage: micropython [-O volume] [-E env | -S space] [-B | -c source | file [arg...]]\n");
         exits("usage");
     }
     // inf and nan as results, as in C: Plan 9 traps them by default
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     if (space != NULL) {
         // the name goes into Python's source: a plain one
         if (strlen(space) >= 64 || space[strcspn(space, "'\\/\n")] != 0) {
-            fprint(2, "micropython: -S %s: not a space name\n", space);
+            p9_dprintf("micropython: -S %s: not a space name\n", space);
             exits("usage");
         }
         snprint(useenv, sizeof useenv, "__import__('space').open('%s')", space);
@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
     } else {
         // the name goes into Python's source: an Environment's is hex
         if (strlen(env) > 64 || env[strspn(env, "0123456789abcdef")] != 0) {
-            fprint(2, "micropython: -E %s: not an Environment\n", env);
+            p9_dprintf("micropython: -E %s: not an Environment\n", env);
             exits("usage");
         }
         snprint(useenv, sizeof useenv, "import space\nspace.useenv('%s')", env);
@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
         fail = 1;
         if (autorun) {
             bootfail = 1;
-            fprint(2, "init: failed, no commit\n");
+            p9_dprintf("init: failed, no commit\n");
         }
     }
     if (autorun) {
@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
             fail = 1;
         }
         if (!uncaught && !bootfail) {
-            fprint(2, "init: done\n");
+            p9_dprintf("init: done\n");
         }
         p9_console_restore();
         for (;;) {

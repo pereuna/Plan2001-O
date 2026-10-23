@@ -34,6 +34,7 @@ long	ospacecreate(int, void*, long, uvlong*);
 long	ospacecommit(int, uvlong*);
 long	ospaceclose(int);
 long	oexecute(int, uvlong, char**, int);
+long	iowrite(int, void*, long);
 
 struct Call{
 	char	*name;

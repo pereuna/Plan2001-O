@@ -25,6 +25,7 @@
 #include "py/objtuple.h"
 #include "py/objexcept.h"
 #include "p9space.h"
+#include "p9console.h"
 
 // Stage 4: the native O calls (sys.h, devgefs.c's sysospace*)
 extern long ovolopen(char *, int);
@@ -102,7 +103,7 @@ void p9_spacetime(const char *what, vlong t0) {
         free(e);
     }
     if (on) {
-        fprint(2, "spacetime: %s %lld ms\n", what, (nsec() - t0) / 1000000);
+        p9_dprintf("spacetime: %s %lld ms\n", what, (nsec() - t0) / 1000000);
     }
 }
 
@@ -359,11 +360,11 @@ int p9_space_o(const char *spec) {
         char buf[ERRMAX];
 
         rerrstr(buf, sizeof buf);
-        fprint(2, "micropython: -O %s: %s\n", spec, buf);
+        p9_dprintf("micropython: -O %s: %s\n", spec, buf);
         return -1;
     }
     ovol = (int)h;
-    fprint(2, "space: O volume selected: %s\n", spec);
+    p9_dprintf("space: O volume selected: %s\n", spec);
     return 0;
 }
 
@@ -634,7 +635,7 @@ static void loadmpy(mp_obj_t envmap, const char *lib, qstr name, mp_obj_t mod, m
         mp_raw_code_load_mem((const byte *)v.buf, v.len, cm);
         snprint(path, sizeof path, "<O:%s>", d->def);
         mp_store_attr(mod, MP_QSTR___file__, MP_OBJ_NEW_QSTR(qstr_from_str(path)));
-        fprint(2, "space: O: %s code OID %s, digest %s\n", qstr_str(name), oid, d->mpy);
+        p9_dprintf("space: O: %s code OID %s, digest %s\n", qstr_str(name), oid, d->mpy);
         return;
     }
     snprint(path, sizeof path, "%s/mod/%s.mpy", lib, mp_obj_str_get_str(el->value));
@@ -1330,7 +1331,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
         sp.fmt = h.fmt;
         sp.pin = h.pin;
         vstr_clear(&st);
-        fprint(2, "space: O: restored %s version %lld, Environment %s\n",
+        p9_dprintf("space: O: restored %s version %lld, Environment %s\n",
             name, sp.n, h.env);
     } else {
         ofresh = 1;
@@ -1339,7 +1340,7 @@ static mp_obj_t ospace_open(size_t n_args, const mp_obj_t *args) {
         sp.next = OID_FIRST;
         sp.fmt = 1;
         sp.pin = 0;
-        fprint(2, "space: O: %s has no graph, Environment %s\n",
+        p9_dprintf("space: O: %s has no graph, Environment %s\n",
             name, mp_obj_str_get_str(envitem(0)));
     }
     nlr_pop();
@@ -1383,7 +1384,7 @@ int p9_space_boot(void) {
     mp_obj_t globals, run, res;
 
     if (ovol < 0 || !sp.isopen) {
-        fprint(2, "init: no O Space is open\n");
+        p9_dprintf("init: no O Space is open\n");
         return -1;
     }
     if (nlr_push(&nlr) == 0) {
@@ -1400,15 +1401,15 @@ int p9_space_boot(void) {
             run = globget(globals, qrun);
             mp_obj_dict_store(MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main)),
                 MP_OBJ_NEW_QSTR(qrun), run);
-            fprint(2, "space: O: init initialized from O code (%s)\n", OINIT_MODULE);
+            p9_dprintf("space: O: init initialized from O code (%s)\n", OINIT_MODULE);
         } else {
             m = p9_space_loadmod(modname);
             globals = MP_OBJ_FROM_PTR(m->ctx->module.globals);
             run = globget(MP_OBJ_FROM_PTR(&MP_STATE_VM(dict_main)), qrun);
-            fprint(2, "space: O: init restored (%s), no module initialization\n", OINIT_MODULE);
+            p9_dprintf("space: O: init restored (%s), no module initialization\n", OINIT_MODULE);
         }
         res = mp_call_function_0(run);
-        fprint(2, "init: run() -> %d\n", mp_obj_get_int(res));
+        p9_dprintf("init: run() -> %d\n", mp_obj_get_int(res));
         nlr_pop();
         return 0;
     }
@@ -1434,7 +1435,7 @@ int p9_space_report(void) {
         n = mp_load_attr(shared, qstr_from_str("n"));
         soid = p9_image_oid(MP_OBJ_TO_PTR(shared));
         aoid = p9_image_oid(MP_OBJ_TO_PTR(alias));
-        fprint(2, "init: shared Counter n %d, alias %s, OID %llux (alias %llux)\n",
+        p9_dprintf("init: shared Counter n %d, alias %s, OID %llux (alias %llux)\n",
             mp_obj_get_int(n), shared == alias ? "same" : "different", soid, aoid);
         nlr_pop();
         return 0;
@@ -2391,7 +2392,7 @@ static void ocommit(void) {
         raise_err();
     }
     sp.n = v;
-    fprint(2, "space: O: committed %s version %lld (O version %llud)\n",
+    p9_dprintf("space: O: committed %s version %lld (O version %llud)\n",
         sp.name, sp.n, nver);
 }
 

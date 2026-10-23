@@ -197,6 +197,8 @@ ouserproc(void *arg)
 	up->kp = 0;
 	up->noswap = 0;
 	up->privatemem = 0;
+	if(oboot_mp)
+		up->iomask = Iomout|Iomdiag;
 	procpriority(up, PriNormal, 0);
 	procsetup(up);
 

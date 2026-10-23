@@ -58,3 +58,4 @@
 #define	OSPACECLOSE	59
 #define	OEXECUTE	60
 #define	OSPACECREATE	61
+#define	IOWRITE		62

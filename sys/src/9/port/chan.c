@@ -8,6 +8,7 @@
 /* Plan2001: counters for the pathless-boot proof (port/devgefs.c). */
 uvlong	opath_namec, opath_newchan, opath_walk, opath_devwalk;
 uvlong	opath_mount, opath_exec;
+extern int oboot_mp, oboot_userpid;
 
 enum
 {
@@ -1308,6 +1309,10 @@ namec(char *aname, int amode, int omode, ulong perm)
 	int len, n, t, nomount;
 
 	opath_namec++;
+	if(oboot_mp && up != nil && up->pid == oboot_userpid)
+		print("OBOOT-D1: NAMEC-ENTER aname=%#p slash=%#p counters namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			aname, up->slash, opath_namec, opath_newchan,
+			opath_walk, opath_devwalk, opath_mount, opath_exec);
 	Chan *c;
 	Chan *volatile cnew;
 	Path *volatile path;

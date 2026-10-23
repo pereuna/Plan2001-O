@@ -62,6 +62,7 @@ Syscall sysospacecreate;
 Syscall sysoexecute;
 Syscall sysospacecommit;
 Syscall sysospaceclose;
+Syscall sysiowrite;
 Syscall	sysdeath;
 
 Syscall *systab[]={
@@ -125,6 +126,7 @@ Syscall *systab[]={
 	[OEXECUTE]	sysoexecute,
 	[OSPACECOMMIT]	sysospacecommit,
 	[OSPACECLOSE]	sysospaceclose,
+	[IOWRITE]	sysiowrite,
 };
 
 char *sysctab[]={
@@ -188,6 +190,7 @@ char *sysctab[]={
 	[OEXECUTE]	"Oexecute",
 	[OSPACECOMMIT]	"Ospacecommit",
 	[OSPACECLOSE]	"Ospaceclose",
+	[IOWRITE]	"Iowrite",
 };
 
 int nsyscall = (sizeof systab/sizeof systab[0]);

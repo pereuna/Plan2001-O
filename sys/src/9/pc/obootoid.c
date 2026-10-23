@@ -29,6 +29,8 @@ extern long ovolopen(char*, int);
 extern long ospaceopen(int, char*, int);
 extern long ospaceget(int, uvlong, void*, long, uvlong*);
 extern long oexecute(int, uvlong, char**, int);
+extern long iowrite(int, void*, long);
+extern long pwrite(int, void*, long, vlong);
 
 void
 _main(struct Oargs *a)
@@ -37,6 +39,17 @@ _main(struct Oargs *a)
 	long h;
 	int i;
 
+	/* D2a user-originated negative checks; no output on any of these. */
+	if(a->argc == 6){
+		if(iowrite(99, nil, 0) != -1)
+			alarm(0x0e01);
+		if(iowrite(1, nil, -1) != -1)
+			alarm(0x0e02);
+		if(iowrite(2, nil, 64*1024+1) != -1)
+			alarm(0x0e03);
+		if(pwrite(2, a->argv[0], 1, -1) != -1)
+			alarm(0x0e04);
+	}
 	if(ovolopen(a->volspec, a->vollen) != 1){
 		alarm(0x0bad);
 		for(;;)

@@ -423,7 +423,8 @@ void
 syscall(Ureg* ureg)
 {
 	ulong scallnr;
-	uvlong arg0;
+	uvlong arg0, arg1;
+	int arg2;
 	char *tag;
 	int trace, budget;
 
@@ -436,15 +437,26 @@ syscall(Ureg* ureg)
 		up->pid == oboot_userpid &&
 		userureg(ureg) && oboot_usernsys < budget;
 	tag = oboot_mp ? "OBOOT-D1" : oboot_oid ? "OBOOT-C" : "OBOOT-B";
-	arg0 = 0;
+	arg0 = arg1 = 0;
+	arg2 = 0;
 	if(trace)
 		memmove(&arg0, (Sargs*)(ureg->sp+BY2WD), sizeof arg0);
+	if(trace && scallnr == IOWRITE){
+		memmove(&arg1, (char*)(ureg->sp+BY2WD)+sizeof arg0, sizeof arg1);
+		memmove(&arg2, (char*)(ureg->sp+BY2WD)+2*sizeof arg0, sizeof arg2);
+	}
 	if(trace)
 		print("%s: SYSCALL-ENTRY pid=%lud nr=%lud arg0=%#llux text=%s pc=%#llux sp=%#llux cs=%#llux ss=%#llux user=%d\n",
 			tag, up->pid, scallnr, arg0, up->text, ureg->pc, ureg->sp,
 			ureg->cs, ureg->ss, userureg(ureg));
+	if(trace && scallnr == IOWRITE)
+		print("%s: IOWRITE-ENTRY pid=%lud h=%lud buf=%#llux n=%d text=%s pc=%#llux\n",
+			tag, up->pid, arg0, arg1, arg2, up->text, ureg->pc);
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->ax))
 		((void**)&ureg)[-1] = (void*)noteret;	/* loads RARG */
+	if(trace && scallnr == IOWRITE)
+		print("%s: IOWRITE-RETURN pid=%lud h=%lud buf=%#llux n=%d ret=%lld\n",
+			tag, up->pid, arg0, arg1, arg2, (vlong)ureg->ax);
 	if(trace){
 		print("%s: SYSCALL-RETURN pid=%lud nr=%lud ret=%#llux text=%s pc=%#llux cs=%#llux ss=%#llux user=%d\n",
 			tag, up->pid, scallnr, ureg->ax, up->text, ureg->pc,

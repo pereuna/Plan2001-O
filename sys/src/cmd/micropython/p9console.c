@@ -2,7 +2,25 @@
 #include "p9compat.h"
 #include <keyboard.h>
 #include "p9console.h"
+
+/* D2a: the kernel grants these process-local handles only to oboot=mp. */
+extern long iowrite(int, void*, long);
+
+enum {
+	Iohout	= 1,
+	Iohdiag	= 2,
+};
+
+static int nativeout = -1;
 static int consctl = -1;
+
+int
+p9_native_output(void)
+{
+	if(nativeout < 0)
+		nativeout = iowrite(Iohout, nil, 0) >= 0;
+	return nativeout;
+}
 
 void p9_console_restore(void) {
     if (consctl >= 0) {
@@ -81,6 +99,16 @@ int p9_console_read(void) {
 
 int p9_console_write(const char *data, size_t size) {
     long n;
+    if (p9_native_output()) {
+        while (size) {
+            size_t m = size > 4096 ? 4096 : size;
+            n = iowrite(Iohout, (void *)data, (long)m);
+            if (n != (long)m) return -1;
+            data += m;
+            size -= m;
+        }
+        return 0;
+    }
     while (size) {
         n = write(1, (void *)data, size > 8192 ? 8192 : (long)size);
         if (n <= 0) return -1;
@@ -88,6 +116,29 @@ int p9_console_write(const char *data, size_t size) {
         size -= n;
     }
     return 0;
+}
+
+/*
+ * Bounded diagnostic formatter.  In the native-output boot it uses the
+ * process-local DIAGNOSTIC stream; otherwise it preserves the legacy
+ * fprint(2,...) behavior exactly.  No fallback from native to fd 2.
+ */
+void
+p9_dprintf(char *fmt, ...)
+{
+    char buf[2048];
+    va_list va;
+    int n;
+
+    va_start(va, fmt);
+    n = vsnprint(buf, sizeof buf, fmt, va);
+    va_end(va);
+    if (n <= 0) return;
+    if (p9_native_output()) {
+        if (iowrite(Iohdiag, buf, n) != n)
+            return;
+    } else
+        fprint(2, "%s", buf);
 }
 
 unsigned long long p9_console_msec(void) {

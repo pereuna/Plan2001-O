@@ -144,6 +144,8 @@ fdtochan(int fd, int mode, int chkmnt, int iref)
 
 	f = up->fgrp;
 
+	if(f == nil)
+		error(Ebadfd);
 	lock(f);
 	if(fd<0 || f->nfd<=fd || (c = f->fd[fd])==nil) {
 		unlock(f);
@@ -830,6 +832,58 @@ syspwrite(va_list list)
 	return (uintptr)write(fd, buf, len, offp);
 }
 
+extern int oboot_mp, oboot_userpid;
+extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
+extern uvlong opath_mount, opath_exec;
+
+enum {
+	Iomax	= 64*1024,
+};
+
+/*
+ * Plan2001 D2a: process-local native output stream.  The handle is not an
+ * fd, Chan or pathname: it is authorized by the Proc's iomask and the
+ * temporary backend is the existing console UART through putstrn().
+ */
+uintptr
+sysiowrite(va_list list)
+{
+	int h;
+	char *buf, *p;
+	long n;
+	ulong bit;
+
+	h = va_arg(list, int);
+	buf = va_arg(list, char*);
+	n = va_arg(list, long);
+	if(h < Iohout || h > Iohdiag)
+		error(Ebadarg);
+	bit = 1UL << (h-1);
+	if((up->iomask & bit) == 0)
+		error(Ebadarg);
+	if(n < 0 || n > Iomax)
+		error(Ebadarg);
+	if(n == 0)
+		return 0;
+	if(consuart == nil || consuart->phys->putc == nil)
+		error("no console UART");
+	validaddr((uintptr)buf, n, 0);
+	p = smalloc(n);
+	if(waserror()){
+		free(p);
+		nexterror();
+	}
+	memmove(p, buf, n);
+	putstrn(p, (int)n);
+	if(oboot_mp && up != nil && up->pid == oboot_userpid)
+		print("OBOOT-D2A: OUTPUT h=%d n=%ld counters namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			h, n, opath_namec, opath_newchan, opath_walk,
+			opath_devwalk, opath_mount, opath_exec);
+	free(p);
+	poperror();
+	return n;
+}
+
 static vlong
 sseek(int fd, vlong o, int type)
 {
@@ -1095,6 +1149,10 @@ bindmount(int ismount, int fd, int afd, char* arg0, char* arg1, int flag, char* 
 	return ret;
 }
 
+extern int oboot_mp, oboot_userpid;
+extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
+extern uvlong opath_mount, opath_exec;
+
 uintptr
 sysbind(va_list list)
 {
@@ -1104,6 +1162,11 @@ sysbind(va_list list)
 	arg0 = va_arg(list, char*);
 	arg1 = va_arg(list, char*);
 	flag = va_arg(list, int);
+	if(oboot_mp && up != nil && up->pid == oboot_userpid)
+		print("OBOOT-D1: BIND-ENTRY arg0=%#p arg1=%#p flag=%d slash=%#p counters namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			arg0, arg1, flag, up->slash, opath_namec,
+			opath_newchan, opath_walk, opath_devwalk,
+			opath_mount, opath_exec);
 	return (uintptr)bindmount(0, -1, -1, arg0, arg1, flag, nil);
 }
 

@@ -713,6 +713,7 @@ newproc(void)
 	if(!fresh)
 		oprocexit(p);
 	p->ohandles = nil;
+	p->iomask = 0;
 	p->psstate = nil;
 	p->state = New;
 	p->fpstate = FPinit;
