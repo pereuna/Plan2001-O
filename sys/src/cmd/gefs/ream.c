@@ -625,6 +625,7 @@ seedfile(Seedrec **r, int *n, int *a, char *name, char *oidname)
 	memmove(hex, hb, 16);
 	hex[16] = 0;
 	oid = strtoull(hex, nil, 16);
+	print("seed: object %s oid=%#llux len=%ld\n", name, oid, dn);
 	seedobj(r, n, a, oid, data, dn);
 	free(data);
 	free(hb);
@@ -694,6 +695,7 @@ oseed(Bptr *rootp, int *htp)
 		p = *e ? e+1 : e;
 	}
 	seedfile(&r, &nr, &ar, "exe", "exeoid");
+	seedfile(&r, &nr, &ar, "rawexec", "rawexecoid");
 	seedfile(&r, &nr, &ar, "mp", "mpoid");
 	seedfile(&r, &nr, &ar, "bad", "badoid");
 

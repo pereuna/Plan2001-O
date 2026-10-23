@@ -9,16 +9,48 @@
 #include	<a.out.h>
 
 /*
- * Plan2001 Boot Experiment B: first real ring-3 process from an
- * already built flat byte image.  The image is linked into the kernel
- * by the ordinary build (sys/src/9/pc/obootuser.c -> obootuser.out ->
- * obootuser.i); it is not a /boot file and no pathname is involved.
+ * Plan2001 Boot Experiments B and C.
+ *
+ * B: a kernel-embedded flat image performs alarm/sleep user syscalls.
+ * C: a second embedded image uses the existing user native-O syscalls
+ *    (OVOLOPEN/OSPACEOPEN/OEXECUTE) to replace itself with an executable
+ *    fetched from a disposable GE/O volume.
+ *
+ * Both images are linked into the kernel by the ordinary build
+ * (sys/src/9/pc/oboot*.c -> oboot*.out -> oboot*.i); neither is a /boot
+ * file and no pathname is involved.
  */
 #include	"obootuser.i"
+#include	"obootoid.i"
+
+enum {
+	CExecOid	= 0x4f45584543000004ULL,	/* fixture OID, see docs */
+};
+
+typedef struct Oargs Oargs;
+typedef struct Oenter Oenter;
+struct Oenter
+{
+	uintptr	sp;
+	uintptr	arg;
+};
+
+struct Oargs
+{
+	uvlong	oid;
+	long	vollen;
+	char	volspec[128];
+	char	space[8];
+	char	target[64];
+};
 
 int	oboot_user;
+int	oboot_oid;
 int	oboot_userpid;
 int	oboot_usernsys;
+
+static char obootvol[128];
+static int obootvollen;
 
 extern uvlong oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0;
 extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
@@ -31,7 +63,7 @@ extern uvlong opath_mount, opath_exec;
  * entry point is UTZERO+0x28, exactly the linked entry address.
  */
 static void
-ouserimage(uintptr *entryp, ulong *textp)
+ouserimage(uchar *img, ulong n, char *tag, uintptr *entryp, ulong *textp)
 {
 	Exec *e;
 	uvlong entry;
@@ -39,27 +71,42 @@ ouserimage(uintptr *entryp, ulong *textp)
 	ulong hdr;
 
 	hdr = sizeof(Exec)+sizeof(uvlong);
-	if(sizeof(obootuser) < hdr)
-		panic("OBOOT-B: user image too short: %lud", sizeof(obootuser));
-	e = (Exec*)obootuser;
+	if(n < hdr)
+		panic("%s: user image too short: %lud", tag, n);
+	e = (Exec*)img;
 	if(beswal(e->magic) != AOUT_MAGIC)
-		panic("OBOOT-B: user image bad magic %#lux", beswal(e->magic));
+		panic("%s: user image bad magic %#lux", tag, beswal(e->magic));
 	entry = beswav(*(uvlong*)(e+1));
 	text = beswal(e->text);
 	if(entry != UTZERO+hdr)
-		panic("OBOOT-B: user entry %#llux, want %#llux", entry, UTZERO+hdr);
+		panic("%s: user entry %#llux, want %#llux", tag, entry, UTZERO+hdr);
 	if((entry & (BY2WD-1)) != 0)
-		panic("OBOOT-B: user entry misaligned %#llux", entry);
-	if(text == 0 || text > BY2PG || sizeof(obootuser) > BY2PG)
-		panic("OBOOT-B: user image text %lud, image %lud", text, sizeof(obootuser));
-	if((uvlong)hdr+text > sizeof(obootuser))
-		panic("OBOOT-B: user image truncated: header+text %lud, image %lud",
-			hdr+text, sizeof(obootuser));
+		panic("%s: user entry misaligned %#llux", tag, entry);
+	if(text == 0 || text > BY2PG || n > BY2PG)
+		panic("%s: user image text %lud, image %lud", tag, text, n);
+	if((uvlong)hdr+text > n)
+		panic("%s: user image truncated: header+text %lud, image %lud",
+			tag, hdr+text, n);
 	if(beswal(e->data) != 0 || beswal(e->bss) != 0)
-		panic("OBOOT-B: user image needs data/bss outside the text page");
+		panic("%s: user image needs data/bss outside the text page", tag);
 
 	*entryp = entry;
 	*textp = text;
+}
+
+static void
+stackpage(Segment *s, uintptr va, void *data, ulong n)
+{
+	KMap *k;
+	Page *p;
+
+	p = newpage(va, nil);
+	k = kmap(p);
+	memset(VA(k), 0, BY2PG);
+	if(data != nil && n > 0)
+		memmove(VA(k), data, n);
+	kunmap(k);
+	segpage(s, p);
 }
 
 static void
@@ -68,14 +115,22 @@ ouserproc(void *arg)
 	KMap *k;
 	Page *p;
 	Segment *ts;
-	uintptr entry, sp;
-	ulong text;
+	uintptr entry, sp, argp;
+	uchar *img;
+	ulong text, imglen;
+	char *tag;
+	Oargs oa;
+	Oenter oe;
 
 	USED(arg);
 	if(waserror())
-		panic("OBOOT-B: bootstrap: %s", up->errstr);
+		panic("%s: bootstrap: %s", oboot_oid ? "OBOOT-C" : "OBOOT-B",
+			up->errstr);
 
-	ouserimage(&entry, &text);
+	img = oboot_oid ? obootoid : obootuser;
+	imglen = oboot_oid ? sizeof(obootoid) : sizeof(obootuser);
+	tag = oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	ouserimage(img, imglen, tag, &entry, &text);
 
 	/*
 	 * Only the objects needed to execute user code are initialized.
@@ -97,19 +152,30 @@ ouserproc(void *arg)
 	ts->flushme = 1;
 	p = newpage(UTZERO, nil);
 	k = kmap(p);
-	memmove(VA(k), obootuser, sizeof(obootuser));
-	memset((uchar*)VA(k)+sizeof(obootuser), 0, BY2PG-sizeof(obootuser));
+	memmove(VA(k), img, imglen);
+	memset((uchar*)VA(k)+imglen, 0, BY2PG-imglen);
 	kunmap(k);
 	segpage(ts, p);
 	up->seg[TSEG] = ts;
 
 	up->seg[SSEG] = newseg(SG_STACK|SG_NOEXEC, USTKTOP-USTKSIZE, USTKSIZE/BY2PG);
 	/* Fault in and zero the top stack page so the Tos slot is valid. */
-	p = newpage(USTKTOP-BY2PG, nil);
-	k = kmap(p);
-	memset(VA(k), 0, BY2PG);
-	kunmap(k);
-	segpage(up->seg[SSEG], p);
+	stackpage(up->seg[SSEG], USTKTOP-BY2PG, nil, 0);
+
+	argp = 0;
+	sp = USTKTOP-sizeof(Tos)-64;
+	if(oboot_oid){
+		memset(&oa, 0, sizeof oa);
+		oa.oid = CExecOid;
+		oa.vollen = obootvollen;
+		memmove(oa.volspec, obootvol, obootvollen);
+		memmove(oa.space, "init", 4);
+		memmove(oa.target, "obootctarget", 13);
+		argp = USTKTOP-2*BY2PG;
+		stackpage(up->seg[SSEG], argp, &oa, sizeof oa);
+		/* The block lives above the initial stack and is not grown into. */
+		sp = argp-256;
+	}
 
 	up->kp = 0;
 	up->noswap = 0;
@@ -121,29 +187,66 @@ ouserproc(void *arg)
 	poperror();
 
 	oboot_userpid = up->pid;
-	print("OBOOT-B: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
-		up->pid, entry, text, (ulong)sizeof(obootuser),
-		up->slash == nil ? "nil" : "set",
-		up->dot == nil ? "nil" : "set");
-	print("OBOOT-B: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
-		oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
-	print("OBOOT-B: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
-		opath_namec, opath_newchan, opath_walk, opath_devwalk,
-		opath_mount, opath_exec);
-
-	sp = USTKTOP-sizeof(Tos)-64;
-	print("OBOOT-B: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p\n", up->pid, entry, sp);
+	if(oboot_oid){
+		print("OBOOT-C: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
+			up->pid, entry, text, imglen,
+			up->slash == nil ? "nil" : "set",
+			up->dot == nil ? "nil" : "set");
+		print("OBOOT-C: VOLSPEC len=%d %s\n", obootvollen, obootvol);
+		print("OBOOT-C: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
+			oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
+		print("OBOOT-C: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			opath_namec, opath_newchan, opath_walk, opath_devwalk,
+			opath_mount, opath_exec);
+		print("OBOOT-C: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p arg=%#p\n",
+			up->pid, entry, sp, argp);
+	}else{
+		print("OBOOT-B: KERNEL-READY pid=%lud entry=%#p text=%lud image=%lud slash=%s dot=%s\n",
+			up->pid, entry, text, imglen,
+			up->slash == nil ? "nil" : "set",
+			up->dot == nil ? "nil" : "set");
+		print("OBOOT-B: legacy-calls userinit=%llud proc0=%llud init0=%llud\n",
+			oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0);
+		print("OBOOT-B: path-calls namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+			opath_namec, opath_newchan, opath_walk, opath_devwalk,
+			opath_mount, opath_exec);
+		print("OBOOT-B: KERNEL-TO-USER pid=%lud pc=%#p sp=%#p\n",
+			up->pid, entry, sp);
+	}
 
 	splhi();
 	fpukexit(nil);
-	touser((void*)sp);
+	if(oboot_oid){
+		oe.sp = sp;
+		oe.arg = argp;
+		otouser(&oe);
+	}else
+		touser((void*)sp);
 
-	panic("OBOOT-B: touser returned");
+	panic("%s: touser returned", tag);
 }
 
 void
 o_user_bootstrap(void)
 {
+	char *p;
+	int n;
+
+	if(oboot_oid){
+		p = getconf("obootvol");
+		if(p == nil || strncmp(p, "PARTUUID=", 9) != 0){
+			print("OBOOT-C: bad obootvol\n");
+			panic("OBOOT-C: obootvol must be PARTUUID=...");
+		}
+		n = strlen(p);
+		if(n <= 0 || n >= sizeof obootvol){
+			print("OBOOT-C: obootvol length %d\n", n);
+			panic("OBOOT-C: obootvol too long");
+		}
+		memmove(obootvol, p, n);
+		obootvol[n] = 0;
+		obootvollen = n;
+	}
 	up = nil;
 	kstrdup(&eve, "");
 	kproc("*ouser*", ouserproc, nil);

@@ -423,28 +423,34 @@ void
 syscall(Ureg* ureg)
 {
 	ulong scallnr;
+	uvlong arg0;
+	char *tag;
 	int trace;
 
 	if(!kenter(ureg))
 		panic("syscall: cs 0x%4.4lluX", ureg->cs);
 	fpukenter(ureg);
 	scallnr = ureg->bp;	/* RARG */
-	trace = oboot_user && up->pid == oboot_userpid &&
+	trace = (oboot_user || oboot_oid) && up->pid == oboot_userpid &&
 		userureg(ureg) && oboot_usernsys < 8;
+	tag = oboot_oid ? "OBOOT-C" : "OBOOT-B";
+	arg0 = 0;
 	if(trace)
-		print("OBOOT-B: SYSCALL-ENTRY pid=%lud nr=%lud pc=%#llux sp=%#llux cs=%#llux ss=%#llux user=%d\n",
-			up->pid, scallnr, ureg->pc, ureg->sp, ureg->cs, ureg->ss,
-			userureg(ureg));
+		memmove(&arg0, (Sargs*)(ureg->sp+BY2WD), sizeof arg0);
+	if(trace)
+		print("%s: SYSCALL-ENTRY pid=%lud nr=%lud arg0=%#llux text=%s pc=%#llux sp=%#llux cs=%#llux ss=%#llux user=%d\n",
+			tag, up->pid, scallnr, arg0, up->text, ureg->pc, ureg->sp,
+			ureg->cs, ureg->ss, userureg(ureg));
 	if(dosyscall(scallnr, (Sargs*)(ureg->sp+BY2WD), &ureg->ax))
 		((void**)&ureg)[-1] = (void*)noteret;	/* loads RARG */
 	if(trace){
-		print("OBOOT-B: SYSCALL-RETURN pid=%lud nr=%lud ret=%#llux pc=%#llux cs=%#llux ss=%#llux user=%d\n",
-			up->pid, scallnr, ureg->ax, ureg->pc, ureg->cs, ureg->ss,
-			userureg(ureg));
+		print("%s: SYSCALL-RETURN pid=%lud nr=%lud ret=%#llux text=%s pc=%#llux cs=%#llux ss=%#llux user=%d\n",
+			tag, up->pid, scallnr, ureg->ax, up->text, ureg->pc,
+			ureg->cs, ureg->ss, userureg(ureg));
 		oboot_usernsys++;
 		if(oboot_usernsys == 4)
-			print("OBOOT-B: AFTER-SYSCALLS legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
-				oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
+			print("%s: AFTER-SYSCALLS legacy userinit=%llud proc0=%llud init0=%llud path namec=%llud newchan=%llud walk=%llud devwalk=%llud mount=%llud exec=%llud\n",
+				tag, oboot_legacy_userinit, oboot_legacy_proc0, oboot_legacy_init0,
 				opath_namec, opath_newchan, opath_walk, opath_devwalk,
 				opath_mount, opath_exec);
 	}

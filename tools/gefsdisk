@@ -24,8 +24,9 @@
 #   OOBJ=partuuid|SPEC        plan9.ini oobj= (partuuid: this disk's
 #                             O partition; stage 3's native object probe)
 #   INI='k=v;k=v'             more plan9.ini lines, ;-separated
-#   INIT may contain @PARTUUID@, replaced by this disk's O/GE partition
-#   GUID (normal O: init=/boot/oinit -vol PARTUUID=@PARTUUID@).
+#   INIT and INI may contain @PARTUUID@, replaced by this disk's O/GE
+#   partition GUID (normal O: init=/boot/oinit -vol PARTUUID=@PARTUUID@;
+#   Experiment C: obootvol=PARTUUID=@PARTUUID@).
 #   ESPDIR=EFI/BOOT           plan9.ini and the kernel in the loader's
 #                             directory, not the ESP's root (the loader
 #                             looks there first: as in another system's
@@ -75,7 +76,10 @@ rm -f "$esp"
 		fi
 	fi
 	[ -n "$INIT" ] && printf 'init=%s\n' "${INIT//@PARTUUID@/$puuid}"
-	if [ -n "$INI" ]; then printf '%s\n' "$INI" | tr ';' '\n' | grep .; fi
+	if [ -n "$INI" ]; then
+		printf '%s\n' "$INI" | tr ';' '\n' |
+			sed "s/@PARTUUID@/$puuid/g" | grep .
+	fi
 } > "$out.ini"
 mformat -C -i "$esp" -T 131072 -h 64 -s 32 ::
 mmd -i "$esp" ::/EFI ::/EFI/BOOT

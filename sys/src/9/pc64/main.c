@@ -15,6 +15,7 @@ int idle_spin;
 
 extern int oboot_probe;
 extern int oboot_user;
+extern int oboot_oid;
 extern uvlong oboot_legacy_init0;
 
 extern void (*i8237alloc)(void);
@@ -226,6 +227,7 @@ main(void)
 	p = getconf("oboot");
 	oboot_probe = p != nil && strcmp(p, "probe") == 0;
 	oboot_user = p != nil && strcmp(p, "user") == 0;
+	oboot_oid = p != nil && strcmp(p, "oid") == 0;
 	trapinit0();
 	ioinit();
 	i8250console();
@@ -235,6 +237,8 @@ main(void)
 		print("OBOOT-A: MAIN entry oboot=probe\n");
 	if(oboot_user)
 		print("OBOOT-B: MAIN entry oboot=user\n");
+	if(oboot_oid)
+		print("OBOOT-C: MAIN entry oboot=oid\n");
 	cpuidentify();
 	meminit0();
 	archinit();
@@ -271,6 +275,9 @@ main(void)
 	pageinit();
 	if(oboot_user){
 		print("OBOOT-B: HANDOFF user o_user_bootstrap\n");
+		o_user_bootstrap();
+	}else if(oboot_oid){
+		print("OBOOT-C: HANDOFF oid o_user_bootstrap\n");
 		o_user_bootstrap();
 	}else if(oboot_probe){
 		print("OBOOT-A: HANDOFF probe ouserinit\n");

@@ -12,6 +12,9 @@
 #                             image (Stage 4, tools/oseed.py).
 #   NATIVEEXEC=FILE           also seed FILE as the native executable test
 #                             object (requires SOURCE; see docs/O-FORMAT.md).
+#   RAWEXEC=FILE              also seed FILE verbatim at the Experiment C
+#                             fixture OID 0x4f45584543000004 (requires SOURCE;
+#                             no header patching).
 #   MPEXEC=FILE               seed FILE as the MicroPython executable byte for
 #                             byte at OID 0x4f45584543000003 (requires SOURCE).
 #                             With SOURCE and no MPEXEC, the built selfroot
@@ -32,16 +35,19 @@ out=$(realpath -m "$1")
 mb=${2:-512}
 src=$3
 native=${NATIVEEXEC:-}
+rawexec=${RAWEXEC:-}
 mpexec=${MPEXEC:-}
 nompexec=${NOMPEXEC:-}
 regalloc=${REGALLOC:-}
 [ "$mb" -ge 129 ] || { echo "mkovol: image must be at least 129 MiB" >&2; exit 2; }
 [ -z "$native" ] || [ -r "$native" ] || { echo "mkovol: NATIVEEXEC: no $native" >&2; exit 1; }
+[ -z "$rawexec" ] || [ -r "$rawexec" ] || { echo "mkovol: RAWEXEC: no $rawexec" >&2; exit 1; }
 [ -z "$mpexec" ] || [ -r "$mpexec" ] || { echo "mkovol: MPEXEC: no $mpexec" >&2; exit 1; }
 [ -z "$nompexec" ] || [ -z "$mpexec" ] || { echo "mkovol: NOMPEXEC and MPEXEC are exclusive" >&2; exit 2; }
 [ -z "$regalloc" ] || [ -r "$regalloc" ] || { echo "mkovol: REGALLOC: no $regalloc" >&2; exit 1; }
 [ -z "$regalloc" ] || [ -n "$src" ] || { echo "mkovol: REGALLOC requires SOURCE" >&2; exit 2; }
 [ -z "$native" ] || [ -n "$src" ] || { echo "mkovol: NATIVEEXEC requires SOURCE" >&2; exit 2; }
+[ -z "$rawexec" ] || [ -n "$src" ] || { echo "mkovol: RAWEXEC requires SOURCE" >&2; exit 2; }
 [ -z "$mpexec" ] || [ -n "$src" ] || { echo "mkovol: MPEXEC requires SOURCE" >&2; exit 2; }
 [ -z "$nompexec" ] || [ -n "$src" ] || { echo "mkovol: NOMPEXEC requires SOURCE" >&2; exit 2; }
 dir=$root/build/selfroot
@@ -61,6 +67,10 @@ if [ -n "$src" ]; then
 	if [ -n "$native" ]; then
 		cp "$native" "$b/nativeexec"
 		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./nativeexec
+	fi
+	if [ -n "$rawexec" ]; then
+		cp "$rawexec" "$b/rawexec"
+		tar rf "$b/in.img" --format=ustar --owner=0 --group=0 -C "$b" ./rawexec
 	fi
 	if [ -n "$mpexec" ]; then
 		cp "$mpexec" "$b/mpexec"
@@ -86,7 +96,7 @@ mkdir -p /tmp/seed/mod
 cat /tmp/oseed.log
 /tmp/amd64/bin/gefs -O -i /tmp/seed -f $g >/tmp/mkovol.log >[2=1] || { tail -5 /tmp/mkovol.log; exit ream }
 grep -s '^reaming O volume' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit ream }
-grep -s '^seed:' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit seed }
+grep '^seed:' /tmp/mkovol.log || { cat /tmp/mkovol.log; exit seed }
 echo mkovol-ok
 RC
 else
@@ -103,7 +113,7 @@ fi
 mv "$b/out.img" "$out"
 rm -f "$b/in.img"
 if [ -n "$src" ]; then
-	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src${native:+, native executable $native}${mpexec:+, MicroPython executable $mpexec}"
+	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1, seeded from $src${native:+, native executable $native}${rawexec:+, raw executable $rawexec}${mpexec:+, MicroPython executable $mpexec}"
 else
 	echo "mkovol: $out ($mb MiB), O profile version 1, init -> 1"
 fi

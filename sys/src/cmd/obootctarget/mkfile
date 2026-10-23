@@ -1,0 +1,8 @@
+</$objtype/mkfile
+
+TARG=obootctarget
+OFILES=obootctarget.$O\
+
+BIN=/$objtype/bin
+
+</sys/src/cmd/mkone

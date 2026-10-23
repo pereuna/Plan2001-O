@@ -150,7 +150,10 @@ initcode.out:		init9.$O initcode.$O /$objtype/lib/libc.a
 obootuser.out:		obootuser.$O /$objtype/lib/libc.a
 	$LD -l -R1 -s -o $target $prereq
 
-ouser.$O:		obootuser.i
+obootoid.out:		obootoid.$O /$objtype/lib/libc.a
+	$LD -l -R1 -s -o $target $prereq
+
+ouser.$O:		obootuser.i obootoid.i
 
 $O.rebootcode:		rebootcode.$O
 	$LD -l -R1 -s -o $target -T$REBOOTADDR $prereq

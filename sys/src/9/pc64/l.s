@@ -864,6 +864,29 @@ TEXT touser(SB), 1, $-4
 	BYTE $0x48; SYSRET			/* SYSRETQ */
 
 /*
+ * Boot Experiment C: touser with an initial user argument.
+ * The single argument points to { uintptr sp; uintptr arg; } in kernel
+ * memory: sp becomes the user stack and arg becomes the user _main
+ * argument (BP).  The fixed entry is the same plan9 a.out text entry
+ * used by touser.
+ */
+TEXT otouser(SB), 1, $-4
+	MOVQ	RARG, AX			/* &{sp, arg} */
+	MOVQ	0(AX), BX			/* sp */
+	MOVQ	8(AX), DX			/* arg */
+	SWAPGS
+
+	MOVL	$0, RMACH
+	MOVL	$0, RUSER
+
+	MOVQ	$(UTZERO+0x28), CX		/* ip */
+	MOVL	$0x200, R11			/* flags */
+	MOVQ	BX, SP				/* sp */
+	MOVQ	DX, RARG			/* user _main argument */
+
+	BYTE $0x48; SYSRET			/* SYSRETQ */
+
+/*
  */
 TEXT syscallentry(SB), 1, $-4
 	SWAPGS

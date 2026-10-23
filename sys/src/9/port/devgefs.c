@@ -50,6 +50,7 @@ struct Oblock {
 };
 extern uvlong opath_namec, opath_newchan, opath_walk, opath_devwalk;
 extern uvlong opath_mount, opath_exec;
+extern int oboot_oid, oboot_userpid;
 void*	onativeopen(void*, char*);
 long	onativeget(void*, uvlong, void*, long, uvlong*);
 void	onativeput(void*, uvlong, void*, long);
@@ -573,6 +574,13 @@ opathdump(char *tag)
 		opath_mount, opath_exec);
 }
 
+/* Boot Experiment C: print only for the selected ring-3 probe PID. */
+static int
+ocprobe(void)
+{
+	return oboot_oid && up != nil && up->pid == oboot_userpid;
+}
+
 /*
  * Plan2001: gated block-range diagnostics for the pathless gate.  A
  * write past the partition must fail in oblockrw before any driver call;
@@ -651,6 +659,8 @@ sysovolopen(va_list list)
 	validaddr((uintptr)p, n, 0);
 	spec = smalloc(n+1);
 	if(waserror()){
+		if(ocprobe())
+			print("OBOOT-C: OVOLOPEN-ERROR spec=%s err=%s\n", spec, up->errstr);
 		free(spec);
 		nexterror();
 	}
@@ -694,6 +704,9 @@ sysovolopen(va_list list)
 	ovol = v;
 	if(trace)
 		opathdump("volopen-started");
+	if(ocprobe())
+		print("OBOOT-C: OVOLOPEN spec=%s dev=%s off=%lld size=%lld ret=1\n",
+			spec, dev, off, size);
 	free(spec);
 	poperror();
 	return 1;
@@ -798,6 +811,8 @@ sysospaceopen(va_list list)
 	memmove(name, p, n);
 	name[n] = 0;
 	sp = onativeopen(ovol, name);
+	if(ocprobe())
+		print("OBOOT-C: OSPACEOPEN-REQ name=%s\n", name);
 	free(name);
 	poperror();
 	oh = smalloc(sizeof *oh);
@@ -809,6 +824,8 @@ sysospaceopen(va_list list)
 		if(ht->h[i] == nil){
 			ht->h[i] = oh;
 			unlock(&ht->Lock);
+			if(ocprobe())
+				print("OBOOT-C: OSPACEOPEN-HANDLE h=%d\n", i+1);
 			return i+1;
 		}
 	unlock(&ht->Lock);
@@ -991,6 +1008,9 @@ sysoexecute(va_list list)
 	n = onativeget(oh->sp, oid, buf, Objexecmax, &ver);
 	if(n < 0)
 		error("oexec: no such object");
+	if(ocprobe())
+		print("OBOOT-C: OEXECUTE oid=%#llux len=%ld sum=%ux ver=%#llux\n",
+			oid, n, checksum(buf, (int)n), ver);
 	ohandput(oh);
 	poperror();
 	return execo(oid, buf, n, argv, argc);

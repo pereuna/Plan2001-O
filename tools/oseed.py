@@ -9,11 +9,13 @@ SRC = "/tmp/odemo.py"
 SEED = "/tmp/seed"
 CODE_OID = 0xffffffff00000000
 NATIVEEXEC = "/tmp/nativeexec"
+RAWEXEC = "/tmp/rawexec"
 MPEXEC = "/tmp/mpexec"
 REGALLOC = "/tmp/regalloc"
 EXEC_OID = 0x4f45584543000001
 BADEXEC_OID = 0x4f45584543000002
 MP_OID = 0x4f45584543000003
+RAWEXEC_OID = 0x4f45584543000004
 
 h = space.define(SRC)
 mpy = "/usr/glenda/lib/mod/" + h + ".mpy"
@@ -29,6 +31,10 @@ try:
     x = open(NATIVEEXEC, "rb").read()
 except OSError:
     x = None
+try:
+    r = open(RAWEXEC, "rb").read()
+except OSError:
+    r = None
 try:
     m = open(MPEXEC, "rb").read()
 except OSError:
@@ -51,6 +57,15 @@ if m is not None:
         raise OSError("seed: mpexec changed while copying")
     open(SEED + "/mpoid", "w").write("%016x" % MP_OID)
     print("seed: mpexec", len(m), "%016x" % MP_OID, space.hash(m), "unchanged")
+
+if r is not None:
+    # Experiment C fixture: preserve the target bytes exactly.
+    open(SEED + "/rawexec", "wb").write(r)
+    y = open(SEED + "/rawexec", "rb").read()
+    if y != r:
+        raise OSError("seed: rawexec changed while copying")
+    open(SEED + "/rawexecoid", "w").write("%016x" % RAWEXEC_OID)
+    print("seed: rawexec", len(r), "%016x" % RAWEXEC_OID, space.hash(r), "unchanged")
 
 if x is not None:
     orig = x
