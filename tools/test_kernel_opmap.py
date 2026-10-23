@@ -413,5 +413,273 @@ Dev newdevtab = {
             self.assertIn("build", f)
 
 
+REPO = HERE.parent
+
+
+def real_native_spec() -> tuple[dict, dict]:
+    analyzer = om.Analyzer(REPO)
+    data = analyzer.analyze()
+    return data, om.build_native_spec(analyzer, data)
+
+
+class NativeGeneratorTests(unittest.TestCase):
+    def test_rtc_pilot_manifest_and_generated_c(self) -> None:
+        data, spec = real_native_spec()
+        self.assertEqual(spec["schema"], om.NATIVE_SCHEMA)
+        self.assertEqual(spec["config"], "pc64")
+        rtc = next(d for d in spec["drivers"] if d["driver"] == "rtc")
+        self.assertTrue(rtc["pilot"])
+        self.assertEqual(rtc["generated_files"], ["kernel_native.h", "rtc_native.c"])
+        self.assertEqual(
+            [(s["symbol"], s["value"], s["name"]) for s in rtc["selectors"]],
+            [("Qdir", 0, "."), ("Qrtc", 1, "rtc"), ("Qnvram", 2, "nvram")],
+        )
+        by_key = {
+            (o["selector"].get("symbol"), o["semantics"]["operation"]): o
+            for o in rtc["operations"]
+        }
+        for key in (("Qrtc", "read"), ("Qnvram", "read"), ("Qnvram", "write")):
+            op = by_key[key]
+            self.assertEqual(op["conversion"], "DIRECT", key)
+            self.assertTrue(op["generated_symbol"])
+            self.assertEqual(op["dependencies"]["selected_branch"]["chan"], [])
+            self.assertIn("eve", op["permissions"]["evidence"])
+        self.assertEqual(by_key[("Qrtc", "write")]["conversion"], "MANUAL")
+        self.assertIn("sec2rtc", by_key[("Qrtc", "write")]["reasons"][0])
+        self.assertIn("Nvsize", by_key[("Qnvram", "read")]["offsets"])
+        self.assertIn("Nvoff", by_key[("Qnvram", "write")]["offsets"])
+
+        outputs = om._native_outputs(spec)
+        header = outputs["kernel_native.h"]
+        source = outputs["rtc_native.c"]
+        self.assertIn("NQrtc = 1", header)
+        self.assertIn("NQnvram = 2", header)
+        for text in (header, source):
+            self.assertIn(rtc["sha256"], text)
+        self.assertIn("rtc_native_read", source)
+        self.assertIn("rtctime()", source)
+        self.assertIn("nvramread(", source)
+        self.assertIn("nvramwrite(", source)
+        self.assertIn("strcmp(up->user, eve)", source)
+        self.assertIn("error(Eperm)", source)
+        self.assertIn("no reviewed Chan-free binding", source)
+        self.assertNotIn("devwalk(", source)
+        self.assertNotIn("devdirread(", source)
+        self.assertNotIn("namec(", source)
+        self.assertNotIn("walk(", source)
+
+    def test_pipe_is_manual_with_blockers(self) -> None:
+        _, spec = real_native_spec()
+        pipe = next(d for d in spec["drivers"] if d["driver"] == "pipe")
+        self.assertFalse(pipe["generated_files"])
+        self.assertEqual(pipe["classification"], "MANUAL")
+        self.assertTrue(any("ref/qref" in b for b in pipe["blockers"]))
+        self.assertTrue(any("c->aux" in b for b in pipe["blockers"]))
+        data_ops = [
+            o for o in pipe["operations"]
+            if o["selector"].get("symbol") in ("Qdata0", "Qdata1")
+            and o["semantics"]["operation"] in ("read", "write")
+        ]
+        self.assertTrue(data_ops)
+        for op in data_ops:
+            self.assertEqual(op["conversion"], "MANUAL")
+            self.assertIn("no reviewed Chan-free binding", op["reasons"][0])
+
+    def test_native_generation_is_deterministic_and_checkable(self) -> None:
+        _, spec = real_native_spec()
+        with tempfile.TemporaryDirectory(prefix="native-out-") as td:
+            out = Path(td)
+            first = om.write_native_artifacts(spec, out)
+            snapshot = {p.name: p.read_bytes() for p in first}
+            second = om.write_native_artifacts(spec, out)
+            self.assertEqual(snapshot, {p.name: p.read_bytes() for p in second})
+            self.assertEqual(om.check_native_artifacts(spec, out), [])
+            (out / "rtc_native.c").write_text("tampered\n", encoding="utf-8")
+            problems = om.check_native_artifacts(spec, out)
+            self.assertTrue(any("rtc_native.c" in p for p in problems))
+
+    def test_stale_reviewed_binding_fails_closed(self) -> None:
+        with fixture({"pc/devrtc.c": BASE_DEVTEST}) as td:
+            root = Path(td)
+            data = analyze(root)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            bindings = {
+                "sys/src/9/pc/devrtc.c": {
+                    "sha256": "0" * 64,
+                    "driver": "rtc",
+                    "device": "r",
+                    "dirtab": "rtcdir",
+                    "selector_values": {},
+                    "constants": {},
+                    "operations": {},
+                }
+            }
+            with self.assertRaises(om.NativeGenerationError):
+                om.build_native_spec(analyzer, data, "testconf", bindings)
+
+    def test_qid_mapping_from_enum_and_dirtab(self) -> None:
+        src = r'''
+enum { Qbase = 10, Qctl, Qdata };
+static Dirtab ndir[] = {
+	".",	{Qbase, 0, QTDIR},	0,	DMDIR|0555,
+	"ctl",	{Qctl},			0,	0600,
+	"data",	{Qdata},		0,	0644,
+};
+static long
+nread(Chan *c, void *a, long n, vlong o)
+{
+	switch((ulong)c->qid.path){
+	case Qctl: return n;
+	case Qdata: return n;
+	}
+	return 0;
+}
+Dev ndevtab = {
+	'n', "nqid",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, nread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+'''
+        with fixture({
+            "port/devnqid.c": src,
+            "testarch/testconf": "dev\n\ttest\n\tnqid\n",
+        }) as td:
+            root = Path(td)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            spec = om.build_native_spec(analyzer, data, "testconf", bindings={})
+        driver = next(d for d in spec["drivers"] if d["driver"] == "nqid")
+        symbols = {
+            o["selector"]["symbol"]: o["selector"]["value"]
+            for o in driver["operations"] if o["selector"]["kind"] == "qid"
+        }
+        self.assertEqual(symbols, {"Qctl": 11, "Qdata": 12})
+        names = {
+            o["selector"]["symbol"]: o["selector"]["name"]
+            for o in driver["operations"] if o["selector"]["kind"] == "qid"
+        }
+        self.assertEqual(names, {"Qctl": "ctl", "Qdata": "data"})
+        for op in driver["operations"]:
+            self.assertIn(op["conversion"], ("MANUAL", "LEGACY"))
+
+    def test_conditional_branch_is_explicit_in_manifest(self) -> None:
+        src = r'''
+#ifdef FOO
+enum { Qdata };
+static long
+cread(Chan *c, void *a, long n, vlong o)
+{
+	switch((ulong)c->qid.path){
+	case Qdata: return n;
+	}
+	return 0;
+}
+Dev cdevtab = {
+	'c', "conditional",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, cread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+#endif
+'''
+        with fixture({
+            "port/devconditional.c": src,
+            "testarch/testconf": "dev\n\ttest\n\tconditional\n",
+        }) as td:
+            root = Path(td)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            spec = om.build_native_spec(analyzer, data, "testconf", bindings={})
+        driver = next(d for d in spec["drivers"] if d["driver"] == "conditional")
+        op = next(o for o in driver["operations"] if o["selector"].get("symbol") == "Qdata")
+        self.assertTrue(op["conditional"]["ambiguous_alternatives"])
+        self.assertIn("FOO", " ".join(op["conditional"]["preprocessor_conditions"]))
+        self.assertEqual(op["conversion"], "MANUAL")
+
+    def test_macro_alias_and_indirect_callback_are_refused(self) -> None:
+        alias = r'''
+#define Chan GChan
+enum { Qdata };
+static long
+aread(Chan *c, void *a, long n, vlong o)
+{
+	switch((ulong)c->qid.path){
+	case Qdata: return n;
+	}
+	return 0;
+}
+Dev adevtab = {
+	'a', "alias",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, aread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+'''
+        indirect = r'''
+typedef struct SDunit SDunit;
+static long
+ibio(SDunit *u, int lun, int w, void *a, long n, uvlong lba)
+{
+	return n;
+}
+static SDifc iifc = {
+	.name = "i",
+	.bio = ibio,
+};
+static long
+iread(Chan *c, void *a, long n, vlong o)
+{
+	SDunit *unit = c->aux;
+	return (*unit->dev->ifc->bio)(unit, 0, 0, a, n, 0);
+}
+Dev idevtab = {
+	'i', "indirect",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, iread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+'''
+        with fixture({
+            "port/devalias.c": alias,
+            "port/devindirect.c": indirect,
+            "testarch/testconf": "dev\n\ttest\n\talias\n\tindirect\n",
+        }) as td:
+            root = Path(td)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            spec = om.build_native_spec(analyzer, data, "testconf", bindings={})
+        aop = next(
+            o for d in spec["drivers"] if d["driver"] == "alias"
+            for o in d["operations"] if o["semantics"].get("callback") == "read"
+        )
+        self.assertEqual(aop["conversion"], "MANUAL")
+        self.assertTrue(any("macro alias" in r for r in aop["state_risks"]))
+        iop = next(
+            o for d in spec["drivers"] if d["driver"] == "indirect"
+            for o in d["operations"] if o["semantics"].get("callback") == "read"
+        )
+        self.assertEqual(iop["conversion"], "MANUAL")
+        self.assertIn("indirect callback", iop["reasons"][0])
+
+
+    def test_parse_failure_is_refused_in_native_manifest(self) -> None:
+        with fixture({
+            "port/devbroken2.c": "Dev brokendevtab = { 'b', \"broken\",\n",
+            "testarch/testconf": "dev\n\ttest\n\tbroken2\n",
+        }) as td:
+            root = Path(td)
+            analyzer = om.Analyzer(root)
+            data = analyzer.analyze()
+            spec = om.build_native_spec(analyzer, data, "testconf", bindings={})
+        refused = {r["path"] for r in spec["source_refusals"]}
+        self.assertIn("sys/src/9/port/devbroken2.c", refused)
+        rec = next(r for r in spec["source_refusals"]
+                   if r["path"] == "sys/src/9/port/devbroken2.c")
+        self.assertEqual(rec["parse_status"], "error")
+        self.assertTrue(rec["reason"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

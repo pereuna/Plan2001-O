@@ -25,6 +25,36 @@
 
 **D2b negative evidence:** a failing `run()` produces no successful commit/done; missing `OID_MP_EXEC` returns an error without legacy fallback. The agent's QEMU logs were under `build/verification/` and are NOT assumed committed to Git. Original report and historical STATUS remain in Git history.
 
+## E1 native-operation generator (static, not a boot change)
+
+`tools/kernel_opmap.py --generate-native` now consumes the existing
+`Analyzer.analyze()` IR and writes an opt-in operation manifest plus a reviewed
+RTC pilot under `build/generated/kernel-native/` (ignored by Git).  The default
+OMAP `--write`/`--check`/`--stats` behaviour is unchanged.
+
+- **E1 status: PARTIAL.** 29 active `pc64` Dev registrations are described;
+  3 RTC operations are `DIRECT` (Qrtc read, Qnvram read/write), 1 RTC operation
+  is `MANUAL` (Qrtc write), and `devpipe` is `MANUAL` with dynamic endpoint
+  blockers.  The generated `rtc_native.c` was compiled with the build VM's
+  Plan 9 `6c`; it was **not** executed in a booted kernel.
+- **RTC:** `DIRECT` is claimed only for the hash-pinned reviewed branches;
+  namespace `walk`/`stat` stay `LEGACY`.  `eve` permission checks and
+  `Nvoff`/`Nvsize` offset rules are reproduced; Qrtc write fails explicitly
+  because `sec2rtc()`/`PUTBCD` are static.
+- **Boundary:** this does not convert a driver or remove `Chan`; see
+  `docs/KERNEL-NATIVE-GENERATOR.md` for the exact claims and remaining
+  dependencies.  No executable/kernel behaviour changed, so the D2b server
+  gate was not rerun for E1.
+- **Checks (agent-reported):** `python3 tools/test_kernel_opmap.py` 18/18 PASS;
+  generated output reproduced byte-for-byte twice and
+  `--generate-native --check` PASS; generated RTC C compiled with the VM's
+  Plan 9 `6c` against the repository kernel headers.  `WHAT=kernel
+  tools/build.sh` was NOT RUN because no kernel/executable source changed.
+
+Known baseline: `python3 tools/kernel_opmap.py --check` currently reports the
+checked-in `docs/KERNEL-OPMAP.{json,md}` stale against the kernel tree; that
+predates E1 and was not silently regenerated.
+
 ## Boundaries and limitations
 
 - **Pathless measured execution is not whole-kernel Chan independence.** The full kernel retains many 9Front `Chan`, `Qid`, `Dirtab`, `Walk`, `Dev`, namespace and 9P implementations. Their *mere presence* is not a runtime path-use claim; their removal is not demonstrated. Read `docs/KERNEL-OPMAP-NOTES.md` and `docs/CHAN-DEPENDENCIES-INDEX.md` for analysis scope.
@@ -62,6 +92,7 @@ Use **disposable** QEMU disk images only; never write to physical disks in routi
 - `docs/GENERAL-SOFTWARE-SPECIFICATION.md`, `docs/OLIO-OBJEKTI-MANIFESTI.md`, `docs/OBJECT-MODEL.md`: proposal and semantic distinctions, not claims that every concept is implemented.
 - `docs/O-FORMAT.md`: implemented O disk format.
 - `docs/KERNEL-OPMAP.md` and `.json`: **generated**, large structural inventory from `tools/kernel_opmap.py`; do not load wholesale into agent context unless specifically required. `docs/KERNEL-OPMAP-NOTES.md` is a human-readable review.
+- `docs/KERNEL-NATIVE-GENERATOR.md`: E1 generator CLI, RTC pilot evidence, refusals and remaining `Chan` dependencies.
 - `docs/O-BOOT-DEPENDENCIES.md`: **historical Level A snapshot**, includes B/C NOT YET as of that earlier experiment; it does not override the newer Boot A–D2b results.
 - Detailed completed boot reports are intentionally **not present at HEAD**. Read historical versions using the pinned Git commit `62564d1dea270b9f924cc4f7eebf466bf8798074`; do not re-create them merely because old links exist in past prompts.
 - `docs/to_opencode.md`: **current assignment only**; a completed assignment is not an active task.
