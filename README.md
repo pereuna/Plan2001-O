@@ -1,5 +1,7 @@
 # Plan2001-O
 
+> **New conceptual direction (proposal, 23 October 2026):** [Olio and object — epistemological manifesto](docs/OLIO-OBJEKTI-MANIFESTI.md) (Finnish) and [A computer implementation of the manifesto](docs/GENERAL-SOFTWARE-SPECIFICATION.md) (English). An *olio* is an uninterpreted registered occurrence; an *object* is its role in a relation or observation. Octets and files are implementation/interpretation choices, not a universal ontology. The byte-centered model below documents the earlier proposal and the working PoC; [O-FORMAT](docs/O-FORMAT.md) and [STATUS](docs/STATUS.md) remain authoritative for implemented behavior.
+
 **An experimental object-native operating system: a file is an OID-addressable object's byte content, without a mandatory root directory or filesystem hierarchy. Native relationships remain a research goal.**
 
 Plan2001-O explores an operating system in which **objects are fundamental persistent entities, and a file is the byte-content abstraction of an object**. The architecture removes the obligatory hierarchical *filesystem*, not files. An object's identity is independent of paths and locations; its bytes may be read, written, executed when meaningful, or transferred by streams. **Today's PoC stores versioned native O byte objects, but its Python graph is still serialized into one `OID_GRAPH` object.**
