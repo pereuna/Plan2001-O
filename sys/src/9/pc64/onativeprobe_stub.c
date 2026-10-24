@@ -20,3 +20,9 @@ e71etherprobe_start(void)
 {
 	return 0;
 }
+
+int
+e72ipv6probe_start(void)
+{
+	return 0;
+}

@@ -21,6 +21,7 @@ extern int oboot_server;
 extern uvlong oboot_legacy_init0;
 extern int onativeprobe_start(void);
 extern int e71etherprobe_start(void);
+extern int e72ipv6probe_start(void);
 
 extern void (*i8237alloc)(void);
 extern void bootscreeninit(void);
@@ -287,6 +288,8 @@ main(void)
 		print("ONATIVEPROBE: HANDOFF opt-in native read probe\n");
 	}else if(e71etherprobe_start()){
 		print("E71ETHER: HANDOFF opt-in native Ethernet probe\n");
+	}else if(e72ipv6probe_start()){
+		print("E72IPV6: HANDOFF opt-in native IPv6 probe\n");
 	}else if(oboot_user){
 		print("OBOOT-B: HANDOFF user o_user_bootstrap\n");
 		o_user_bootstrap();
