@@ -11,6 +11,12 @@
 # sdloop is deliberately excluded: its backing store is an inherited
 # Chan to a file (namec/devtab read/write).  It remains in the legacy
 # configurations.  sdram is kept; it is a concrete SDifc with no Chan.
+#
+# E8 removed the kprof, dup, fs, tls, cap and segment Dev registrations
+# from this profile after linked and D2b boot verification.  mnt, srv and
+# shr stay because linked kernel paths still call their non-Dev helpers
+# (mntattach/mntversion/mntauth, srvrenameuser, shrrenameuser).  The other
+# profiles are unchanged.
 dev
 	root
 	swap

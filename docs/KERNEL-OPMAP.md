@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `9e1d213227161fee4b80211bbd50cdb0e97caafe45baa8400383ad3d8ed1127e`
+- Source fingerprint (SHA-256): `1183c291aaee5ebba83bc2157d08a570ecd1ddb824180af8b17d1444f2d2bf25`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -85,8 +85,8 @@ Inclusion is derived from each configuration file using the `mkdevlist` rules an
 | `pc64mp` | test-only | pc64 | supported | 156 | 0 | 2 |
 | `pc64native` | other | pc64 | supported | 156 | 1 | 2 |
 | `pc64oconsole` | other | pc64 | supported | 155 | 0 | 2 |
-| `pc64onativedisk` | other | pc64 | supported | 153 | 0 | 2 |
-| `qemu` | other | arm64 | planned | 93 | 2 | 0 |
+| `pc64onativedisk` | other | pc64 | supported | 147 | 0 | 2 |
+| `qemu` | other | arm64 | planned | 94 | 2 | 0 |
 | `riscv64` | other | riscv64 | future | 0 | 1 | 0 |
 
 The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration with the same selected source objects; `arm64/qemu` is a different, planned architecture.  `riscv64` is a future target with no source tree in this snapshot.  There is no separate `sys/src/9/pc` configuration file here: `pc/` sources are selected through `pc64`.  Objects not present in this source snapshot remain explicit below.
@@ -155,16 +155,16 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 16 |
 | `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 1 |
 | `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 4 |
-| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:484 | pc64, pc64mp, pc64native, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
-| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 1 |
-| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
 | `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
-| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
 | `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
 | `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
@@ -172,11 +172,11 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1103 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
 | `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 16 |
 | `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |

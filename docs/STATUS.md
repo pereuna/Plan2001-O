@@ -1,7 +1,7 @@
 # Plan2001-O — current implementation and verification
 
-**Last runtime verification:** 24 October 2026, OpenCode E6 on base `1c61dd175c0757e5eaed016c1a7305f7ccad5c91`; implementation `ad836d7` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md)). E5 implementation was `53785d7` and its evidence `9c41f3b`; E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
-**Scope:** amd64/`pc64`, opt-in `pc64native`, opt-in no-`#c` `pc64oconsole`, and opt-in no-`#c`/no-`#S` `pc64onativedisk`; disposable QEMU images. E5/E6 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
+**Last runtime verification:** 24 October 2026, OpenCode E8 on base `1cae94f` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md); detailed matrix: [DEV-PRUNING.md](DEV-PRUNING.md)). E6 was `ad836d7` on base `1c61dd1`; E5 implementation was `53785d7` and its evidence `9c41f3b`; E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
+**Scope:** amd64/`pc64`, opt-in `pc64native`, opt-in no-`#c` `pc64oconsole`, and opt-in no-`#c`/no-`#S` `pc64onativedisk`; disposable QEMU images. E5/E6/E8 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
 **Historical record:** `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/STATUS.md`. The six completed `docs/O-BOOT-EXPERIMENT-*.md` reports can be restored with `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/O-BOOT-EXPERIMENT-D2B.md` (substitute A, B, C, D1, D2A or D2B).
 
 ## Current proven vertical slice
@@ -152,6 +152,60 @@ enumerated in QEMU but physical AHCI/NVMe and removability were **NOT RUN**.
 The legacy `#S` control is read-only; `#S` write/control mutation and the
 legacy shutdown path were not rerun. No userspace disk syscall or ABI was
 added, and no claim is made for whole-kernel `Chan` independence.
+
+## E8 legacy `Dev` pruning in the O-only server profile
+
+**APPROVE (agent-executed, bounded).** Six of the nine audited legacy
+`Dev` registrations were removed from `pc64onativedisk` only, after each
+one passed a fresh kernel build, generated-`devtab`/linked-symbol proof
+and the complete `ONATIVE_DISK=1 tools/test-oboot-server.sh` D2b run:
+
+```text
+PASS removed:  kprof (#K), dup (#d), fs (#k), tls (#a), segment (#g), cap (#¤)
+BLOCKED kept:  srv (#s), shr (#σ), mnt (#M)
+```
+
+`devtab[]` went from **27 to 21** registrations. The surviving set is
+`root swap arch pnp env pipe proc mnt srv shr rtc ether ip wg draw mouse
+vga uart usb kbd gefs`. `consdevtab`, `sddevtab` and `sdloopifc` remain
+absent. `srv`/`shr` are blocked by `hostownerwrite()` calling
+`srvrenameuser`/`shrrenameuser`; `mnt` is blocked by linked
+`mntattach`/`mntversion`/`mntauth`/`mntrahinit`/`mntrahread`/`muxclose`
+references in `auth.c`, `sysfile.c`, `cache.c`, `devgefs.c` and
+`devshr.c`. Config-only removal attempts produced those exact link errors
+and were reverted.
+
+Executed gates (all PASS unless marked):
+
+```sh
+ONATIVE_DISK=1 WHAT=kernel tools/build.sh          # baseline, every candidate, final
+ONATIVE_DISK=1 tools/test-oboot-server.sh          # baseline, every accepted candidate, final
+WHAT=kernel tools/build.sh                         # legacy control
+tools/test-o-boot.sh                               # default O boot, run() 1,2,3
+python3 tools/sd_migration_check.py
+python3 tools/sd_migration_check.py --profile pc64onativedisk \
+  --devtab build/verification/e8/final/pc64onativedisk.devc.c \
+  --kernel build/verification/e8/final/9pc64onativedisk
+python3 tools/kernel_opmap.py --write   # reviewed: E8 config + E6.3 sdcore record
+python3 tools/kernel_opmap.py --check
+python3 tools/test_kernel_opmap.py      # 29/29
+```
+
+Every positive D2b run booted one disposable O disk three times
+(`run() -> 1,2,3`, Counter OID 7/alias 7), observed native SD controller
+init once, `sdvirtio: flush PASS`, all `oblocktest` bounds, and clean
+wrong-PARTUUID/malformed-GPT negatives. The measured
+`namec=newchan=walk=devwalk=mount=exec=0` windows were preserved; no
+test marker was weakened. Default `pc64`/`pc64mp` still link all nine
+candidate `Dev` tables plus `consdevtab`/`sddevtab`, and
+`tools/test-o-boot.sh` passed.
+
+Limits: only QEMU VirtIO block I/O was exercised; physical AHCI/NVMe was
+**NOT RUN**. The three blocked candidates were not replaced or stubbed,
+and no source extraction, userspace ABI, native TLS/9P/mount or capability
+subsystem was added. Full per-candidate evidence:
+[DEV-PRUNING.md](DEV-PRUNING.md); logs under `build/verification/e8/`
+(ignored by Git).
 
 ## E4 independently reviewed Qppid integration
 
