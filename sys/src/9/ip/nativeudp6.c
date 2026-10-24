@@ -382,6 +382,10 @@ udp6_sendto(Udp6Endpoint *ep, uchar *peer, ushort peerport, Block *payload)
 		rc = Udp6ErrNoNet;
 		goto fail;
 	}
+	if(ep->conv->state != Announced){
+		rc = Udp6ErrNotBound;
+		goto fail;
+	}
 	maxpayload = ep->net->ifc->maxtu - ep->net->ifc->m->hsize
 		- IP6HDR - UDP6_HDR;
 	if(maxpayload < 0 || maxpayload > UDP6_MAXPAYLOAD)
