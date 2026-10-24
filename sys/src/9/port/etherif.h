@@ -26,6 +26,39 @@ struct Macent
 };
 
 typedef struct Ether Ether;
+
+/*
+ * E7.1 native Ethernet C core boundary.
+ *
+ * The RX sink receives a private copy of a complete L2 frame and owns it.
+ * It runs in the driver's RX context (VirtIO: rxproc; some inherited
+ * drivers: interrupt), so it must not sleep or take a blocking lock.
+ */
+typedef void (*EtherRxSink)(void*, Ether*, Block*);
+
+typedef struct EtherCoreStats EtherCoreStats;
+struct EtherCoreStats {
+	int	attached;
+	int	registered;
+	uvlong	txpackets;
+	uvlong	rxpackets;
+	uvlong	rxdropped;
+};
+
+enum {
+	EtherErrOk	= 0,
+	EtherErrNoMem	= -1,
+	EtherErrNotReady= -2,
+	EtherErrNoDevice= -3,
+	EtherErrBadLen	= -4,
+	EtherErrDown	= -5,
+	EtherErrQueue	= -6,
+	EtherErrBusy	= -7,
+	EtherErrClosed	= -8,
+	EtherErrBadArg	= -9,
+	EtherErrPreinit	= -10,
+};
+
 struct Ether {
 	ISAConf;			/* hardware info */
 	int	tbdf;			/* type+busno+devno+funcno */
@@ -57,6 +90,26 @@ extern void etheriq(Ether*, Block*);
 extern void addethercard(char*, int(*)(Ether*));
 extern ulong ethercrc(uchar*, int);
 extern int parseether(uchar*, char*);
+
+/* E7.1 native core */
+extern int ethercore_init(void);
+extern int ethercore_initcalls(void);
+extern int ethercore_probecalls(void);
+extern int ethercore_ncontroller(void);
+extern int ethercore_oqsize(Ether*);
+extern Ether* ethercore_lookup(int);
+extern Ether* ethercore_byindex(int);
+extern Ether* ethercore_byname(char*);
+extern Ether* ethercore_probe_at(int, char*);
+extern int ethercore_attach(Ether*);
+extern int ethercore_tx(Ether*, Block*);
+extern int ethercore_rxregister(Ether*, EtherRxSink, void*);
+extern int ethercore_rxunregister(Ether*, EtherRxSink, void*);
+extern void ethercore_stats(Ether*, EtherCoreStats*);
+extern void ethercore_shutdown(void);
+
+/* implemented by the retained legacy #l adapter (devether.c) */
+extern void etherlegacyrx(Ether*, Block*);
 
 #define NEXT(x, l)	(((x)+1)%(l))
 #define PREV(x, l)	(((x) == 0) ? (l)-1: (x)-1)

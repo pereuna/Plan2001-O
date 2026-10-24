@@ -116,6 +116,7 @@ sysproc.$O syscallfmt.$O:	/sys/src/libc/9syscall/sys.h
 devusb.$O usbxhci.$O usbxhcipci.$O:	../port/usb.h
 usbxhci.$O usbxhcipci.$O:	../port/usbxhci.h
 devether.$O: ../ip/ip.h ../ip/ipv6.h
+ethercore.$O: ../port/etherif.h ../port/netif.h
 devether.$O ethersink.$O etheriwl.$O ethervirtio10.$O wifi.$O:	../port/netif.h ../port/etherif.h
 etheriwl.$O wifi.$O:	../port/wifi.h
 ethermii.$O devmii.$O:	../port/ethermii.h

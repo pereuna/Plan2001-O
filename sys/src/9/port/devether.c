@@ -16,12 +16,7 @@
 extern int eipfmt(Fmt*);
 extern ushort ipcsum(uchar *);
 
-static Ether *etherxx[MaxEther];
-static Ether *etherprobe(int cardno, int ctlrno, char *conf);
-
 static void dmatproxy(Block*, int, uchar*, DMAT*);
-
-static int etheroqsize(Ether*);
 
 static void
 drop(void*, Block *b)
@@ -50,6 +45,7 @@ etherattach(char* spec)
 	ulong ctlrno;
 	char *conf;
 	Chan *chan;
+	Ether *ether;
 
 	ctlrno = 0;
 	if(*spec){
@@ -64,12 +60,14 @@ etherattach(char* spec)
 			*conf++ = 0;
 			if(!iseve())
 				error(Enoattach);
-			if(etherxx[ctlrno] != nil)
+			if(ethercore_lookup(ctlrno) != nil)
 				error(Einuse);
-			etherxx[ctlrno] = etherprobe(-1, ctlrno, conf);
+			if(ethercore_probe_at(ctlrno, conf) == nil)
+				error(Enodev);
 		}
 	}
-	if(etherxx[ctlrno] == nil)
+	ether = ethercore_lookup(ctlrno);
+	if(ether == nil)
 		error(Enodev);
 	chan = devattach('l', spec);
 	if(waserror()){
@@ -77,8 +75,8 @@ etherattach(char* spec)
 		nexterror();
 	}
 	chan->dev = ctlrno;
-	if(etherxx[ctlrno]->attach)
-		etherxx[ctlrno]->attach(etherxx[ctlrno]);
+	if(ethercore_attach(ether) < 0)
+		error(Enodev);
 	poperror();
 	return chan;
 }
@@ -86,19 +84,19 @@ etherattach(char* spec)
 static Walkqid*
 etherwalk(Chan* chan, Chan* nchan, char** name, int nname)
 {
-	return netifwalk(etherxx[chan->dev], chan, nchan, name, nname);
+	return netifwalk(ethercore_lookup(chan->dev), chan, nchan, name, nname);
 }
 
 static int
 etherstat(Chan* chan, uchar* dp, int n)
 {
-	return netifstat(etherxx[chan->dev], chan, dp, n);
+	return netifstat(ethercore_lookup(chan->dev), chan, dp, n);
 }
 
 static Chan*
 etheropen(Chan* chan, int omode)
 {
-	return netifopen(etherxx[chan->dev], chan, omode);
+	return netifopen(ethercore_lookup(chan->dev), chan, omode);
 }
 
 static Chan*
@@ -110,7 +108,7 @@ ethercreate(Chan*, char*, int, ulong)
 static void
 etherclose(Chan* chan)
 {
-	Ether *ether = etherxx[chan->dev];
+	Ether *ether = ethercore_lookup(chan->dev);
 	Netfile *f;
 
 	if(NETTYPE(chan->qid.path) == Ndataqid){
@@ -119,7 +117,7 @@ etherclose(Chan* chan)
 			memset(ether->mactab, 0, sizeof(ether->mactab));
 		if(f->bypass){
 			qsetbypass(ether->oq, ether->link? nil: drop);
-			qsetlimit(ether->oq, etheroqsize(ether));
+			qsetlimit(ether->oq, ethercore_oqsize(ether));
 		}
 	}
 	netifclose(ether, chan);
@@ -128,19 +126,19 @@ etherclose(Chan* chan)
 static long
 etherread(Chan* chan, void* buf, long n, vlong off)
 {
-	return netifread(etherxx[chan->dev], chan, buf, n, (ulong)off);
+	return netifread(ethercore_lookup(chan->dev), chan, buf, n, (ulong)off);
 }
 
 static Block*
 etherbread(Chan* chan, long n, ulong offset)
 {
-	return netifbread(etherxx[chan->dev], chan, n, offset);
+	return netifbread(ethercore_lookup(chan->dev), chan, n, offset);
 }
 
 static int
 etherwstat(Chan* chan, uchar* dp, int n)
 {
-	return netifwstat(etherxx[chan->dev], chan, dp, n);
+	return netifwstat(ethercore_lookup(chan->dev), chan, dp, n);
 }
 
 static void
@@ -274,7 +272,7 @@ Drop:		freeb(bp);
 }
 
 void
-etheriq(Ether* ether, Block* bp)
+etherlegacyrx(Ether* ether, Block* bp)
 {
 	if(ether->bypass != nil){
 		freeb(bp);
@@ -310,7 +308,7 @@ etheroq(Ether* ether, Block* bp, Netfile **from)
 static long
 etherwrite(Chan* chan, void* buf, long n, vlong)
 {
-	Ether *ether = etherxx[chan->dev];
+	Ether *ether = ethercore_lookup(chan->dev);
 	Block *bp;
 	int nn, onoff;
 	Cmdbuf *cb;
@@ -377,7 +375,7 @@ etherbwrite(Chan* chan, Block* bp, ulong)
 		return n;
 	}
 
-	ether = etherxx[chan->dev];
+	ether = ethercore_lookup(chan->dev);
 	if(n > ether->maxmtu){
 		freeb(bp);
 		error(Etoobig);
@@ -390,105 +388,6 @@ etherbwrite(Chan* chan, Block* bp, ulong)
 	return n;
 }
 
-static struct {
-	char*	type;
-	int	(*reset)(Ether*);
-} cards[MaxEther+1];
-
-void
-addethercard(char* t, int (*r)(Ether*))
-{
-	static int ncard;
-
-	if(ncard == MaxEther)
-		panic("too many ether cards");
-	cards[ncard].type = t;
-	cards[ncard].reset = r;
-	ncard++;
-}
-
-static int
-etheroqsize(Ether *ether)
-{
-	int b, q;
-
-	b = ether->mbps * 2*125;	/* 2ms */
-	for(q = 128*1024; q < b; q <<= 1)
-		;
-	if(mainmem->maxsize / 8 < q)
-		q = mainmem->maxsize / 8;
-	return q;
-}
-
-static Ether*
-etherprobe(int cardno, int ctlrno, char *conf)
-{
-	int i, q;
-	Ether *ether;
-
-	ether = malloc(sizeof(Ether));
-	if(ether == nil){
-		print("etherprobe: no memory for Ether\n");
-		return nil;
-	}
-	memset(ether, 0, sizeof(Ether));
-	ether->tbdf = BUSUNKNOWN;
-	ether->irq = -1;
-	ether->ctlrno = ctlrno;
-	ether->mbps = 10;
-	ether->link = -1;	/* unknown state */
-	ether->minmtu = ETHERMINTU;
-	ether->maxmtu = ETHERMAXTU;
-
-	if(cardno < 0){
-		if(conf != nil){
-			kstrdup(&ether->type, conf);
-			ether->nopt = tokenize(ether->type, ether->opt, nelem(ether->opt));
-			if(ether->nopt < 1)
-				goto Nope;
-			memmove(&ether->opt[0], &ether->opt[1], --ether->nopt*sizeof(ether->opt[0]));
-		} else if(isaconfig("ether", ctlrno, ether) == 0)
-			goto Nope;
-		for(i = 0; i < ether->nopt; i++){
-			if(strncmp(ether->opt[i], "ea=", 3) == 0){
-				if(parseether(ether->ea, &ether->opt[i][3]))
-					memset(ether->ea, 0, Eaddrlen);
-			}
-		}
-		for(cardno = 0; cards[cardno].type != nil; cardno++)
-			if(cistrcmp(cards[cardno].type, ether->type) == 0)
-				break;
-	}
-	if(cardno >= MaxEther || cards[cardno].type == nil)
-		goto Nope;
-	snprint(ether->name, sizeof(ether->name), "ether%d", ctlrno);
-	if(cards[cardno].reset(ether) < 0){
-Nope:
-		if(conf != nil) free(ether->type);	/* see kstrdup() above */
-		free(ether);
-		return nil;
-	}
-	ether->type = cards[cardno].type;
-
-	print("#l%d: %s: %dMbps port 0x%lluX irq %d ea %E\n",
-		ctlrno, ether->type, ether->mbps, (uvlong)ether->port, ether->irq, ether->ea);
-
-	q = etheroqsize(ether);
-	if(ether->oq == nil){
-		ether->oq = qopen(q, Qmsg|Qkick, (void (*)(void*))ether->transmit, ether);
-		if(ether->oq == nil)
-			panic("etherreset %s: can't allocate output queue", ether->name);
-	} else {
-		qsetlimit(ether->oq, q);
-	}
-	netifinit(ether, ether->name, Ntypes, 8*MB);
-	ether->alen = Eaddrlen;
-	memmove(ether->addr, ether->ea, Eaddrlen);
-	memset(ether->bcast, 0xFF, Eaddrlen);
-
-	return ether;
-}
-
 void
 ethersetspeed(Ether *ether, int mbps)
 {
@@ -497,7 +396,7 @@ ethersetspeed(Ether *ether, int mbps)
 	ether->mbps = mbps;
 	if(mbps <= 0 || ether->f == nil || ether->oq == nil || ether->bypass)
 		return;
-	qsetlimit(ether->oq, etheroqsize(ether));
+	qsetlimit(ether->oq, ethercore_oqsize(ether));
 }
 
 void
@@ -530,54 +429,21 @@ static void netconsole(int);
 static void
 etherreset(void)
 {
-	Ether *ether;
-	int cardno, ctlrno;
-
+	/*
+	 * Controller probing/reset belongs to the native core.  This legacy
+	 * Dev reset hook only installs formatting and the optional IPv4
+	 * netconsole, which is deliberately not part of the native core.
+	 */
 	fmtinstall('E', eipfmt);
-
-	for(ctlrno = 0; ctlrno < MaxEther; ctlrno++){
-		if((ether = etherprobe(-1, ctlrno, nil)) == nil)
-			continue;
-		etherxx[ctlrno] = ether;
-	}
-
-	if(getconf("*noetherprobe") == nil){
-		cardno = ctlrno = 0;
-		while(cards[cardno].type != nil && ctlrno < MaxEther){
-			if(etherxx[ctlrno] != nil){
-				ctlrno++;
-				continue;
-			}
-			if((ether = etherprobe(cardno, ctlrno, nil)) == nil){
-				cardno++;
-				continue;
-			}
-			etherxx[ctlrno] = ether;
-			ctlrno++;
-		}
-	}
-
+	ethercore_init();
 	netconsole(1);
 }
 
 static void
 ethershutdown(void)
 {
-	Ether *ether;
-	int i;
-
 	netconsole(0);
-
-	for(i = 0; i < MaxEther; i++){
-		ether = etherxx[i];
-		if(ether == nil)
-			continue;
-		if(ether->shutdown == nil) {
-			print("#l%d: no shutdown function\n", i);
-			continue;
-		}
-		(*ether->shutdown)(ether);
-	}
+	ethercore_shutdown();
 }
 
 
@@ -719,7 +585,7 @@ netconsole(int on)
 		dstmac = ((uvlong)-1) >> 16;
 	if(*r != 0) goto err;
 	
-	if(devno >= MaxEther || etherxx[devno] == nil){
+	if(devno >= MaxEther || ethercore_lookup(devno) == nil){
 		print("netconsole: no device #l%d\n", devno);
 		return;
 	}
@@ -730,7 +596,7 @@ netconsole(int on)
 		return;
 	}
 	memset(nc, 0, sizeof(Netconsole));
-	nc->ether = etherxx[devno];
+	nc->ether = ethercore_lookup(devno);
 	
 	uchar header[PktHdr] = {
 		/* 0 */ dstmac >> 40, dstmac >> 32, dstmac >> 24, dstmac >> 16, dstmac >> 8, dstmac >> 0,
