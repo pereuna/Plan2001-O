@@ -3,8 +3,9 @@
 **VERDICT: APPROVE** for the registration/callback race, with the explicit
 queue-boundary limitation in section 6.
 **Branch:** `design/ipv6-only-native-20261024`.
-**Old commit:** `e4735aa` (the red test was run against this code).
-**Fix/regression commit:** the commit adding this report.
+**Old code:** `e4735aa` unregister lifecycle (the red run added only the
+`draining` stats observation; it did not change the buggy lifecycle).
+**Fix/regression commit:** `6fdd4c4`; this report refresh is docs-only.
 **NO MERGE.** No `main`, PR, E7.5, SEALED, WireGuard, crypto, `ipmux`,
 userspace ABI, TCP6 or O-disk change was made.
 
