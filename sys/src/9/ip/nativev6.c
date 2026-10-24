@@ -198,6 +198,44 @@ worker(void *arg)
 }
 
 /*
+ * Terminal cleanup after a failed start.  The inherited Fs starts ARP/IP
+ * kprocs, so freeing the Fs is not safe.  Keep the one-shot object reachable
+ * (nativeone) in NvFailed/NvStopped so a restart fails cleanly instead of
+ * leaking an unbounded number of protocol stacks.
+ */
+static void
+nativeterminal(Ipv6Native *ni)
+{
+	int i;
+
+	if(ni == nil)
+		return;
+	if(ni->rxreg){
+		ethercore_rxunregister(ni->ether, ipv6native_etherinput, ni);
+		ni->rxreg = 0;
+	}
+	if(ni->rxq != nil && !ni->rxclosed){
+		qclose(ni->rxq);
+		ni->rxclosed = 1;
+	}
+	ni->stop = 1;
+	if(ni->worker_started){
+		for(i = 0; i < 200 && !ni->worker_exited; i++)
+			tsleep(&ni->done, workerexited, ni, 10);
+	}
+	if(ni->worker_exited && ni->ifc != nil){
+		wlock(ni->ifc);
+		if(ni->ifc->m == &ipv6nativemedium){
+			ni->ifc->m = &unboundmedium;
+			ni->ifc->arg = nil;
+		}
+		wunlock(ni->ifc);
+		if(ni->ether != nil && ni->ether->promiscuous != nil)
+			ni->ether->promiscuous(ni->ether->arg, 0);
+	}
+}
+
+/*
  * Direct Fs/IPv6 initialization plus one link-local address.  Process
  * context only; no namec/Chan/Qid/devattach.
  */
@@ -221,9 +259,22 @@ ipv6native_start(Ether *ether, char *tag, Ipv6Native **out)
 	}
 
 	ni = smalloc(sizeof(*ni));
+	if(ni == nil){
+		qunlock(&nativelk);
+		return EtherErrNoMem;
+	}
 	ni->ether = ether;
+	ni->state = NvInit;
 	memmove(ni->mac, ether->ea, Eaddrlen);
 	mac2ll(ni->ll, ether->ea);
+	nativeone = ni;
+
+	if(waserror()){
+		ni->state = NvFailed;
+		nativeterminal(ni);
+		qunlock(&nativelk);
+		return -1;
+	}
 
 	f = smalloc(sizeof(Fs));
 	ni->f = f;
@@ -233,6 +284,9 @@ ipv6native_start(Ether *ether, char *tag, Ipv6Native **out)
 	c = Fsprotoclone(f->ipifc, tag != nil ? tag : "e72");
 	qunlock(f->ipifc);
 	if(c == nil){
+		poperror();
+		ni->state = NvFailed;
+		nativeterminal(ni);
 		qunlock(&nativelk);
 		return -1;
 	}
@@ -258,28 +312,37 @@ ipv6native_start(Ether *ether, char *tag, Ipv6Native **out)
 	err = ipifcadd(ifc, params, 3, 0, nil);
 	if(err != nil){
 		print("ipv6native: add %s: %s\n", addr, err);
+		poperror();
+		ni->state = NvFailed;
+		nativeterminal(ni);
 		qunlock(&nativelk);
 		return -1;
 	}
 
 	ni->rxq = qopen(NativeRxq, Qmsg, nil, nil);
 	if(ni->rxq == nil){
+		poperror();
+		ni->state = NvFailed;
+		nativeterminal(ni);
 		qunlock(&nativelk);
 		return -1;
 	}
 
 	kproc("*ipv6native*", worker, ni);
+	ni->worker_started = 1;
 	if(ethercore_rxregister(ether, ipv6native_etherinput, ni) != EtherErrOk){
-		ni->stop = 1;
-		qclose(ni->rxq);
+		poperror();
+		ni->state = NvFailed;
+		nativeterminal(ni);
 		qunlock(&nativelk);
 		return -1;
 	}
+	ni->rxreg = 1;
 	if(ether->promiscuous != nil)
 		ether->promiscuous(ether->arg, 1);
 
-	coherence();
-	nativeone = ni;
+	poperror();
+	ni->state = NvRunning;
 	*out = ni;
 	qunlock(&nativelk);
 	return EtherErrOk;
@@ -288,7 +351,7 @@ ipv6native_start(Ether *ether, char *tag, Ipv6Native **out)
 int
 ipv6native_stop(Ipv6Native *ni)
 {
-	int i;
+	int i, wasrunning;
 
 	if(ni == nil)
 		return EtherErrBadArg;
@@ -297,15 +360,36 @@ ipv6native_stop(Ipv6Native *ni)
 		qunlock(&nativelk);
 		return EtherErrBadArg;
 	}
-	nativeone = nil;
-	ni->stop = 1;
+	if(ni->state == NvRunning){
+		ni->state = NvStopping;
+		ni->stop = 1;
+		wasrunning = 1;
+	}else if(ni->state == NvStopping)
+		wasrunning = 0;
+	else {
+		qunlock(&nativelk);
+		return EtherErrBadArg;
+	}
 	qunlock(&nativelk);
 
-	ethercore_rxunregister(ni->ether, ipv6native_etherinput, ni);
-	qclose(ni->rxq);
-	for(i = 0; i < 200 && !ni->worker_exited; i++)
+	if(wasrunning){
+		if(ni->rxreg){
+			ethercore_rxunregister(ni->ether, ipv6native_etherinput, ni);
+			ni->rxreg = 0;
+		}
+		if(ni->rxq != nil && !ni->rxclosed){
+			qclose(ni->rxq);
+			ni->rxclosed = 1;
+		}
+	}
+	for(i = 0; i < 500 && !ni->worker_exited; i++)
 		tsleep(&ni->done, workerexited, ni, 10);
+	if(!ni->worker_exited)
+		return EtherErrBusy;	/* still Stopping; caller may retry */
 
+	qlock(&nativelk);
+	ni->state = NvStopped;
+	qunlock(&nativelk);
 	wlock(ni->ifc);
 	if(ni->ifc->m == &ipv6nativemedium){
 		ni->ifc->m = &unboundmedium;
@@ -322,6 +406,10 @@ ipv6native_inject(Ipv6Native *ni, Block *bp)
 {
 	if(ni == nil || bp == nil)
 		return -1;
+	if(ni->state != NvRunning || ni->rxclosed){
+		freeb(bp);
+		return -1;
+	}
 	return enqueue(ni, bp);
 }
 
@@ -333,7 +421,8 @@ ipv6native_stats(Ipv6Native *ni, Ipv6NativeStats *st)
 	memset(st, 0, sizeof(*st));
 	if(ni == nil)
 		return;
-	st->started = nativeone == ni;
+	st->started = ni->state == NvRunning;
+	st->state = ni->state;
 	st->worker_exited = ni->worker_exited;
 	st->rxframes = ni->rxframes;
 	st->rxbad = ni->rxbad;
@@ -350,7 +439,7 @@ ipv6native_stats(Ipv6Native *ni, Ipv6NativeStats *st)
 void
 ipv6native_setlimit(Ipv6Native *ni, int limit)
 {
-	if(ni != nil && ni->rxq != nil)
+	if(ni != nil && ni->rxq != nil && !ni->rxclosed)
 		qsetlimit(ni->rxq, limit);
 }
 

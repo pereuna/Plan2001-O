@@ -3,6 +3,15 @@
  * One fixed-purpose Ipv6Native instance, no generic subscription framework.
  */
 typedef struct Ipv6Native Ipv6Native;
+
+enum {
+	NvInit = 0,
+	NvRunning,
+	NvStopping,
+	NvStopped,
+	NvFailed,
+};
+
 struct Ipv6Native {
 	Ether		*ether;
 	Fs		*f;
@@ -13,8 +22,12 @@ struct Ipv6Native {
 	uchar		ll[IPaddrlen];
 
 	Rendez		done;
+	int		state;
 	int		stop;
+	int		worker_started;
 	int		worker_exited;
+	int		rxreg;
+	int		rxclosed;
 	Proc		*worker;
 
 	uvlong		rxframes;
@@ -32,6 +45,7 @@ struct Ipv6Native {
 typedef struct Ipv6NativeStats Ipv6NativeStats;
 struct Ipv6NativeStats {
 	int	started;
+	int	state;
 	int	worker_exited;
 	uvlong	rxframes;	/* queued by the native RX filter */
 	uvlong	rxbad;		/* short/filtered L2 */

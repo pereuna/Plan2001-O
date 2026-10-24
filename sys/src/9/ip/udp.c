@@ -76,6 +76,7 @@ struct Udpstats
 	ulong	udpNoPorts;
 	ulong	udpInErrors;
 	uvlong	udpOutDatagrams;
+	ulong	udpDropFull;
 };
 
 typedef struct Udppriv Udppriv;
@@ -389,6 +390,15 @@ Badcrc:
 		if(BLEN(bp) < UDP6_IPHDR_SZ+UDP_UDPHDR_SZ)
 			goto Badhdr;
 		len = nhgets(uh6->udplen);
+		/*
+		 * Reject zero checksum (illegal for UDPv6), a short UDP
+		 * header and a UDP length beyond the delivered IPv6 payload.
+		 * IPv4 semantics are deliberately unchanged.
+		 */
+		if(len < UDP_UDPHDR_SZ || len > BLEN(bp) - UDP6_IPHDR_SZ)
+			goto Badhdr;
+		if(nhgets(uh6->udpcksum) == 0)
+			goto Badcrc;
 		oviclfl = nhgetl(uh6->viclfl);
 		olen = nhgets(uh6->len);
 		ottl = uh6->hoplimit;
@@ -535,6 +545,7 @@ Noconv:
 	}
 
 	if(qfull(c->rq)){
+		upriv->ustats.udpDropFull++;
 		netlog(f, Logudp, "udp: qfull %I.%d -> %I.%d\n",
 			raddr, rport, laddr, lport);
 		freeblist(bp);
@@ -667,11 +678,12 @@ udpstats(Proto *udp, char *buf, int len)
 
 	upriv = udp->priv;
 	return snprint(buf, len, "InDatagrams: %llud\nNoPorts: %lud\n"
-		"InErrors: %lud\nOutDatagrams: %llud\n",
+		"InErrors: %lud\nOutDatagrams: %llud\nDropFull: %lud\n",
 		upriv->ustats.udpInDatagrams,
 		upriv->ustats.udpNoPorts,
 		upriv->ustats.udpInErrors,
-		upriv->ustats.udpOutDatagrams);
+		upriv->ustats.udpOutDatagrams,
+		upriv->ustats.udpDropFull);
 }
 
 void
