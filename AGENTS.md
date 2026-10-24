@@ -22,6 +22,19 @@ Read [README.md](README.md) for overview, [docs/OBJECT-MODEL.md](docs/OBJECT-MOD
 - A broken gate is evidence to investigate, not permission to weaken it or silently change the specification.
 - Update STATUS when verification changes; keep POC's source-branch experiment history intact.
 
+## Production server/embedded profile
+
+The server and embedded production profile is a **design target**, not an
+implemented security model. Follow [docs/PRODUCTION-BOOT-AND-AUTHORITY.md](docs/PRODUCTION-BOOT-AND-AUTHORITY.md)
+for its boot, administration and authority boundaries. There is no native
+all-powerful `root`/`sudo`/universal administrator account in that target.
+Inherited `eve`/`hostowner`/`iseve` behavior is **legacy and currently
+present**; do not change or quietly weaken it while migration work is
+incomplete. Retain USB support and the existing UEFI and GRUB boot/recovery
+workflows. Do not claim secure netboot, verified boot, encrypted GE/O,
+passkeys or a native administration service is implemented unless a named
+test demonstrates it.
+
 ## Architectural direction
 
 - GE/O owns persistent object identity **and, as a goal, native persistent relationships**. Current identity is `(SpaceID, OID)` with a 64-bit OID within a GE volume, not a path or disk pointer.

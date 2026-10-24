@@ -194,6 +194,13 @@ the legacy `hostownerwrite` path was added (NOT RUN); only QEMU VirtIO
 block I/O was exercised. No E7/network code, OID/Space/on-disk format,
 MicroPython persistence or physical disk was changed.
 
+**E9.3 (proposed, not implemented):** the server/embedded production
+boot and authority model is documented in
+[PRODUCTION-BOOT-AND-AUTHORITY.md](PRODUCTION-BOOT-AND-AUTHORITY.md). It
+is a design record only: secure netboot, verified boot, encrypted GE/O,
+passkeys and a native administration service are not implemented by it.
+USB and the existing UEFI/GRUB boot/recovery paths are to be retained.
+
 ## E8 legacy `Dev` pruning in the O-only server profile
 
 **APPROVE (agent-executed, bounded).** Six of the nine audited legacy

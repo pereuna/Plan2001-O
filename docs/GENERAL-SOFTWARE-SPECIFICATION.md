@@ -184,6 +184,35 @@ The words **text** and **hexadecimal** in step 3 name interpreters; they do not 
 
 This specification does **not** require an analogue computer, solve the philosophical problem of other minds or external reality, define a universal logic of all possible self-reference, or prescribe a network protocol, GUI, process scheduler, or programming language.
 
+## 12.1 Deployment and security profile (proposed)
+
+The server and embedded production profile is a **target**, not an
+implemented security architecture. It has no native universal superuser
+account: inherited `eve`/`hostowner`/`iseve` behavior is **legacy and
+currently present**, and must remain intact until a separate tested
+authorization migration replaces it. A single logical Administration
+environment may authenticate multiple distinct human operators for audit
+and revocation; that management identity is not a kernel identity with
+unrestricted memory, disk or device access. Independent services receive
+narrow, validated operation rights.
+
+Unattended operation, authenticated kernel acquisition, signed/verified
+boot, GE/O confidentiality at rest, key release, remote administration
+and desktop session policy are distinct `PROPOSED` or `OPEN` topics. USB
+support and the existing UEFI/GRUB boot and recovery paths must be
+retained while those capabilities are designed. No OID, integer handle,
+UID-like name, network location or boot signature is by itself a
+permission.
+
+The full design record, trust boundaries, secret matrix and staged
+follow-up tasks are in
+[PRODUCTION-BOOT-AND-AUTHORITY.md](PRODUCTION-BOOT-AND-AUTHORITY.md). It
+does not claim that secure netboot, encrypted O storage, passkeys, TPM
+sealing or a native administration service exists. This philosophical
+specification continues not to mandate a POSIX multiuser filesystem,
+hierarchical owner/mode metadata, a service manager or a new capability
+ABI.
+
 ## 13. Relationship to the existing proof of concept
 
 The repository's current O profile already provides the **preferred implementation base**: scoped OIDs, versioned opaque byte payloads, a functioning persistent execution experiment, and inherited kernel, device, console and network facilities. Reuse these before designing replacements. It now also has a **local** OID allocator for the active native O volume and Space; this is not a machine-wide or cross-machine namespace, and a number from one Space has no global meaning. Persistent native relation graphs and a general observation API with the semantics above remain unimplemented. The existing Python persistence graph is not the proposed independent named-graph layer. **These gaps justify small experiments, not a kernel rewrite.**

@@ -199,6 +199,10 @@ The embedded `oinit` and `kbdfs` are the remaining bootstrap dependencies, **not
 
 Do not replace the bootstrap harness with an initramfs or a pseudo-filesystem merely to preserve traditional `exec(path)` behavior. A bounded native executable-object experiment now exists; extending it to a general program loader remains work.
 
+### Production server/embedded profile (proposed)
+
+A future server/embedded deployment target is described in [docs/PRODUCTION-BOOT-AND-AUTHORITY.md](docs/PRODUCTION-BOOT-AND-AUTHORITY.md): unattended boot, one logical Administration environment with multiple authenticated human operators, narrow service rights, and no native all-powerful root account. This is **proposed design, not implemented security**. Inherited `eve`/`hostowner` behavior remains legacy and currently present; USB support and the existing UEFI/GRUB boot and recovery paths are to be retained. The document does not claim that secure netboot, verified boot, encrypted GE/O, passkeys or a native administration service works today.
+
 ## 6. What about Plan 9 and 9P2000?
 
 Plan 9 presents files, devices, and services through per-process hierarchical namespaces. Its `Chan` and `Dev` abstractions expose operations such as `walk`, `open`, `read`, and `write`; `devmnt` translates relevant operations into **9P2000** requests when a file server is involved. A `fid` is a connection-scoped protocol handle; a `qid` is a server-scoped file identifier. Neither defines Plan2001's persistent object identity.
