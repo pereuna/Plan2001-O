@@ -26,7 +26,6 @@ dev
 	rtc
 	tls
 	cap
-	kprof
 	fs
 
 	ether		netif
