@@ -167,7 +167,7 @@ An ordinary userspace `Handle` is not a `T*`; a kernel must resolve it before ca
 - Legacy `OPEN/PREAD/PWRITE/CLOSE/PIPE` and `fd` use `Chan`/`Fgrp`; see `sysfile.c` and `systab.h`. They remain for compatibility.
 - Current O `OVOLOPEN` and `OSPACEOPEN/GET/PUT/CREATE/COMMIT/CLOSE` exist; `devgefs.c` owns process-local `Ohand` / `Ohtab`, validates user addresses and drops O handles on `oprocexec/oproc exit`. This is **not** a general device handle table or permission system.
 - Current native `IOWRITE` uses a process `iomask` for constrained output grants (`docs/STATUS.md`, `sys/src/9/port/systab.h`). It does not specify a generic Stream API or a transfer-of-capability protocol.
-- E4 `native_cons_read(selector, ...)` dispatches three reviewed internal `readnum` reads (`Qrtc`, `Qpid`, `Qppid`). It is a **kernel-internal transitional dispatcher**, **not** a proposed universal driver or userspace ABI. Its numeric Qid-derived selectors are not persistent identifiers.
+- E4 has three reviewed native `readnum` reads in total: `native_rtc_read(...)` dispatches `Qrtc`, while `native_cons_read(selector, ...)` dispatches `Qpid` and `Qppid`. It is a **kernel-internal transitional dispatcher**, **not** a proposed universal driver or userspace ABI. Its numeric Qid-derived selectors are not persistent identifiers.
 - No generic rights-bearing `Handle`/`Capability` ABI for display and keyboard is implemented.
 
 ### 4.4 Security and identity separation
