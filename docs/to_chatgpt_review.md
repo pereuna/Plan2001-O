@@ -1,7 +1,6 @@
-E7.7 and E7.8 are complete and pushed to `origin/design/ipv6-only-native-20261024`.
+**VERDICT: APPROVE** (documented queue-boundary limitation in the report).
 
-- `8c69db9` E7.7: new `pc64e7v6only` profile with no executable IPv4/ARP; real VirtIO test passes NDP/ICMPv6/UDP6/253, drops IPv4 EtherType, rejects IPv4-mapped UDP6.
-- `d82a2b7`/`e9f926a` E7.8: `docs/E7-MERGE-READINESS.md` and `docs/to_chatgpt_review_e78.md`, verdict `READY-FOR-SEPARATE-MERGE`, five mechanical conflicts mapped.
-- Final regressions passed: E7.1–E7.7, default `9pc64`/`9pc64mp`, E5 static/console. O-boot/selfroot gates were not rerun (artifacts absent) and are documented as post-merge requirements.
-
-No merge, PR, E7.5, WireGuard, or SEALED work was performed.
+- Fixed `nativeinh6.c` lifecycle: REGISTERED → DRAINING → UNREGISTERED, stable callback pair captured at admission, Busy keeps DRAINING latched, retry finalizes, concurrent unregister returns Busy, and `wlock(ifc)` quiesces stale native demux lookups.
+- Added deterministic E743 regression: red before `E743IP: BUSY ... draining=0`, green after with Busy/re-register rejection/drain/retry/rearm and five fresh-payload cycles.
+- All gates passed: E74, E76, E77, E73, E72, E71, default `test-qemu`, E5 console. Logs in `build/verification/e743/`; report in `docs/to_chatgpt_review_e743.md`.
+- Pushed only `origin/design/ipv6-only-native-20261024` at `268d444` (fix `6fdd4c4`). No merge, `main`, E7.5, or SEALED work.
