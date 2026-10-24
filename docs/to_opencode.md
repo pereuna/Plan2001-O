@@ -1,113 +1,99 @@
-# E3 — automatically propose reviewable Chan-free C extraction patches
+# E3a — close unsafe pre-dispatch dataflow acceptance in extraction proposals
 
-**OpenCode work order.** E2 is complete at implementation commit `ecd945e23706bd5e6f4eb28384121c8c76a09d31` (last observed branch HEAD `365959fb6191601c2e024244fb438f7e45a2df8d`). **D2c stays deferred.** E3 is a *source-to-source transformation proposal* experiment: use the ONE existing `tools/kernel_opmap.py` analyser to locate a supported selected `Dev`/Qid operation in its **unmodified original code**, generate a common Chan-free helper, replace that one legacy case with a helper call, and output a **reviewable unified diff**. **Do not automatically apply proposed patches to tracked kernel sources or activate them in normal builds.** No batch conversion of 27 drivers.
+**OpenCode assignment; bounded E3 safety repair.** Current E3 implementation: `30d0ca73de059df5b3b6ffa1635e1f53beb0625c`, last observed HEAD `0af71e5f5f69da9c554d396438c32e1d0254fbdf`. E3 proved *proposal-only* source extraction (RTC Qrtc, CONS Qpid historical originals and HEAD CONS Qppid). **Do not move to E4, automatically apply patches or modify tracked kernel driver sources. D2c remains deferred.**
 
-## Baseline and semantics
+## Defect to reproduce first
 
-Read `AGENTS.md`, short `docs/STATUS.md`, `docs/KERNEL-NATIVE-GENERATOR.md`, `docs/CHAN-DEPENDENCIES-INDEX.md`, `tools/kernel_opmap.py`, `tools/test_kernel_opmap.py`, both drivers and E2 probe. Check HEAD and `git status --short`. Preserve unrelated edits and existing E2 native generator, native-probe integration, D2b kernel boot and all current tests.
+The `tools/kernel_opmap.py` routine `_e3_validate_prefix()` near E3's line ~5230 accepts some statements between the handler's entry and its `switch(c->qid.path)` without analyzing their effect on values used in an extracted branch.
 
-The E2 frontend already provides `Analyzer.analyze()`, `Function`, `Switch`, `CaseLabel`, `Token` **with original source `offset`, line/column**, `Dirtab`, Qid values, source hashes, call edges, and readnum extraction validation. **Reuse this parser and token spans**. Do not create a second C scanner or use a whole-file regex substitution. Source bytes outside expressly authorized spans must remain identical (including comments, `#if` lines and unrelated branches). Treat the result as a candidate requiring review, not as a proof of semantic equivalence.
+For example this eligible synthetic Dev handler is **unsafe to extract as currently implemented**:
 
-## Positive candidates: two historical originals + one new HEAD candidate
-
-The current branch already contains the manually extracted E2 helpers, so it is **invalid** to claim to extract those same two operations from current HEAD. Use the exact Git revision `7b4dfac4903e909dc2a00f37e9320335808029ac` as the **PRE-E2 input** in a disposable staging tree or a minimal test fixture constructed from `git show`. Never checkout/reset the user's working tree. Its relevant source branches are:
-
-- `sys/src/9/pc/devrtc.c` → `rtcread` case `Qrtc`:
-  ```c
-  n = readnum(offset, buf, n, (ulong)rtctime(), 12);
-  return n;
-  ```
-  `ulong offset = off` is declared **before** the switch and **still needed by Qnvram**. The generated helper must reconstruct its own local offset; the original shared local must not be removed or broken.
-- `sys/src/9/port/devcons.c` → `consread` case `Qpid`:
-  ```c
-  return readnum((ulong)offset, buf, n, up->pid, NUMSIZE);
-  ```
-  `vlong offset = off` is set before the switch and shared by many other cases. The original handler has `if(n <= 0) return n;` **before dispatch**, which a native helper must preserve for direct calls, while leaving the legacy pre-dispatch guard unchanged.
-
-Also attempt an **additional current-HEAD candidate** `devcons.c` → `consread` case `Qppid` (currently still `return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);`). This should produce an independent proposal *without* a new driver-specific template. Its `up` context, `0444` access policy, pre-dispatch guard and parent PID semantics must be recorded. **Do not apply the Qppid patch to HEAD.** If safe extraction cannot be established, output a precise refusal and keep E3 PARTIAL.
-
-Use a third simple *synthetic* static-Dev fixture with renamed selector/locals/value/size to prove this is a general transformation, not a hidden RTC/CONS/Qppid allowlist. Generated function names must be deterministic and collision-checked against declared and called symbols. No E3 source modifications to NVRAM, RTC writes, device reset, IRQ, PCI, network, pipe or O-volume storage.
-
-## Transformation rule
-
-Extend the existing E2 narrow `readnum` recognizer so that it accepts a selected **legacy branch BEFORE a helper exists**, and emits **two related edits** from the same validated IR:
-
-1. Insert a non-static, kernel-internal shared helper `long <generated_name>(void *buf, long n, vlong off)` into the same C translation unit, using the verified original value expression, width, offset handling, return shape and pre-dispatch `n <= 0` guard. Choose a safe insertion location outside functions, declarations and conditional compilation. Do not move `#define`s, comments or unrelated code; avoid including expression dependencies not visible there. Preserve the original expressions/casts precisely or record and justify strictly equivalent normalization.
-2. Replace **only the one selected Qid case body** with `return <generated_name>(buf, n, off);`, keeping the same case label and preserving the original function's other cases, default/error handling, init, `open` permissions and lifecycle. The new helper becomes the **single executable implementation** used by the legacy case and, once accepted in a separately reviewed step, by the existing generic E2 native emitter.
-
-The ordinary `Chan`/Qid/Dev machinery may remain in the wrapper; the *extracted helper and its bounded transitive call chain* must not need `Chan`, path walk, mount, `namec`, `Dirtab` or synthetic `Fgrp`. An internal numeric selector is allowed, but do not equate it to persistent OID. Native user access is NOT authorized by creating a helper; these remain kernel-internal until a separately designed capability boundary.
-
-**Hard problem: data/control dependencies.** Do not copy arbitrary lexical text from a switch branch and hope it compiles. For each proposal, prove or conservatively verify:
-- selected branch has no fall-through, `goto`, `break`-dependent return, hidden side effects, aliasing/captures, conflicting conditional compilation or multiple exits;
-- every local referenced in the copied branch has its type/initialization and lifetime resolved; shared locals still needed by neighboring cases remain untouched;
-- no `Chan` fields (`c->qid`, `c->aux`, flags, offsets, mode), member or indirect callbacks with unknown target, unsafe macros, missing `up` context, unknown helper declarations, or unreviewed hardware side effects occur in the proposed helper;
-- permission evaluation still happens at the original `open`/Dirtab boundary; direct kernel calls are explicitly declared **kernel-internal-only**, not silently equivalent to an authorized userspace API;
-- negative/zero lengths, offsets, numeric conversions and errors preserve the actual source behavior. In particular `consread`'s `n<=0` guard and RTC's shared `offset` have different semantics. Check symbol visibility and target Plan 9 C dialect.
-
-If any requirement cannot be validated **fail closed** with a machine-readable reason and source evidence. Do not label a copied helper DIRECT merely because it compiles.
-
-## Output and CLI
-
-Add one opt-in `tools/kernel_opmap.py` mode, naming at your discretion, e.g.:
-
-```sh
-python3 tools/kernel_opmap.py --propose-extraction \
-  --config pc64 --source-tree build/e3/pre-e2 \
-  --selectors rtc:read:Qrtc,cons:read:Qpid \
-  --out-dir build/generated/e3-pre-e2
-
-python3 tools/kernel_opmap.py --propose-extraction \
-  --config pc64 --selectors cons:read:Qppid \
-  --out-dir build/generated/e3-head
+```c
+long handler(Chan *c, void *buf, long n, vlong off)
+{
+    ulong offset = off;
+    offset += 1;
+    switch((ulong)c->qid.path){
+    case Qtest:
+        return readnum(offset, buf, n, 4242, 8);
+    }
+    return 0;
+}
 ```
 
-Document the **actual working CLI** if changed. For historical input, either accept a snapshot with the normal repo build/config context or create it safely from an archive in an ignored temp/build directory. Do not require rewriting all E2 pinned hashes to analyze old input; proposal analysis is a **separate opt-in stage** with its own pinned raw input hashes and approval state. A proposal may be generated but **must not automatically become an approved DIRECT binding**. After an eventual human-reviewed patch is applied, E2's normal generator may use a consciously reviewed and re-pinned binding; never silently bless the new source hash.
+The proposed helper reconstructs `ulong offset = off` but can omit the `offset += 1` effect; therefore the native entry can read different bytes than the legacy path. Compound assignment `+=` is tokenized but not handled by `_e3_top_level_eq()`; the `_e3_validate_prefix()` path for a statement with no simple `=` rejects calls but can let this mutation through.
 
-Place outputs under ignored `build/generated/` only:
-- `*.patch`: standard deterministic unified diff using real repo-relative paths; suitable for `git apply --check` against the **exact named base**.
-- `extraction-decisions.json`: schema/version, source commit (if known), per-source full SHA-256, selected Dev/handler/Qid, line and byte spans, value/size/offset/guard, newly introduced symbols, external dependencies, permission/context/lifecycle notes, patch hash, DIRECT-CANDIDATE / REFUSED / ALREADY-EXTRACTED status, and reasons.
-- optionally `*.preview.c` for review, **not** an applied source edit.
+**Prove this exact failure with a synthetic fixture BEFORE modifying the implementation.** Capture the observed old `DIRECT-CANDIDATE` (or actual different result) in the report without committing an intentionally failing suite. Never assert a failure not actually reproduced.
 
-Support a check/determinism mode; no unexpected writes to tracked code or `docs/KERNEL-OPMAP.*` in dry-run. A rerun against identical sources yields byte-identical patch and manifest. A modified source hash, wrong source-ref, stale span, overlap, duplicate helper or changed case causes **explicit refusal**, never fuzzy patching. Keep existing `--write`, `--check`, `--stats`, `--generate-native`, native `--check` compatible with E2. Do not add any duplicate parser to `tools/`.
+## Repair with strict, conservative prefix semantics
 
-## Test gates (must genuinely run)
+Maintain **one parser**: reuse `Analyzer`, existing token stream, `Function`/switch source spans, `_e3_parse_branch` and E3 patch machinery. Do not add `tree-sitter`, GCC, another C lexer or a competing tool. Minimal Python stdlib-only modification.
 
-Expand `tools/test_kernel_opmap.py` with tests for:
-1. pre-E2 Qrtc and Qpid generate the two expected reviewable patches using ONE transform rule; new HEAD Qppid candidate or an honest refusal;
-2. synthetic driver produces same patch shape without any driver-name-specific C emitter;
-3. valid `git apply --check` on a **disposable copy of the exact matching base** (not checkout/reset on main); applying to this isolated copy changes exactly approved lines, leaves neighboring `Qnvram`, `Qppid`, `Qkmesg`, `Qdir` and pre-dispatch guards correct;
-4. optional isolated Plan 9 `6c` compile of patched files, plus compare their semantics and expected helper calls with E2's manually reviewed source. A generated patch is NOT a working Chan-free native kernel until compiled/linked/called;
-5. fail-closed cases: changed SHA; offsets, comments/strings and line endings; incompatible casts; parameter/local name collision; `#if` branch; `case` fall-through; multiple assignments; unreviewed macro/callback; unresolved `up`; pre-dispatch side-effect or missing guard; overlapping patch spans; already-extracted branch; missing/ambiguous Qid;
-6. a second run yields identical output, checking mode detects tampering and **generator never modifies tracked files**.
+The safety invariant must be:
 
-Required commands (adapt script names to chosen CLI, report exact executions):
+> A `DIRECT-CANDIDATE` is permitted only when every state read by the extracted helper at the selected branch entry is determined entirely by the helper's parameters, its explicitly reconstructed and immutable local initializers, permitted process context and validated helper calls; no unmodeled pre-switch modification, side effect or additional control flow may be lost.
+
+Implement an explicit **fail-closed, token-aware pre-dispatch statement classification**. An unknown statement must not mean 'safe'. It is sufficient for E3a to *reject* constructs; no new C rewrites required.
+
+Support just the already-reviewed harmless prefix syntax required by E3 positives:
+- ordinary declarations without initializers and without side effects (including pointer locals, enums/typedef types and `extern` as already encountered in RTC/CONS);
+- one reviewed initialization of a relevant scalar offset local from `off` in the actual C type (e.g. `ulong offset = off;`, `vlong offset = off;`), without later writes; preserve original scope and casts;
+- known `if(n <= 0) return n;` and the existing simple directory guard, when precisely matched, with no hidden additional statements;
+- unrelated declarations do **not** imply arbitrary independent assignments are safe.
+
+Explicitly detect and refuse any pre-switch mutation or unsupported construct not proven harmless: all compound assignments `+= -= *= /= %= <<= >>= &= |= ^=`, plain reassignments `offset = ...;`, writes to `n`, `off`, `buf`, `up`, `c` or their pointed-to/members, `++/--`, dereferenced/array/member writes, function-call side effects, conditional (`?:`) operations, chained assignments, comma expressions, statement expressions, pre-switch `return` outside approved guards, and unrecognized `if`/control flow. The parser must not confuse assignment `=` with comparison `==`, nor a declaration initializer with a later assignment. Detect read/modify/write even when the RHS does not call a function.
+
+For pre-switch operations not used by the target branch, err on the side of **REFUSED** unless the code can truly prove irrelevance; do not attempt speculative dataflow analysis in E3a. If a once-initialized offset local is mutated, never recover by copying just its initializer. The actual declaration/initialization used by the extracted case must be unique and unambiguous.
+
+Coordinate `_e3_parse_locals()` with `_e3_validate_prefix()` so they cannot independently interpret an unsafe statement as a safe local initializer. A first-pass normalized classification/IR shared by both is ideal if small; do not create two diverging validators. Preserve original E3 exact source-span patching and existing SHA pin/refusal behavior.
+
+**Source-specific cross-check:** pre-E2 `rtcread` contains `ulong offset = off` shared with Qnvram, pre-E2 `consread` contains `vlong offset = off` plus unrelated declarations and its approved `n<=0` guard, HEAD `consread` Qppid shares those conditions. All three must *still* be proposed correctly; the shared legacy locals and other switch cases must not change.
+
+## Regression tests are the principal acceptance evidence
+
+Expand `tools/test_kernel_opmap.py` using the existing `e3_synthetic_spec()`, historical `e3_pre_fixture()` and disposable patch-copy helpers. At minimum:
+
+1. **Reproduction + regression:** prefix `offset += 1;` is **REFUSED**, with a reason naming the unreviewed mutation and **no patch**.
+2. Reject `offset -= 1`, `offset <<= 1`, `offset |= 1`; and other compound assignment token kinds (prefer parameterized coverage).
+3. Reject `offset = off + 1;` or `offset = 4;` after a previously accepted initializer, including duplicate plain `=` and aliases as appropriate.
+4. Reject `n = n / 2;`, `n += 1;`, `off += 1;`, `buf = ...;`, `*buf = ...;`, `c->offset = ...;`, `up->pid = ...;` and `buf[0] = ...;` in pre-dispatch context. No false `DIRECT-CANDIDATE`.
+5. Reject pre-switch `return n;`, unsupported conditional and call, initializer with side-effect call, chained assignment, and unknown statements. Include innocuous comparisons *inside existing supported guards* as positive controls; do not suddenly reject all `==` tokens.
+6. Keep historical `7b4dfac` RTC Qrtc and CONS Qpid patches **byte-identical** (previous SHA-256 values `7b715be660380e5f75d323d38b5f0067c158508691e7e33e8c05e3102402b524` and `ce6672282fead3da4f6ac49d393e05c4822f2e1fa597d9f8fa125abf188de324`) and HEAD CONS Qppid patch `abb253408f780ef4955fe3759da74dcf7ba3389ae5d83c3a38ecbfa6f2119ee3`, unless genuinely necessary and documented. All must pass `git apply --check` on corresponding disposable sources.
+7. `ALREADY-EXTRACTED`, stale source SHA, preprocessor/macro/ambiguous Qid refusals must remain correct. The candidate/patch output must stay deterministic; `--check` must detect tampering; test that tracked C sources are unchanged.
+
+Use parameterized cases or table-driven fixtures rather than repeating verbose tests. For *each* unsafe fixture assert `candidate.status == REFUSED`, an actionable reason in `extraction-decisions.json`, and **no patch generated**, not just that Python raises an exception or a compile would fail. A negative case that accidentally yields `DIRECT-CANDIDATE` is a regression failure.
+
+## Execution and acceptance
+
+Run and report actual results (PASS/FAIL/NOT RUN):
+
 ```sh
 python3 tools/test_kernel_opmap.py
 python3 tools/kernel_opmap.py --check
-python3 tools/kernel_opmap.py --generate-native --config pc64 --out-dir build/generated/kernel-native
-python3 tools/kernel_opmap.py --generate-native --check --config pc64 --out-dir build/generated/kernel-native
-# E3 proposal creation and E3 proposal verification for both source sets
-# git apply --check, and apply ONLY to disposable copy for test
+python3 tools/kernel_opmap.py --generate-native --config pc64 \
+    --out-dir build/generated/kernel-native
+python3 tools/kernel_opmap.py --generate-native --check --config pc64 \
+    --out-dir build/generated/kernel-native
+# Recreate/check E3 patches against pinned pre-E2 fixture and HEAD Qppid;
+# use the actual documented --propose-extraction command and --check.
+# git apply --check on disposable exact-base source snapshots only
 ```
 
-Because the task is **proposal-only**, do not modify tracked kernel C files, build configs or execute a new user-facing native ABI. If generator source/tests alone change, normal kernel rebuild and QEMU may be reported **NOT RUN** with rationale; optionally rerun `tools/test-o-native-generator.sh` and `tools/test-oboot-server.sh` if built artifacts are available, reporting their actual status, never assumed success. If you intentionally perform a separate isolated trial compile, label it as such, not as regression verification of main.
+This is a **generator safety repair only**. Do NOT modify tracked `sys/src/9/*` files, build scripts or kernel behavior. Kernel rebuild or QEMU re-run is **not mandatory** if no build-relevant source changed; if run, state which existing artifacts were used, and avoid calling historical logs new tests. Do not run `--write` for giant OMAP output unless a genuine fingerprint difference requires it; do not mask a failing `--check`.
 
-## Documentation and finish
+Document concisely in `docs/KERNEL-NATIVE-GENERATOR.md` (short E3a subsection) and `docs/to_chatgpt_review.md`; update `docs/STATUS.md` only if it clarifies the active status. No new large reports or resurrected `O-BOOT-EXPERIMENT` files. Commit/push intended code, tests and compact docs with existing OpenCode completion automation; preserve unrelated work.
 
-Keep the repo's default agent context small. Update `docs/KERNEL-NATIVE-GENERATOR.md` **briefly** with E3 CLI, candidate source hashes, exact patch/refusal outcomes, unhandled syntax and proof scope. Update the concise E3 section of `docs/STATUS.md` and write final factual summary to `docs/to_chatgpt_review.md`. Do not regenerate large OMAP files unless actual scanned source changed, and never restore `O-BOOT-EXPERIMENT-*.md`. Existing `docs/to_opencode.md` is the active assignment; the completion automation can preserve it as history or replace it only per existing agent workflow. Commit/push only intended generator, tests and compact documentation using existing OpenCode completion automation.
+**Required final report:**
 
-**Final result format (evidence, not optimism):**
-```
-E3 SOURCE EXTRACTION PROPOSALS: PASS / PARTIAL / NOT YET
-PRE-E2 RTC Qrtc: PATCH / REFUSED — source SHA, exact edits, apply --check
-PRE-E2 CONS Qpid: PATCH / REFUSED — preserved guard, exact edits
-HEAD CONS Qppid: PATCH / REFUSED — no source mutation
-SYNTHETIC GENERALITY: PASS/FAIL
-SINGLE IMPLEMENTATION: original case -> proposed shared helper -> native generator compatibility
-SOURCE SAFETY: no tracked source touched; stale/unsafe cases rejected
-E2 CLI REGRESSION: PASS/FAIL
-RUNTIME AND KERNEL BUILDS: actual PASS/FAIL/NOT RUN
-REMAINING: what must still be reviewed manually and what cannot be auto-converted
+```text
+E3a PREFIX SAFETY: PASS / PARTIAL / NOT YET
+BEFORE FIX: offset += 1 observed status = ...
+AFTER FIX: offset += 1 status/refusal reason; other mutations covered = ...
+POSITIVE PATCHES: RTC Qrtc / CONS Qpid / CONS Qppid; exact hashes & apply checks
+SOURCE SAFETY: tracked C unchanged, no automatic apply
+E3/E2 CLI: tests, OMAP --check, native --check, proposal --check
+KERNEL/QEMU: PASS/FAIL/NOT RUN (truthful scope)
+REMAINING LIMITS: lexical analysis / unknown call chains / required review
 ```
 
-**E3 PASS** means two independent real historical branches plus a synthetic new-driver case yield correct, deterministic, reviewable source patches from the existing analyser, the patch applies cleanly to the exact disposable base, source semantics and adjacent branches are convincingly preserved, and all old generator tests remain intact. A runtime kernel-wide Chan-free claim is categorically out of scope. If the HEAD Qppid candidate is refused for a documented safety reason, that does **not** force a false PASS; record it transparently.
+**E3a PASS** means the demonstrated unsafe prefix mutation is reliably refused, the regression suite covers the mutation classes above, all three prior valid patch proposals remain viable, and default E3/E2 analysis and OMAP compatibility are preserved. Do not call this proof of full semantic equivalence or whole-kernel `Chan` independence.
