@@ -17,7 +17,7 @@
 | Qkmesg | snapshot of log ring | none | `0440` | Console/log service | `kmesgreadat(void*,long,vlong)`, `kmesgwrite` | `print`/`consputstr`; legacy `/dev/kmesg` | `devopen` for legacy; unlocked snapshot policy documented | `kmesg` ring under `ilock` | native | `cons.c:kmesgwrite/kmesgreadat` |
 | Qkprint | exclusive console stream | none | `DMEXCL\|0440` | Console/log service | `kprintacquire`, `kprintread`, `kprintrelease` | legacy `/dev/kprint`; E5 probe | exclusive `tas`; close hangs up queue | `kprintoq` + `kprintinuse` | native | `cons.c:kprintacquire/kprintread/kprintrelease`; `devcons.c:consopen/consclose` |
 | Qhostdomain | `hostdomain` | `hostdomainwrite` | `0664` | system configuration | `hostdomainget`; existing `hostdomainwrite` | legacy `/dev/hostdomain` | write requires `iseve` in `auth.c` | global `hostdomain[DOMLEN]` | native | `sysinfo.c:hostdomainget`; `auth.c:hostdomainwrite` |
-| Qhostowner | `eve` | `hostownerwrite` | `0664` | system configuration/identity | `hostownerget`; existing `hostownerwrite` | legacy `/dev/hostowner` | write requires `iseve`; also renames users/groups/server | global `eve`; process credentials | native | `sysinfo.c:hostownerget`; `auth.c:hostownerwrite` |
+| Qhostowner | `eve` | `hostownerwrite` | `0664` | system configuration/identity | `hostownerget`; existing `hostownerwrite` | legacy `/dev/hostowner` | write requires `iseve`; also renames users/groups/server | global `eve`; process credentials | native read; legacy #c write | `sysinfo.c:hostownerget`; `devcons.c:hostownerwrite` (E9.1 moved the legacy write helper here) |
 | Qnull | `0` (EOF) | discard | `0666` | synthetic semantics | `nulldiscard(void*,long)`; read remains EOF | legacy `/dev/null`; E5 probe | none | stateless | native | `sysinfo.c:nulldiscard`; `devcons.c` |
 | Qosversion | constant `2000` | none | `0444` | system configuration | `osversionget` | legacy `/dev/osversion` | read-only | stateless constant | native | `sysinfo.c:osversionget` |
 | Qpid | current PID text | none | `0444` | Proc observation | `procpid`; E4 `consqpidread` remains the text adapter/generated entry | generated `native_cons_qpid_read`, legacy `/dev/pid`, E5 probe | current `up` only; kernel-internal | current process | native | `procobs.c:procpid`; `devcons.c:consqpidread`; `KERNEL-NATIVE-GENERATOR.md` |
@@ -69,7 +69,7 @@
 | `sys/src/9/port/procobs.c` | Typed current-process PID/PPID/user/accounting observations | Process control, handles to arbitrary processes |
 | `sys/src/9/port/sysinfo.c` | System name/domain/owner/config getters, sysname setter, typed `Sysstat`, privileged clock gate, null/zero semantics | `Dev` enumeration, `Pgrp` masks, command parsing |
 | `sys/src/9/port/tod.c`, `random.c` | Existing time and entropy implementations | Legacy text/binary encoding |
-| `sys/src/9/port/devcons.c` | Legacy `#c` `Chan`/`Qid`/`Dirtab` adapter and text/binary encoding | Kernel service implementation |
+| `sys/src/9/port/devcons.c` | Legacy `#c` `Chan`/`Qid`/`Dirtab` adapter, text/binary encoding, and the legacy `Qhostowner` write helper | Kernel service implementation |
 
 ## O-only profile proof
 

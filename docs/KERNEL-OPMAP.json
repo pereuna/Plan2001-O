@@ -42580,8 +42580,6 @@
         "sys/src/9/port/devpnp.c",
         "sys/src/9/port/devproc.c",
         "sys/src/9/port/devroot.c",
-        "sys/src/9/port/devshr.c",
-        "sys/src/9/port/devsrv.c",
         "sys/src/9/port/devswap.c",
         "sys/src/9/port/devuart.c",
         "sys/src/9/port/devusb.c",
@@ -42676,8 +42674,6 @@
         "devproc",
         "devroot",
         "devrtc",
-        "devshr",
-        "devsrv",
         "devswap",
         "devuart",
         "devusb",
@@ -43163,8 +43159,8 @@
         "unresolved_objects": 0
       },
       {
-        "active_c_files": 147,
-        "active_files_total": 150,
+        "active_c_files": 145,
+        "active_files_total": 148,
         "arch": "pc64",
         "config_path": "sys/src/9/pc64/pc64onativedisk",
         "kind": "other",
@@ -66097,23 +66093,11 @@
       "switch_count": 0
     },
     {
-      "call_count": 10,
-      "conditions": [],
-      "end_line": 148,
-      "id": "func:sys/src/9/port/auth.c#hostownerwrite",
-      "line": 128,
-      "name": "hostownerwrite",
-      "params": "char * a, int n",
-      "path": "sys/src/9/port/auth.c",
-      "static": false,
-      "switch_count": 0
-    },
-    {
       "call_count": 7,
       "conditions": [],
-      "end_line": 165,
+      "end_line": 141,
       "id": "func:sys/src/9/port/auth.c#hostdomainwrite",
-      "line": 150,
+      "line": 126,
       "name": "hostdomainwrite",
       "params": "char * a, int n",
       "path": "sys/src/9/port/auth.c",
@@ -68123,6 +68107,18 @@
       "path": "sys/src/9/port/devcons.c",
       "static": true,
       "switch_count": 1
+    },
+    {
+      "call_count": 10,
+      "conditions": [],
+      "end_line": 699,
+      "id": "func:sys/src/9/port/devcons.c#hostownerwrite",
+      "line": 679,
+      "name": "hostownerwrite",
+      "params": "char * a, int n",
+      "path": "sys/src/9/port/devcons.c",
+      "static": false,
+      "switch_count": 0
     },
     {
       "call_count": 1,
@@ -127548,7 +127544,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127592,7 +127587,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127636,7 +127630,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127680,7 +127673,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127724,7 +127716,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127768,7 +127759,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127812,7 +127802,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127856,7 +127845,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127900,7 +127888,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127944,7 +127931,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -127988,7 +127974,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128032,7 +128017,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128076,7 +128060,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128120,7 +128103,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128164,7 +128146,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128208,7 +128189,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128252,7 +128232,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128296,7 +128275,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128340,7 +128318,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128384,7 +128361,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128428,7 +128404,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128472,7 +128447,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128517,7 +128491,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128562,7 +128535,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128607,7 +128579,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128652,7 +128623,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128697,7 +128667,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128741,7 +128710,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128785,7 +128753,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128830,7 +128797,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128874,7 +128840,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128919,7 +128884,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -128964,7 +128928,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
@@ -147985,7 +147948,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "callbacks": {
@@ -148199,7 +148161,6 @@
         "pc64mp",
         "pc64native",
         "pc64oconsole",
-        "pc64onativedisk",
         "qemu"
       ],
       "callbacks": {
@@ -154568,7 +154529,7 @@
           "qemu": "not-applicable",
           "riscv64": "not-applicable"
         },
-        "bytes": 2111,
+        "bytes": 2219,
         "classification": "kernel build configuration",
         "conditions": [],
         "functions": 0,
@@ -154582,7 +154543,7 @@
         },
         "path": "sys/src/9/pc64/pc64onativedisk",
         "registrations": [],
-        "sha256": "c7ba738ad660b2f58da3b0a0bfb2bb28ea691cfb1985df626e383170110c2f73"
+        "sha256": "f213081af34fb466423dcbb636fe2a9e23790c6130d4e85b27dc76929ea34584"
       },
       {
         "build": {
@@ -154750,10 +154711,10 @@
           "qemu": "active",
           "riscv64": "outside-config-roots"
         },
-        "bytes": 2651,
+        "bytes": 2281,
         "classification": "kernel support source",
         "conditions": [],
-        "functions": 7,
+        "functions": 6,
         "initializers": 0,
         "kind": "c",
         "normal_amd64": "active",
@@ -154764,7 +154725,7 @@
         },
         "path": "sys/src/9/port/auth.c",
         "registrations": [],
-        "sha256": "3465157580c5ff3c46085ae449d5f17de8cbebc7d601f0a5a735e0c168064ef2"
+        "sha256": "ad9351584b6bd5f49522ce4c61eaea5750d9fbd64d5842c91c0a03ff867fb9d2"
       },
       {
         "build": {
@@ -154986,10 +154947,10 @@
           "qemu": "active",
           "riscv64": "outside-config-roots"
         },
-        "bytes": 11962,
+        "bytes": 12555,
         "classification": "kernel driver/interface source",
         "conditions": [],
-        "functions": 16,
+        "functions": 17,
         "initializers": 7,
         "kind": "c",
         "normal_amd64": "active",
@@ -155002,7 +154963,7 @@
         "registrations": [
           "reg:Dev:sys/src/9/port/devcons.c#consdevtab"
         ],
-        "sha256": "7978565a44ab0ca4dc130276aeae09219567fe615094ee3c440666e9c7128375"
+        "sha256": "43913ad23d1141dd8dbc2f55b04c036b7d7d238c24e61924446554457a12b2cd"
       },
       {
         "build": {
@@ -155435,7 +155396,7 @@
           "pc64mp": "active",
           "pc64native": "active",
           "pc64oconsole": "active",
-          "pc64onativedisk": "active",
+          "pc64onativedisk": "not-selected",
           "qemu": "active",
           "riscv64": "outside-config-roots"
         },
@@ -155463,7 +155424,7 @@
           "pc64mp": "active",
           "pc64native": "active",
           "pc64oconsole": "active",
-          "pc64onativedisk": "active",
+          "pc64onativedisk": "not-selected",
           "qemu": "active",
           "riscv64": "outside-config-roots"
         },
@@ -157500,7 +157461,7 @@
       }
     ],
     "fingerprint_algorithm": "sha256 over sorted 'path\\0file-sha256\\n' records",
-    "fingerprint_sha256": "1183c291aaee5ebba83bc2157d08a570ecd1ddb824180af8b17d1444f2d2bf25",
+    "fingerprint_sha256": "2888170f2de4f9a6dc51817be365245a4f7f5a71dd1056405c65f92c3d1a09eb",
     "root": "sys/src/9"
   },
   "structs": {

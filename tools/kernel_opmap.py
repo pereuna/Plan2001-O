@@ -114,7 +114,7 @@ NATIVE_REVIEWED_BINDINGS: dict[str, dict[str, Any]] = {
         },
     },
     "sys/src/9/port/devcons.c": {
-        "sha256": "7978565a44ab0ca4dc130276aeae09219567fe615094ee3c440666e9c7128375",
+        "sha256": "43913ad23d1141dd8dbc2f55b04c036b7d7d238c24e61924446554457a12b2cd",
         "driver": "cons",
         "device": "c",
         "dirtab": "consdir",
@@ -5096,6 +5096,7 @@ E3_PINNED_SHA = {
         "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896",
         "5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61",
         "7978565a44ab0ca4dc130276aeae09219567fe615094ee3c440666e9c7128375",
+        "43913ad23d1141dd8dbc2f55b04c036b7d7d238c24e61924446554457a12b2cd",
     },
 }
 E3_KNOWN_REV_SHA = {

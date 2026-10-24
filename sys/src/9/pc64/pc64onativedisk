@@ -13,10 +13,11 @@
 # configurations.  sdram is kept; it is a concrete SDifc with no Chan.
 #
 # E8 removed the kprof, dup, fs, tls, cap and segment Dev registrations
-# from this profile after linked and D2b boot verification.  mnt, srv and
-# shr stay because linked kernel paths still call their non-Dev helpers
-# (mntattach/mntversion/mntauth, srvrenameuser, shrrenameuser).  The other
-# profiles are unchanged.
+# from this profile after linked and D2b boot verification.  E9 moved the
+# legacy hostownerwrite helper to devcons.c, which let this profile drop
+# srv and shr too; they were their only host-owner rename consumers.  mnt
+# stays because linked kernel paths still call its non-Dev helpers
+# (mntattach/mntversion/mntauth/mntrah*).  The other profiles are unchanged.
 dev
 	root
 	swap

@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `1183c291aaee5ebba83bc2157d08a570ecd1ddb824180af8b17d1444f2d2bf25`
+- Source fingerprint (SHA-256): `2888170f2de4f9a6dc51817be365245a4f7f5a71dd1056405c65f92c3d1a09eb`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -85,7 +85,7 @@ Inclusion is derived from each configuration file using the `mkdevlist` rules an
 | `pc64mp` | test-only | pc64 | supported | 156 | 0 | 2 |
 | `pc64native` | other | pc64 | supported | 156 | 1 | 2 |
 | `pc64oconsole` | other | pc64 | supported | 155 | 0 | 2 |
-| `pc64onativedisk` | other | pc64 | supported | 147 | 0 | 2 |
+| `pc64onativedisk` | other | pc64 | supported | 145 | 0 | 2 |
 | `qemu` | other | arm64 | planned | 94 | 2 | 0 |
 | `riscv64` | other | riscv64 | future | 0 | 1 | 0 |
 
@@ -173,8 +173,8 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1103 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
 | `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 16 |

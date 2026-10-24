@@ -1,7 +1,7 @@
 # Plan2001-O — current implementation and verification
 
-**Last runtime verification:** 24 October 2026, OpenCode E8 on base `1cae94f` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md); detailed matrix: [DEV-PRUNING.md](DEV-PRUNING.md)). E6 was `ad836d7` on base `1c61dd1`; E5 implementation was `53785d7` and its evidence `9c41f3b`; E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
-**Scope:** amd64/`pc64`, opt-in `pc64native`, opt-in no-`#c` `pc64oconsole`, and opt-in no-`#c`/no-`#S` `pc64onativedisk`; disposable QEMU images. E5/E6/E8 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
+**Last runtime verification:** 24 October 2026, OpenCode E9 on base `772d195` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md); E9 record: [E9-SERVICE-PRUNING.md](E9-SERVICE-PRUNING.md); E8 matrix: [DEV-PRUNING.md](DEV-PRUNING.md)). E6 was `ad836d7` on base `1c61dd1`; E5 implementation was `53785d7` and its evidence `9c41f3b`; E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
+**Scope:** amd64/`pc64`, opt-in `pc64native`, opt-in no-`#c` `pc64oconsole`, and opt-in no-`#c`/no-`#S` `pc64onativedisk`; disposable QEMU images. E5/E6/E8/E9 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
 **Historical record:** `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/STATUS.md`. The six completed `docs/O-BOOT-EXPERIMENT-*.md` reports can be restored with `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/O-BOOT-EXPERIMENT-D2B.md` (substitute A, B, C, D1, D2A or D2B).
 
 ## Current proven vertical slice
@@ -152,6 +152,47 @@ enumerated in QEMU but physical AHCI/NVMe and removability were **NOT RUN**.
 The legacy `#S` control is read-only; `#S` write/control mutation and the
 legacy shutdown path were not rerun. No userspace disk syscall or ABI was
 added, and no claim is made for whole-kernel `Chan` independence.
+
+## E9 host-owner ownership split and `srv`/`shr` pruning
+
+**APPROVE (agent-executed).** `hostownerwrite()` was moved unchanged
+from `auth.c` to `devcons.c`, its only caller (`Qhostowner`). Profiles
+without the `cons` Dev therefore no longer link the legacy host-owner
+write path or its `srvrenameuser`/`shrrenameuser` consumers. `pc64` and
+`pc64mp` still link one implementation and execute `tools/test-o-boot.sh`
+successfully; `9pc64onativedisk` no longer contains the symbol.
+
+`srv` and then `shr` were removed separately from
+`sys/src/9/pc64/pc64onativedisk`, each after a fresh build, generated
+`&*devtab`/linked-symbol absence proof and a complete D2b run:
+
+```text
+pc64onativedisk devtab[]: 21 -> 20 (srv) -> 19 (shr)
+removed: srvdevtab/srvrenameuser, shrdevtab/shrrenameuser
+kept:    mnt (separate mntattach/mntversion/mntauth/mntrah* dependency)
+```
+
+Final registrations: `root swap arch pnp env pipe proc mnt rtc ether ip
+wg draw mouse vga uart usb kbd gefs`. `consdevtab`, `sddevtab`,
+`sdloopifc`, `hostownerwrite`, `srvdevtab` and `shrdevtab` are absent
+from the linked O-only kernel; native SD/O symbols remain. Every D2b run
+preserved the three-boot image identity, `run() -> 1,2,3`, Counter OID
+7, native flush/bounds and all negatives.
+
+Gates executed: baseline, E9.1 and each removal native build + D2b;
+final combined native build + D2b; legacy `pc64`/`pc64mp` build;
+`tools/test-o-boot.sh`; `OCONSOLE=1` build; `sd_migration_check.py`
+source and linked forms; `kernel_opmap.py --check`; 29/29 OMAP tests.
+OMAP was regenerated after review (devsrv/devshr profile removal and the
+`hostownerwrite` function record move); its reviewed source hash tables
+were updated with the old hashes retained. Full record:
+[E9-SERVICE-PRUNING.md](E9-SERVICE-PRUNING.md); logs under
+`build/verification/e9/`.
+
+Limits: `mnt` was deliberately not touched; no runtime write test for
+the legacy `hostownerwrite` path was added (NOT RUN); only QEMU VirtIO
+block I/O was exercised. No E7/network code, OID/Space/on-disk format,
+MicroPython persistence or physical disk was changed.
 
 ## E8 legacy `Dev` pruning in the O-only server profile
 

@@ -187,3 +187,14 @@ new userspace ABI, generic native device hierarchy, TLS/9P/mount or
 capability subsystem was introduced. The claim is limited to this opt-in
 server profile and the measured boot windows; the default/legacy
 profiles keep the full legacy `Dev` set.
+
+## E9 update (not part of the E8 result)
+
+E9 later moved the legacy `hostownerwrite` implementation from
+`auth.c` into its only caller's source, `devcons.c`. That removed the
+link-time reason for the E8 `srv`/`shr` blockers. E9 then removed `srv`
+and `shr` separately from `pc64onativedisk`, taking the profile from 21
+to **19** registrations, with fresh linked-symbol proof and full D2b
+runs. `mnt` remains out of scope. The E8 rows above are retained as the
+historical E8 result; see [E9-SERVICE-PRUNING.md](E9-SERVICE-PRUNING.md)
+for the later evidence.
