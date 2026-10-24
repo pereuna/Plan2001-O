@@ -207,7 +207,8 @@ def run_nic(args):
                 "RX unregister negative")
         require(s, r"^E71ETHER: NEG rxregister-nil rc=-9$", "RX nil negative")
         require(s, r"^E71ETHER: CHECK down rc=-5$", "down negative")
-        require(s, r"^E71ETHER: CHECK queue-full rc=-6$", "full-queue negative")
+        require(s, r"^E71ETHER: CHECK queue-full rc=-2$", "full-queue negative")
+        require(s, r"^E71ETHER: CHECK queue-closed rc=-1$", "closed-queue negative")
         require(s, r"^E71ETHER: NEG rxunregister-twice rc=-9$",
                 "RX unregister-twice negative")
         require(s, r"^E71ETHER: CHAN-NATIVE .* clean=1$",

@@ -177,8 +177,7 @@ e71etherprobe_proc(void *arg)
 	EtherCoreStats st;
 	Block *bp;
 	Etherpkt *p;
-	Queue *priv, *oldoq;
-	void (*oldtx)(Ether*);
+	Queue *priv;
 	int i, n, p1, p2, rc, oldlink, ok;
 
 	USED(arg);
@@ -324,21 +323,37 @@ e71etherprobe_proc(void *arg)
 	e->link = oldlink;
 
 	/*
-	 * Negative: full output queue, isolated from the NIC using a private
-	 * Queue with limit 0 and no kick.  This is a core backpressure test,
-	 * not a hardware TX observation.
+	 * Negative: the exact non-blocking enqueue primitive used by native
+	 * TX, on a private Queue.  This is isolated from the live controller
+	 * and tests full/closed ownership without swapping e->oq.
 	 */
-	oldoq = e->oq;
-	oldtx = e->transmit;
-	priv = qopen(0, Qmsg, nil, nil);
-	if(priv != nil){
-		e->oq = priv;
-		e->transmit = nil;
-		rc = txexpect("queue1", 0x88B6, "E71TXTX", 64, EtherErrOk);
-		rc = txexpect("queue-full", 0x88B6, "E71TXTX", 64, EtherErrQueue);
-		e->oq = oldoq;
-		e->transmit = oldtx;
-		qfree(priv);
+	bp = mkframe(e->bcast, 0x88B6, "E71TXTX", 64);
+	if(bp != nil){
+		priv = qopen(2*BALLOC(bp) - 1, Qmsg, nil, nil);
+		if(priv != nil){
+			rc = qpasstry(priv, bp);
+			if(rc <= 0)
+				fail("queue-unit", rc, BLEN(bp));
+			else
+				print("E71ETHER: CHECK queue-unit rc=%d\n", rc);
+			bp = mkframe(e->bcast, 0x88B6, "E71TXTX", 64);
+			rc = qpasstry(priv, bp);
+			if(rc != -2)
+				fail("queue-full", rc, -2);
+			else
+				print("E71ETHER: CHECK queue-full rc=%d\n", rc);
+			freeb(bp);
+			qclose(priv);
+			bp = mkframe(e->bcast, 0x88B6, "E71TXTX", 64);
+			rc = qpasstry(priv, bp);
+			if(rc != -1)
+				fail("queue-closed", rc, -1);
+			else
+				print("E71ETHER: CHECK queue-closed rc=%d\n", rc);
+			freeb(bp);
+			qfree(priv);
+		} else
+			freeb(bp);
 	}
 
 	/* Unbind the native sink; the legacy Netfile path must still work. */
@@ -377,6 +392,12 @@ e71etherprobe_start(void)
 
 int
 onativeprobe_start(void)
+{
+	return 0;
+}
+
+int
+e72ipv6probe_start(void)
 {
 	return 0;
 }

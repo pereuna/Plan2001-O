@@ -660,6 +660,38 @@ qpass(Queue *q, Block *b)
 	return len;
 }
 
+/*
+ * Non-blocking enqueue with an explicit capacity check.  Unlike qpass(),
+ * a full or closed queue does NOT free the Block: the caller keeps
+ * ownership.  Returns the queued length, -1 if closed, -2 if full.
+ * The capacity test and qaddlist() happen under the same Queue lock, so
+ * concurrent producers cannot overrun the limit between check and insert.
+ */
+int
+qpasstry(Queue *q, Block *b)
+{
+	int len;
+
+	ilock(q);
+	if(q->state & Qclosed){
+		iunlock(q);
+		return -1;
+	}
+	if((int)(q->wp - q->rp + BALLOC(b)) > q->limit){
+		iunlock(q);
+		return -2;
+	}
+	len = qaddlist(q, b);
+	iunlock_writer(q);
+	return len;
+}
+
+int
+qgetlimit(Queue *q)
+{
+	return q->limit;
+}
+
 int
 qpassnolim(Queue *q, Block *b)
 {

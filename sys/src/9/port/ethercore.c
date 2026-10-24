@@ -25,6 +25,7 @@
 
 static Ether *etherxx[MaxEther];
 static Lock corelock;
+static QLock coreqlock;	/* serializes init and explicit probe transitions */
 static int coreinited;
 static int initcalls;
 static int probecalls;
@@ -33,9 +34,13 @@ typedef struct Ethercore Ethercore;
 struct Ethercore {
 	Ether		*ether;
 	int		attached;
+	QLock		attlock;	/* process-context attach transition */
 	Lock		rxlock;
 	EtherRxSink	rxsink;
 	void		*rxarg;
+	int		rxactive;	/* sink calls in flight */
+	int		rxunregistering;
+	Rendez		rxr;
 	uvlong		txpackets;
 	uvlong		rxpackets;
 	uvlong		rxdropped;
@@ -201,6 +206,7 @@ ethercore_init(void)
 	Ether *ether;
 	int cardno, ctlrno, n;
 
+	qlock(&coreqlock);
 	initcalls++;
 	ilock(&corelock);
 	if(coreinited){
@@ -208,10 +214,12 @@ ethercore_init(void)
 		for(n = 0, ctlrno = 0; ctlrno < MaxEther; ctlrno++)
 			if(etherxx[ctlrno] != nil)
 				n++;
+		qunlock(&coreqlock);
 		return n;
 	}
 	if(cards[0].type == nil){
 		iunlock(&corelock);
+		qunlock(&coreqlock);
 		return EtherErrPreinit;
 	}
 	coreinited = 1;
@@ -242,6 +250,7 @@ ethercore_init(void)
 	for(n = 0, ctlrno = 0; ctlrno < MaxEther; ctlrno++)
 		if(etherxx[ctlrno] != nil)
 			n++;
+	qunlock(&coreqlock);
 	return n;
 }
 
@@ -257,23 +266,29 @@ ethercore_probe_at(int ctlrno, char *conf)
 
 	if(ctlrno < 0 || ctlrno >= MaxEther || conf == nil)
 		return nil;
+	/*
+	 * Serialize explicit probes with ethercore_init so a slot cannot be
+	 * filled while a driver reset is in progress.  A controller that has
+	 * already run cards[].reset has PAX/IRQ/DMA resources that cannot be
+	 * released by freeing only its Ether*, so never probe a live slot.
+	 */
+	qlock(&coreqlock);
 	ilock(&corelock);
 	if(etherxx[ctlrno] != nil){
 		iunlock(&corelock);
+		qunlock(&coreqlock);
 		return nil;
 	}
 	iunlock(&corelock);
 	ether = etherprobe(-1, ctlrno, conf);
-	if(ether == nil)
-		return nil;
-	ilock(&corelock);
-	if(etherxx[ctlrno] != nil){
-		iunlock(&corelock);
-		free(ether);
+	if(ether == nil){
+		qunlock(&coreqlock);
 		return nil;
 	}
+	ilock(&corelock);
 	coreset(ether);
 	iunlock(&corelock);
+	qunlock(&coreqlock);
 	return ether;
 }
 
@@ -340,24 +355,28 @@ ethercore_attach(Ether *ether)
 	cs = corestate(ether);
 	if(cs == nil)
 		return EtherErrNoDevice;
-	ilock(&cs->rxlock);
+	/*
+	 * QLock serializes attach transitions in process context.  A second
+	 * caller waits here and then observes attached=1, so "ready" (and any
+	 * native sink) cannot be published while rings/workers are still
+	 * initializing.  On failure the state remains detached and the next
+	 * caller may retry.
+	 */
+	qlock(&cs->attlock);
 	if(cs->attached){
-		iunlock(&cs->rxlock);
+		qunlock(&cs->attlock);
 		return EtherErrOk;
 	}
-	cs->attached = 1;
-	iunlock(&cs->rxlock);
-
-	if(ether->attach == nil)
-		return EtherErrOk;
 	if(waserror()){
-		ilock(&cs->rxlock);
-		cs->attached = 0;
-		iunlock(&cs->rxlock);
+		qunlock(&cs->attlock);
 		nexterror();
 	}
-	ether->attach(ether);
+	if(ether->attach != nil)
+		ether->attach(ether);
+	coherence();
+	cs->attached = 1;
 	poperror();
+	qunlock(&cs->attlock);
 	return EtherErrOk;
 }
 
@@ -395,10 +414,6 @@ ethercore_tx(Ether *ether, Block *bp)
 		return EtherErrNotReady;
 	if(ether->link == 0)
 		return EtherErrDown;
-	if(qisclosed(ether->oq))
-		return EtherErrClosed;
-	if(qfull(ether->oq))
-		return EtherErrQueue;
 
 	nb = allocb(len);
 	if(nb == nil)
@@ -408,19 +423,26 @@ ethercore_tx(Ether *ether, Block *bp)
 	nb->flag |= bp->flag & ~(BINTR|BFREE);
 
 	/*
-	 * qpassnolim is interrupt-safe, does not block on Qflow and does not
-	 * invoke the Queue kick itself.  Kick Ether.transmit explicitly below
-	 * (Qkick drivers) and let iunlock_producer wake a blocked reader
-	 * (VirtIO's txproc).  A concurrent close frees nb and reports 0; the
-	 * caller's bp is still untouched.
+	 * qpasstry tests capacity and inserts under the same Queue lock, then
+	 * runs the Qkick/wakeup path.  It never frees on rejection, so the
+	 * caller's Block is untouched on every error return.
 	 */
-	if(qpassnolim(ether->oq, nb) == 0)
+	len = qpasstry(ether->oq, nb);
+	if(len == -1){
+		freeb(nb);
 		return EtherErrClosed;
+	}
+	if(len == -2){
+		freeb(nb);
+		return EtherErrQueue;
+	}
+	if(len <= 0){
+		freeb(nb);
+		return EtherErrClosed;
+	}
 
 	ether->outpackets++;
 	cs->txpackets++;
-	if(ether->transmit != nil)
-		ether->transmit(ether);
 	freeb(bp);
 	return EtherErrOk;
 }
@@ -436,7 +458,7 @@ ethercore_rxregister(Ether *ether, EtherRxSink sink, void *arg)
 	if(sink == nil)
 		return EtherErrBadArg;
 	ilock(&cs->rxlock);
-	if(cs->rxsink != nil){
+	if(cs->rxsink != nil || cs->rxunregistering){
 		iunlock(&cs->rxlock);
 		return EtherErrBusy;
 	}
@@ -444,6 +466,14 @@ ethercore_rxregister(Ether *ether, EtherRxSink sink, void *arg)
 	cs->rxarg = arg;
 	iunlock(&cs->rxlock);
 	return EtherErrOk;
+}
+
+static int
+rxactivezero(void *a)
+{
+	Ethercore *cs = a;
+
+	return cs->rxactive == 0;
 }
 
 int
@@ -459,10 +489,26 @@ ethercore_rxunregister(Ether *ether, EtherRxSink sink, void *arg)
 		iunlock(&cs->rxlock);
 		return EtherErrBadArg;
 	}
+	cs->rxunregistering = 1;
 	cs->rxsink = nil;
 	cs->rxarg = nil;
 	iunlock(&cs->rxlock);
-	return EtherErrOk;
+
+	/*
+	 * Wait in process context until an in-flight IRQ/worker callback has
+	 * returned.  The callback decrements rxactive and wakes rxr; no lock
+	 * is held across the wait, and the IRQ path never sleeps.
+	 */
+	for(;;){
+		ilock(&cs->rxlock);
+		if(cs->rxactive == 0){
+			cs->rxunregistering = 0;
+			iunlock(&cs->rxlock);
+			return EtherErrOk;
+		}
+		iunlock(&cs->rxlock);
+		tsleep(&cs->rxr, rxactivezero, cs, 10);
+	}
 }
 
 void
@@ -513,6 +559,8 @@ etheriq(Ether* ether, Block* bp)
 		ilock(&cs->rxlock);
 		sink = cs->rxsink;
 		arg = cs->rxarg;
+		if(sink != nil)
+			cs->rxactive++;
 		iunlock(&cs->rxlock);
 		if(sink != nil){
 			len = BLEN(bp);
@@ -526,6 +574,10 @@ etheriq(Ether* ether, Block* bp)
 				cs->rxpackets++;
 				sink(arg, ether, nb);
 			}
+			ilock(&cs->rxlock);
+			cs->rxactive--;
+			wakeup(&cs->rxr);
+			iunlock(&cs->rxlock);
 		}
 	}
 	etherlegacyrx(ether, bp);
