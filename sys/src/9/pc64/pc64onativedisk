@@ -36,7 +36,6 @@ dev
 	usb
 	kbd
 	
-	segment
 	gefs
 
 link
