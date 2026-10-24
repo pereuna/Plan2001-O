@@ -1,7 +1,7 @@
 E6 VERDICT: APPROVE
 
 BASE / FINAL COMMITS / BRANCH:
-Base `1c61dd175c0757e5eaed016c1a7305f7ccad5c91` on `main`; code checkpoint `ad836d7` (`E6.1`); documentation checkpoint `E6.2` (this commit). No force push; no unrelated tracked files were changed.
+Base `1c61dd175c0757e5eaed016c1a7305f7ccad5c91` on `main`; code checkpoint `ad836d7` (`E6.1`); evidence/report checkpoint `9901fe4` (`E6.2`); `E6.3` adds `sdcore.$O` to the arm64 source list for the shared port file (no amd64 behavior change). No force push; no unrelated tracked files were changed.
 
 STAGES 1–6: PASS / PASS / PASS / PASS / PASS / PASS
 - Stage 1 PASS: native owner `sdinitcontrollers()` in `sdcore.c`; called directly from `pc64/main.c` after `chandevreset()`; one-shot `QLock`/flag guard prevents duplicate enumeration.

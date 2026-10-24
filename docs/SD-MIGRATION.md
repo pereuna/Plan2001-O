@@ -1,6 +1,6 @@
 # SD storage migration: native core and the no-`#S` O-only profile (E6)
 
-**Source base:** `1c61dd1` (E6 assignment) on `main`. **Implementation checkpoint:** `ad836d7` (`E6.1`). **Evidence:** agent-executed on 24 October 2026 with disposable QEMU images; detailed logs are under `build/verification/e6/` (ignored by Git). This document describes the implementation at `ad836d7` plus the documentation checkpoint that follows it.
+**Source base:** `1c61dd1` (E6 assignment) on `main`. **Implementation checkpoint:** `ad836d7` (`E6.1`). `sdcore.$O` is also added to the arm64 source list so the shared port file has a consistent home outside the tested amd64 scope. **Evidence:** agent-executed on 24 October 2026 with disposable QEMU images; detailed logs are under `build/verification/e6/` (ignored by Git). This document describes the implementation at `ad836d7` plus the documentation checkpoint that follows it.
 
 **Scope:** amd64 `pc64` family only. The new opt-in profile is `pc64onativedisk` / `9pc64onativedisk`, selected by `ONATIVE_DISK=1`. It inherits E5's absent `cons` and additionally omits `sd` from the `dev` section. Default `pc64`, `pc64mp`, `pc64native` and `pc64oconsole` retain the legacy `#S` adapter.
 
