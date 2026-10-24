@@ -29,6 +29,8 @@ mkdir -p "$verification" "$vm"
 rm -rf "$vm"
 mkdir -p "$vm"
 esp=$vm/esp.img
+sdimg=$vm/legacy-sd.img
+truncate -s 64M "$sdimg"
 mformat -C -i "$esp" -T 65536 -h 64 -s 32 ::
 mmd -i "$esp" ::/EFI ::/EFI/BOOT
 mcopy -i "$esp" "$b/$loader" "::/EFI/BOOT/$espname"
@@ -47,6 +49,8 @@ trap stop EXIT
 	-drive if=pflash,format=raw,readonly=on,file="$fwcode" \
 	-drive if=pflash,format=raw,file="$vm/vars.fd" \
 	-drive file="$esp",format=raw,if=none,id=esp "${espdev[@]}" \
+	-drive file="$sdimg",format=raw,if=none,id=sd0 \
+	-device virtio-blk-pci-non-transitional,drive=sd0 \
 	-nic none -display none -serial file:"$serial" 2>"$vm/qemu.log" &
 q=$!
 end=$((SECONDS + ${SECONDS_TO_RUN:-120}))
@@ -140,6 +144,8 @@ grep -q '^ONATIVEPROBE: E5 MONITOR sysstat=1 id=0 nulldiscard=8 zero=1$' "$log" 
 grep -q '^ONATIVEPROBE: E5 LEGACY cputime=72 fmt=1 time_denied=1$' "$log" ||
 	fail "E5 legacy #c adapter formatting/permission mismatch"
 
+grep -q '^ONATIVEPROBE: E6 LEGACY #S attach=1 walk=1 stat=[+-]\?[0-9][0-9]* read=[1-9][0-9]* inquiry=1$' "$log" ||
+	fail "legacy #S attach/walk/stat/read control missing"
 grep -q '^ONATIVEPROBE: DONE$' "$log" || fail "probe DONE marker missing"
 grep -q 'panic\|fault\|suicide' "$log" && fail "panic/fault observed"
 grep -q '^OBOOT-' "$log" && fail "foreign legacy boot marker observed"

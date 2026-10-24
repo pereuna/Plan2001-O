@@ -20,6 +20,7 @@ extern int oboot_mp;
 extern int oboot_server;
 extern uvlong oboot_legacy_init0;
 extern int onativeprobe_start(void);
+extern void sdinitcontrollers(void);
 
 extern void (*i8237alloc)(void);
 extern void bootscreeninit(void);
@@ -279,6 +280,12 @@ main(void)
 	initseg();
 	links();
 	chandevreset();
+	/*
+	 * Native SD owner: profiles without #S still get their controllers
+	 * probed and registered here.  The core guard makes the legacy
+	 * sddevtab.reset path a no-op in profiles that have it.
+	 */
+	sdinitcontrollers();
 	bootmark(BMDevs);
 	preallocpages();
 	pageinit();

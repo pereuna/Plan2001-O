@@ -1,5 +1,5 @@
 CONF=pc64
-CONFLIST=pc64 pc64mp pc64native pc64oconsole
+CONFLIST=pc64 pc64mp pc64native pc64oconsole pc64onativedisk
 
 objtype=amd64
 </$objtype/mkfile
@@ -37,6 +37,7 @@ PORT=\
 	random.$O\
 	rdb.$O\
 	rebootcmd.$O\
+	sdcore.$O\
 	segment.$O\
 	syscallfmt.$O\
 	sysfile.$O\

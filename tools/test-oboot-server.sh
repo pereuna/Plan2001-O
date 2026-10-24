@@ -7,11 +7,20 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 oconsole=${OCONSOLE:-0}
+onative_disk=${ONATIVE_DISK:-0}
+if [ "$onative_disk" = 1 ] && [ "$oconsole" = 1 ]; then
+	echo "test-oboot-server: ONATIVE_DISK=1 is exclusive with OCONSOLE=1" >&2
+	exit 2
+fi
 if [ "$oconsole" = 1 ]; then
 	kernel=9pc64oconsole
 fi
+if [ "$onative_disk" = 1 ]; then
+	kernel=9pc64onativedisk
+fi
 inicfg='oboot=server;obootvol=PARTUUID=@PARTUUID@'
 [ "$oconsole" = 1 ] && inicfg="$inicfg;oconsinit=1"
+[ "$onative_disk" = 1 ] && inicfg="$inicfg;opath=1;oblocktest=1;sdflushlog=1"
 b=$tbuild
 vm=$b/obootd2bvm
 oimg=$b/obootd2b-o.img
@@ -34,7 +43,7 @@ mpsize=$(stat -c %s "$mp")
 mpsha=$(sha256sum "$mp" | awk '{print $1}')
 
 bootcase() {
-	local n=$1 img=$2 waitpat=$3
+	local n=$1 img=$2 waitpat=$3; shift 3
 	: > "$vm/serial$n.log"
 	cp "$fwvars" "$vm/vars$n.fd"
 	"$qemu" -name "plan2001-obootd2b-$n" -nodefaults "${qemuargs[@]}" -m "${MEM:-2048}" -smp 2 \
@@ -42,7 +51,7 @@ bootcase() {
 		-drive if=pflash,format=raw,file="$vm/vars$n.fd" \
 		-drive file="$img",format=raw,if=none,id=d0 \
 		-device virtio-blk-pci-non-transitional,drive=d0,bootindex=0 \
-		-nic none -display none -serial file:"$vm/serial$n.log" 2>"$vm/qemu$n.log" &
+		"$@" -nic none -display none -serial file:"$vm/serial$n.log" 2>"$vm/qemu$n.log" &
 	q=$!
 	local end=$((SECONDS + ${SECONDS_TO_RUN:-90}))
 	until clean "$n" | grep -q "$waitpat" || [ $SECONDS -ge $end ] || ! kill -0 "$q" 2>/dev/null; do
@@ -104,6 +113,20 @@ for n in 1 2 3; do
 	if [ "$oconsole" = 1 ]; then
 		grep -q '^cons: init tod=1 random=1$' "$log" ||
 			fail "boot$n: cons core tod/random init marker missing"
+	fi
+	if [ "$onative_disk" = 1 ]; then
+		grep -q '^sd: controllers initialized ([1-9][0-9]*) native-only$' "$log" ||
+			fail "boot$n: native-only SD controller init marker missing"
+		[ "$(grep -c '^sd: controllers initialized' "$log")" = 1 ] ||
+			fail "boot$n: duplicate SD controller initialization"
+		grep -q '^sdvirtio: flush PASS$' "$log" ||
+			fail "boot$n: virtio flush not observed"
+		for m in in-range-read read-at-end oversized-read-clamped write-past-end; do
+			grep -q "^oblocktest: PASS $m$" "$log" ||
+				fail "boot$n: oblocktest $m missing"
+		done
+		grep -q '^opath: volopen-enter ' "$log" ||
+			fail "boot$n: no pathless window marker"
 	fi
 done
 
@@ -169,7 +192,67 @@ grep -q 'init: done\|COMMIT' "$mlog" && fail "missing: claimed commit/done"
 grep -q 'text=micropython' "$mlog" && fail "missing: MicroPython ran"
 grep -q 'panic\|fault\|suicide' "$mlog" && fail "missing: panic/fault"
 
-[ "$fails" = 0 ] && echo "PASS: D2b native O server${oconsole:+, no-#c console profile}, three same-disk boots and negative" || {
+if [ "$onative_disk" = 1 ]; then
+	echo "### negative: wrong PARTUUID under the no-#S/no-#c kernel"
+	wrongdisk=$b/obootd2b-wrong.img
+	rm -f "$wrongdisk" "$wrongdisk.ini" "$wrongdisk.partuuid"
+	NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$kernel" \
+		INI='oboot=server;obootvol=PARTUUID=00000000-0000-0000-0000-000000000000;opath=1' \
+		"$here/gefsdisk" "$wrongdisk" > "$vm/gefsdisk-wrong.log" 2>&1 ||
+		{ cat "$vm/gefsdisk-wrong.log" >&2; fail "gefsdisk wrong failed"; }
+	bootcase wrongguid "$wrongdisk" 'OBOOT-D2B: SYSCALL-ENTRY .*nr=6 arg0=0xbad '
+	wlog=$vm/bootwrongguid.log
+	grep -q 'no disk has that partition' "$wlog" || fail "wrongguid: no clean missing-partition error"
+	grep -q 'o: O volume .*native SD block' "$wlog" && fail "wrongguid: opened a volume"
+	grep -q 'sdvirtio: flush PASS' "$wlog" && fail "wrongguid: a write/flush happened"
+	grep -q 'panic\|fault\|suicide' "$wlog" && fail "wrongguid: panic/fault"
+
+	echo "### negative: malformed GPT on another unit under the new kernel"
+	badgptdata=$b/obootd2b-badgpt-data.img
+	badgptdisk=$b/obootd2b-badgpt.img
+	truncate -s 64M "$badgptdata"
+	python3 - "$badgptdata" <<'PYEOF'
+import struct, sys
+p = sys.argv[1]
+with open(p, "r+b") as f:
+    f.seek(512)
+    f.write(b"EFI PART")
+    f.write(struct.pack("<Q", 1))
+    f.write(struct.pack("<I", 92))
+    f.write(struct.pack("<I", 0))
+    f.write(struct.pack("<I", 0))
+    f.write(struct.pack("<Q", 0x123456))
+    f.write(struct.pack("<Q", 0xffffffffffffffff))
+    f.write(struct.pack("<Q", 2))
+    f.write(struct.pack("<Q", 1 << 40))
+    f.write(b"\0" * 16)
+    f.write(struct.pack("<Q", 1 << 50))
+    f.write(struct.pack("<I", 1 << 20))
+    f.write(struct.pack("<I", 4096))
+PYEOF
+	rm -f "$badgptdisk" "$badgptdisk.ini" "$badgptdisk.partuuid"
+	NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$kernel" \
+		INI='oboot=server;obootvol=PARTUUID=00000000-0000-0000-0000-000000000001;opath=1' \
+		"$here/gefsdisk" "$badgptdisk" > "$vm/gefsdisk-badgpt.log" 2>&1 ||
+		{ cat "$vm/gefsdisk-badgpt.log" >&2; fail "gefsdisk badgpt failed"; }
+	bootcase badgpt "$badgptdisk" 'OBOOT-D2B: SYSCALL-ENTRY .*nr=6 arg0=0xbad ' \
+		-drive file="$badgptdata",format=raw,if=none,id=d1 \
+		-device virtio-blk-pci-non-transitional,drive=d1
+	blog=$vm/bootbadgpt.log
+	grep -q 'no disk has that partition' "$blog" || fail "badgpt: no clean missing-partition error"
+	grep -q 'o: O volume .*native SD block' "$blog" && fail "badgpt: opened a volume"
+	grep -q 'panic\|fault\|suicide' "$blog" && fail "badgpt: panic/fault"
+fi
+
+if [ "$fails" = 0 ]; then
+	if [ "$onative_disk" = 1 ]; then
+		echo "PASS: D2b native O server, no-#S/no-#c native-disk profile, three same-disk boots, native bounds/flush and negatives"
+	elif [ "$oconsole" = 1 ]; then
+		echo "PASS: D2b native O server, no-#c console profile, three same-disk boots and negative"
+	else
+		echo "PASS: D2b native O server, default profile, three same-disk boots and negative"
+	fi
+else
 	echo "FAIL: $fails"
 	exit 1
-}
+fi

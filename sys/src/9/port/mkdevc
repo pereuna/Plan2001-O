@@ -135,7 +135,7 @@ END{
 			printf "\t&%sifc,\n", adifc[i];
 	  	printf "\tnil,\n};\n\n";
 	}
-	if(devsd){
+	if(devsd || nsdifc){
 		printf "#include \"../port/sd.h\"\n";
 		for(i = 0; i < nsdifc; i++)
 			printf "extern SDifc %sifc;\n", sdifc[i];

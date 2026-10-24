@@ -279,6 +279,47 @@ onativeprobe_proc(void *arg)
 			lr, fmtok, denied);
 	}
 
+	/*
+	 * E6 legacy #S control: the normal profile still registers sddevtab
+	 * and its Chan/Qid adapter.  Attach the first virtio unit, walk its
+	 * ctl file, stat it and read its geometry text.  This is read-only
+	 * and runs after the pathless measured window.
+	 */
+	{
+		Dev *d;
+		Chan *c, *nc;
+		Walkqid *wq;
+		char *name;
+		char sbuf[256], rbuf[512];
+		long sr;
+		int at, st, wl, geom;
+
+		at = wl = geom = 0;
+		st = -1;
+		sr = -1;
+		memset(rbuf, 0, sizeof rbuf);
+		if(!waserror()){
+			d = devtab[devno('S')];
+			if(d != nil){
+				c = d->attach("sdF0");
+				at = 1;
+				name = "ctl";
+				wq = d->walk(c, nil, &name, 1);
+				wl = 1;
+				nc = d->open(wq->clone, OREAD);
+				st = d->stat(nc, (uchar*)sbuf, sizeof sbuf);
+				sr = d->read(nc, rbuf, sizeof rbuf - 1, 0);
+				geom = sr > 0 && strstr(rbuf, "geometry") != nil;
+				cclose(nc);
+				free(wq);
+				cclose(c);
+			}
+			poperror();
+		}
+		print("ONATIVEPROBE: E6 LEGACY #S attach=%d walk=%d stat=%d read=%ld inquiry=%d\n",
+			at, wl, st, sr, geom);
+	}
+
 	print("ONATIVEPROBE: DONE\n");
 	for(;;)
 		tsleep(&prober, return0, nil, 60000);

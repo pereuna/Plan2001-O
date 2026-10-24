@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `9b72d8898149f57e6bc3f9b43a6ad77b982d78e14e2017bd7783a5954bd127ab`
+- Source fingerprint (SHA-256): `9e1d213227161fee4b80211bbd50cdb0e97caafe45baa8400383ad3d8ed1127e`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -49,9 +49,9 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 
 | Measure | Count |
 | --- | ---: |
-| `scanned_files` | 236 |
-| `c_files` | 175 |
-| `parsed_c_files` | 175 |
+| `scanned_files` | 238 |
+| `c_files` | 176 |
+| `parsed_c_files` | 176 |
 | `parse_failures` | 0 |
 | `files_with_registrations` | 49 |
 | `registrations` | 69 |
@@ -67,7 +67,7 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 | `unresolved_build_objects` | 4 |
 | `unsupported_declarations` | 0 |
 
-Files by kind: `assembly` 7, `build-tool` 11, `c` 175, `config` 6, `header` 37.
+Files by kind: `assembly` 7, `build-tool` 11, `c` 176, `config` 7, `header` 37.
 
 Operations by kind: `control-command` 81, `file-operation` 669, `interface-operation` 205, `manual-control-command` 21.
 
@@ -81,10 +81,11 @@ Inclusion is derived from each configuration file using the `mkdevlist` rules an
 
 | Configuration | Kind | Arch | Status | Active C files | Unresolved objects | Shadowed objects |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| `pc64` | normal-amd64 | pc64 | supported | 155 | 0 | 2 |
-| `pc64mp` | test-only | pc64 | supported | 155 | 0 | 2 |
-| `pc64native` | other | pc64 | supported | 155 | 1 | 2 |
-| `pc64oconsole` | other | pc64 | supported | 154 | 0 | 2 |
+| `pc64` | normal-amd64 | pc64 | supported | 156 | 0 | 2 |
+| `pc64mp` | test-only | pc64 | supported | 156 | 0 | 2 |
+| `pc64native` | other | pc64 | supported | 156 | 1 | 2 |
+| `pc64oconsole` | other | pc64 | supported | 155 | 0 | 2 |
+| `pc64onativedisk` | other | pc64 | supported | 153 | 0 | 2 |
 | `qemu` | other | arm64 | planned | 93 | 2 | 0 |
 | `riscv64` | other | riscv64 | future | 0 | 1 | 0 |
 
@@ -111,6 +112,8 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | `pc64native` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
 | `pc64oconsole` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
 | `pc64oconsole` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
+| `pc64onativedisk` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64onativedisk` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
 
 ## Registrations
 
@@ -118,73 +121,73 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | --- | --- | --- | --- | --- | --- | ---: |
 | `reg:Dev:sys/src/9/arm64/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/arm64/devrtc.c:87 | qemu | 15 |
 | `reg:PhysUart:sys/src/9/arm64/uartqemu.c#qemuphysuart` | PhysUart | qemu |  | sys/src/9/arm64/uartqemu.c:318 | qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp, pc64native, pc64oconsole | 11 |
-| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
-| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:279 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
-| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native, pc64oconsole | 16 |
-| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native, pc64oconsole | 1 |
-| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native, pc64oconsole | 4 |
-| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 11 |
+| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 12 |
+| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:279 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 12 |
+| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 16 |
+| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 1 |
+| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 4 |
+| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:484 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 1 |
-| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1986 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
-| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 16 |
-| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
-| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
-| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 2 |
-| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 2 |
+| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 1 |
+| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1103 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 15 |
+| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 16 |
+| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 15 |
+| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 3 |
+| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 2 |
+| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 2 |
 | `reg:SDifc:sys/src/9/port/sdloop.c#sdloopifc` | SDifc | loop |  | sys/src/9/port/sdloop.c:380 | pc64, pc64mp, pc64native, pc64oconsole | 11 |
-| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp, pc64native, pc64oconsole | 8 |
-| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp, pc64native, pc64oconsole | 6 |
-| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:725 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 7 |
-| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
-| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 16 |
+| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 8 |
+| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 6 |
+| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:725 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 7 |
+| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk | 12 |
+| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, pc64native, pc64oconsole, pc64onativedisk, qemu | 16 |
 
 ## Per-subsystem summary
 
@@ -1416,41 +1419,41 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 
 | Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sd:cmd delpart` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1670 |
-| `sd:cmd part` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1661 |
-| `sd:attach` | direct Dev callback | `sdattach` | interface enable (3 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:close Qraw` | TYPE(c->qid) | `sdclose` | service-only | partial | - | N | sys/src/9/port/devsd.c:1002 |
-| `sd:config` | direct Dev callback | `sdconfig` | interface probe (1 candidates) | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devsd.c:1986 |
-| `sd:open Qctl` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:963 |
-| `sd:open Qextra` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:964 |
-| `sd:open Qpart` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:977 |
-| `sd:open Qraw` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:967 |
-| `sd:power` | direct Dev callback | `devpower` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:read Qctl` | TYPE(c->qid) | `sdread` | interface rctl (4 candidates) | partial | E | N | sys/src/9/port/devsd.c:1486 |
-| `sd:read Qextra` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1565 |
-| `sd:read Qpart` | TYPE(c->qid) | `sdread` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1563 |
-| `sd:read Qraw` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1528 |
-| `sd:read Qtopctl` | TYPE(c->qid) | `sdread` | interface rtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1453 |
-| `sd:read Qtopdir` | TYPE(c->qid) | `sdread` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1482 |
-| `sd:read Qunitdir` | TYPE(c->qid) | `sdread` | service-only | partial | E | N | sys/src/9/port/devsd.c:1483 |
-| `sd:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devsd.c:1986 |
-| `sd:reset` | direct Dev callback | `sdreset` | interface pnp (5 candidates) | partial | - | N | sys/src/9/port/devsd.c:1986 |
-| `sd:shutdown` | direct Dev callback | `sdshutdown` | interface disable (3 candidates) | partial | - | N | sys/src/9/port/devsd.c:1986 |
-| `sd:stat` | direct Dev callback | `sdstat` | service-only | partial | - | N | sys/src/9/port/devsd.c:1986 |
-| `sd:walk` | direct Dev callback | `sdwalk` | service-only | partial | - | N | sys/src/9/port/devsd.c:1986 |
-| `sd:write Qctl` | TYPE(c->qid) | `sdwrite` | interface wctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1647 |
-| `sd:write Qextra` | TYPE(c->qid) | `sdwrite` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:1742 |
-| `sd:write Qpart` | TYPE(c->qid) | `sdwrite` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:1740 |
-| `sd:write Qraw` | TYPE(c->qid) | `sdwrite` | service-only | partial | E | N | sys/src/9/port/devsd.c:1684 |
-| `sd:write Qtopctl` | TYPE(c->qid) | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:1588 |
-| `sd:wstat Qctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1781 |
-| `sd:wstat Qpart` | TYPE(c->qid) | `sdwstat` | service-only | partial | E | N | sys/src/9/port/devsd.c:1787 |
-| `sd:wstat Qraw` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1784 |
-| `sd:wstat Qtopctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:1780 |
+| `sd:cmd delpart` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:816 |
+| `sd:cmd part` | strcmp in sdwrite | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:807 |
+| `sd:attach` | direct Dev callback | `sdattach` | interface enable (3 candidates) | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:close Qraw` | TYPE(c->qid) | `sdclose` | service-only | partial | - | N | sys/src/9/port/devsd.c:425 |
+| `sd:config` | direct Dev callback | `sdconfig` | interface probe (1 candidates) | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:init` | direct Dev callback | `devinit` | no-primitive | partial | - | N | sys/src/9/port/devsd.c:1103 |
+| `sd:open Qctl` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:386 |
+| `sd:open Qextra` | TYPE(c->qid) | `sdopen` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:387 |
+| `sd:open Qpart` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:400 |
+| `sd:open Qraw` | TYPE(c->qid) | `sdopen` | service-only | partial | E | N | sys/src/9/port/devsd.c:390 |
+| `sd:power` | direct Dev callback | `devpower` | service-only | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:read Qctl` | TYPE(c->qid) | `sdread` | interface rctl (4 candidates) | partial | E | N | sys/src/9/port/devsd.c:632 |
+| `sd:read Qextra` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:711 |
+| `sd:read Qpart` | TYPE(c->qid) | `sdread` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:709 |
+| `sd:read Qraw` | TYPE(c->qid) | `sdread` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:674 |
+| `sd:read Qtopctl` | TYPE(c->qid) | `sdread` | interface rtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:599 |
+| `sd:read Qtopdir` | TYPE(c->qid) | `sdread` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:628 |
+| `sd:read Qunitdir` | TYPE(c->qid) | `sdread` | service-only | partial | E | N | sys/src/9/port/devsd.c:629 |
+| `sd:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devsd.c:1103 |
+| `sd:reset` | direct Dev callback | `sdreset` | interface pnp (5 candidates) | partial | - | N | sys/src/9/port/devsd.c:1103 |
+| `sd:shutdown` | direct Dev callback | `sdshutdown` | interface disable (3 candidates) | partial | - | N | sys/src/9/port/devsd.c:1103 |
+| `sd:stat` | direct Dev callback | `sdstat` | service-only | partial | - | N | sys/src/9/port/devsd.c:1103 |
+| `sd:walk` | direct Dev callback | `sdwalk` | service-only | partial | - | N | sys/src/9/port/devsd.c:1103 |
+| `sd:write Qctl` | TYPE(c->qid) | `sdwrite` | interface wctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:793 |
+| `sd:write Qextra` | TYPE(c->qid) | `sdwrite` | indirect-unresolved f | unresolved | E | N | sys/src/9/port/devsd.c:888 |
+| `sd:write Qpart` | TYPE(c->qid) | `sdwrite` | interface bio (5 candidates) | partial | E | N | sys/src/9/port/devsd.c:886 |
+| `sd:write Qraw` | TYPE(c->qid) | `sdwrite` | service-only | partial | E | N | sys/src/9/port/devsd.c:830 |
+| `sd:write Qtopctl` | TYPE(c->qid) | `sdwrite` | interface wtopctl (2 candidates) | partial | E | N | sys/src/9/port/devsd.c:734 |
+| `sd:wstat Qctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:927 |
+| `sd:wstat Qpart` | TYPE(c->qid) | `sdwstat` | service-only | partial | E | N | sys/src/9/port/devsd.c:933 |
+| `sd:wstat Qraw` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:930 |
+| `sd:wstat Qtopctl` | TYPE(c->qid) | `sdwstat` | no-primitive | partial | E | N | sys/src/9/port/devsd.c:926 |
 
 #### `virtio10`
 
@@ -1596,7 +1599,7 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `pnpgen` | sys/src/9/port/devpnp.c:381 | Qtopdir, Qpnpdir, Qpnpctl, Qcsnctl, Qcsnraw, Qpcidir, Qpcictl, Qpciraw, default |
 | `procgen` | sys/src/9/port/devproc.c:178 | Qwait, Qprofile, Qwatchpt |
 | `rootgen` | sys/src/9/port/devroot.c:120 | Qdir, Qboot, default |
-| `sdgen` | sys/src/9/port/devsd.c:751 | Qtopdir, Qunitdir, Qraw, Qctl, Qpart, Qextra, Qtopctl, default |
+| `sdgen` | sys/src/9/port/devsd.c:174 | Qtopdir, Qunitdir, Qraw, Qctl, Qpart, Qextra, Qtopctl, default |
 | `usbgen` | sys/src/9/port/devusb.c:635 | Qdir, Qusbdir, Qctl, default |
 
 ## Lower-level interfaces
@@ -1694,11 +1697,11 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `sdbio` | sys/src/9/port/devsd.c:1013 |
+| 1 | `sdbio` | sys/src/9/port/devsd.c:436 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `sdbio` | `indirect:bio` | sys/src/9/port/devsd.c:1093 |
+| 1 | `sdbio` | `indirect:bio` | sys/src/9/port/devsd.c:516 |
 
 ### Keyboard scancode read path
 
@@ -1765,7 +1768,7 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `sdgen` | sys/src/9/port/devsd.c:751 |
+| 1 | `sdgen` | sys/src/9/port/devsd.c:174 |
 
 ## File coverage appendix
 
@@ -1901,6 +1904,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/pc64/pc64mp` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/pc64native` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/pc64oconsole` | config | kernel build configuration | n/a | n/a | ok | 0 |
+| `sys/src/9/pc64/pc64onativedisk` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/rebootcode.s` | assembly | assembly support | A | A | ok | 0 |
 | `sys/src/9/pc64/squidboy.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc64/trap.c` | c | kernel support source | A | A | ok | 0 |
@@ -1984,6 +1988,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/port/rdb.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/rebootcmd.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/sd.h` | header | kernel header | S | S | ok | 0 |
+| `sys/src/9/port/sdcore.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/sdloop.c` | c | kernel driver/interface source | A | A | ok | 1 |
 | `sys/src/9/port/sdnvme.c` | c | kernel driver/interface source | A | A | ok | 1 |
 | `sys/src/9/port/sdram.c` | c | kernel driver/interface source | A | A | ok | 1 |

@@ -1,0 +1,96 @@
+# pc64onativedisk - opt-in E6 O-only profile without #c and without #S.
+#
+# This is pc64oconsole (E5: no legacy "cons" registration) with the "sd"
+# line also deliberately absent from the dev section.  The generated
+# devtab[] therefore registers neither consdevtab nor sddevtab.  Disk
+# discovery, unit probing and native O block I/O come directly from the
+# SD core (sys/src/9/port/sdcore.c) and the concrete controller drivers
+# listed under misc; pc64/main.c calls sdinitcontrollers() after
+# chandevreset(), and the core's one-shot guard prevents a second probe.
+#
+# sdloop is deliberately excluded: its backing store is an inherited
+# Chan to a file (namec/devtab read/write).  It remains in the legacy
+# configurations.  sdram is kept; it is a concrete SDifc with no Chan.
+dev
+	root
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	etheri225		pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	onativeprobe_stub
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# Same pathless O boot assets as pc64oconsole; no filesystem root is
+# required.
+bootdir
+	/$objtype/bin/aux/kbdfs	kbdfs
+	/$objtype/bin/oinit	oinit
+	/$objtype/bin/ohandle	ohandle
+	/$objtype/bin/oexec	oexec

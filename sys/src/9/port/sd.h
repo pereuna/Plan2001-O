@@ -206,18 +206,34 @@ struct SDio {
 extern void addmmcio(SDio *io);
 extern SDio* annexsdio(char*);
 
-/* devsd.c */
+/* sdcore.c: native controller registry and block operations (no Chan). */
 typedef struct Sditer Sditer;
 struct Sditer {
 	int	idno;
 	int	subno;
 };
+enum {
+	SDndev = 62,	/* length of the controller-letter alphabet */
+};
+extern char sddevletters[SDndev+1];
+extern SDev* sddevs[SDndev];
+extern QLock sddevslock;
+extern void sdinitcontrollers(void);
+extern void sdreset(void);
+extern void sdadddevs(SDev*);
+extern int sdindex(int);
+extern SDev* sdgetdev(int);
+extern SDunit* sdgetunit(SDev*, int);
+extern int sdinitpart(SDunit*);
+extern void sdaddpart(SDunit*, char*, uvlong, uvlong);
+extern void sddelpart(SDunit*, char*);
+extern void sdfreedev(SDev*);
 extern SDunit* sdunititer(Sditer*);
 extern void sdunitput(SDunit*);
 extern int sdunitready(SDunit*);
 extern long sdblockrw(SDunit*, int, void*, long, uvlong);
 extern int sdblockflush(SDunit*);
-extern void sdadddevs(SDev*);
+extern long sdrio(SDreq*, void*, long);
 extern int sdsetsense(SDreq*, int, int, int, int);
 extern int sdfakescsi(SDreq*);
 extern int sdfakescsirw(SDreq*, uvlong*, int*, int*);

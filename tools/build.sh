@@ -23,8 +23,13 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 native_probe=${NATIVE_PROBE:-0}
 oconsole=${OCONSOLE:-0}
+onative_disk=${ONATIVE_DISK:-0}
 if [ "$native_probe" = 1 ] && [ "$oconsole" = 1 ]; then
 	echo "build.sh: NATIVE_PROBE=1 and OCONSOLE=1 are separate opt-in builds" >&2
+	exit 2
+fi
+if [ "$onative_disk" = 1 ] && { [ "$native_probe" = 1 ] || [ "$oconsole" = 1 ]; }; then
+	echo "build.sh: ONATIVE_DISK=1 is exclusive with NATIVE_PROBE=1 and OCONSOLE=1" >&2
 	exit 2
 fi
 if [ "$native_probe" = 1 ]; then
@@ -42,6 +47,14 @@ elif [ "$oconsole" = 1 ]; then
 	kernel=9pc64oconsole
 	testkconf=
 	testkernel=
+elif [ "$onative_disk" = 1 ]; then
+	# E6 opt-in: no "cons" and no "sd" line in the dev section, so the
+	# generated devtab registers neither consdevtab nor sddevtab.  The
+	# native SD core and the controller drivers remain linked directly.
+	kconf=pc64onativedisk
+	kernel=9pc64onativedisk
+	testkconf=
+	testkernel=
 fi
 out=$tbuild; b=$root/build
 mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$out"/*.devc.c "$b"/in.img "$b"/out.img
@@ -52,6 +65,8 @@ if [ "$native_probe" = 1 ]; then
 	printf "kconf=pc64native\nkernel=9pc64native\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 elif [ "$oconsole" = 1 ]; then
 	printf "kconf=pc64oconsole\nkernel=9pc64oconsole\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+elif [ "$onative_disk" = 1 ]; then
+	printf "kconf=pc64onativedisk\nkernel=9pc64onativedisk\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"
