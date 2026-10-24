@@ -26,7 +26,6 @@ dev
 	pipe
 	proc
 	mnt
-	shr
 	rtc
 	ether		netif
 	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
