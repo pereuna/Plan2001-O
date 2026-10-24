@@ -1,105 +1,113 @@
-# E2 — prove reusable native C extraction, link it and execute it in QEMU
+# E3 — automatically propose reviewable Chan-free C extraction patches
 
-**Active assignment for OpenCode.** Continue E1 from commit `65c3d541bda4d352c308bdf588fbfb06ac18ebab` (`docs/KERNEL-NATIVE-GENERATOR.md`, `docs/STATUS.md`). **D2c stays deferred.** The objective is to prove that the *same actual transformation rule* can serve **two different 9Front Dev drivers**, while retaining one source of truth for operations, and that native entries work in a **linked and booted kernel**. Not another per-driver hardcoded template, and not a 27-driver conversion.
+**OpenCode work order.** E2 is complete at implementation commit `ecd945e23706bd5e6f4eb28384121c8c76a09d31` (last observed branch HEAD `365959fb6191601c2e024244fb438f7e45a2df8d`). **D2c stays deferred.** E3 is a *source-to-source transformation proposal* experiment: use the ONE existing `tools/kernel_opmap.py` analyser to locate a supported selected `Dev`/Qid operation in its **unmodified original code**, generate a common Chan-free helper, replace that one legacy case with a helper call, and output a **reviewable unified diff**. **Do not automatically apply proposed patches to tracked kernel sources or activate them in normal builds.** No batch conversion of 27 drivers.
 
-## 0. Inspect baseline
+## Baseline and semantics
 
-Read `AGENTS.md`, `docs/STATUS.md`, `docs/KERNEL-NATIVE-GENERATOR.md`, `docs/CHAN-DEPENDENCIES-INDEX.md`, `tools/kernel_opmap.py`, `tools/test_kernel_opmap.py`, the real `pc64` mkfiles, and both drivers below. Verify `git status --short`, HEAD and the actual current call graph. Protect all unrelated work; no blanket resets/clean/staging, no force-push, no physical-disk tests.
+Read `AGENTS.md`, short `docs/STATUS.md`, `docs/KERNEL-NATIVE-GENERATOR.md`, `docs/CHAN-DEPENDENCIES-INDEX.md`, `tools/kernel_opmap.py`, `tools/test_kernel_opmap.py`, both drivers and E2 probe. Check HEAD and `git status --short`. Preserve unrelated edits and existing E2 native generator, native-probe integration, D2b kernel boot and all current tests.
 
-E1 state: one `Analyzer.analyze()` frontend; `--generate-native` emits `kernel_native.h`, `rtc_native.c`, `native-decisions.json` in `build/generated/kernel-native/`. E1's emitter and reviewed mappings are substantially RTC-specific, generator compile tested but **not linked or called**. E1 reported 18/18 tests PASS; default `kernel_opmap.py --check` was **already stale**. Do not treat historical PASS as current execution.
+The E2 frontend already provides `Analyzer.analyze()`, `Function`, `Switch`, `CaseLabel`, `Token` **with original source `offset`, line/column**, `Dirtab`, Qid values, source hashes, call edges, and readnum extraction validation. **Reuse this parser and token spans**. Do not create a second C scanner or use a whole-file regex substitution. Source bytes outside expressly authorized spans must remain identical (including comments, `#if` lines and unrelated branches). Treat the result as a candidate requiring review, not as a proof of semantic equivalence.
 
-## 1. Two bounded operations, different drivers
+## Positive candidates: two historical originals + one new HEAD candidate
 
-MANDATORY proof targets:
+The current branch already contains the manually extracted E2 helpers, so it is **invalid** to claim to extract those same two operations from current HEAD. Use the exact Git revision `7b4dfac4903e909dc2a00f37e9320335808029ac` as the **PRE-E2 input** in a disposable staging tree or a minimal test fixture constructed from `git show`. Never checkout/reset the user's working tree. Its relevant source branches are:
 
-1. `sys/src/9/pc/devrtc.c`: **Qrtc READ** (visible `rtcread` selected branch, calls `readnum(offset, buf, n, (ulong)rtctime(), 12)`). This is hardware-backed via `rtctime()`; it must retain its existing RTC initialization/locking semantics. Do **not** write CMOS/NVRAM or modify time in E2.
-2. `sys/src/9/port/devcons.c`: **Qpid READ** (visible `consread` selected branch, calls `readnum((ulong)offset, buf, n, up->pid, NUMSIZE)`). This is process-context-backed, **not** a hardware device, and its user-visible policy originates at `consopen`/`devopen` and `consdir[]` mode `0444`. Verify what permissions actually apply; do not assume a shared RTC authorization rule.
+- `sys/src/9/pc/devrtc.c` → `rtcread` case `Qrtc`:
+  ```c
+  n = readnum(offset, buf, n, (ulong)rtctime(), 12);
+  return n;
+  ```
+  `ulong offset = off` is declared **before** the switch and **still needed by Qnvram**. The generated helper must reconstruct its own local offset; the original shared local must not be removed or broken.
+- `sys/src/9/port/devcons.c` → `consread` case `Qpid`:
+  ```c
+  return readnum((ulong)offset, buf, n, up->pid, NUMSIZE);
+  ```
+  `vlong offset = off` is set before the switch and shared by many other cases. The original handler has `if(n <= 0) return n;` **before dispatch**, which a native helper must preserve for direct calls, while leaving the legacy pre-dispatch guard unchanged.
 
-Optional third example: `devcons` **Qzero READ** (`memset(buf,0,n)` then return), but only after mandatory pair works; it must be a **second generic emission pattern**, not special code for `cons`.
+Also attempt an **additional current-HEAD candidate** `devcons.c` → `consread` case `Qppid` (currently still `return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);`). This should produce an independent proposal *without* a new driver-specific template. Its `up` context, `0444` access policy, pre-dispatch guard and parent PID semantics must be recorded. **Do not apply the Qppid patch to HEAD.** If safe extraction cannot be established, output a precise refusal and keep E3 PARTIAL.
 
-These are just pilot endpoints; classify nonselected operations as MANUAL/LEGACY as justified. Preserve `Qid` as an internal numeric branch key if useful, but do not introduce a runtime pathname or `Chan`.
+Use a third simple *synthetic* static-Dev fixture with renamed selector/locals/value/size to prove this is a general transformation, not a hidden RTC/CONS/Qppid allowlist. Generated function names must be deterministic and collision-checked against declared and called symbols. No E3 source modifications to NVRAM, RTC writes, device reset, IRQ, PCI, network, pipe or O-volume storage.
 
-## 2. One real generalized transformation rule
+## Transformation rule
 
-Extend the existing `tools/kernel_opmap.py` frontend/IR, **not a second parser**. Implement a single **generic, narrow, fail-closed emitter** for a source-verified read operation of the shape `readnum(offset, buf, n, value_expression, size_expression)` (including E1 RTC's assign-then-return shape and console's direct return). It must derive the selected branch/body/expression/size from the actual tokenized source, `Dev` callback and Qid/Dirtab mapping, not hand-author those two C bodies in Python.
+Extend the existing E2 narrow `readnum` recognizer so that it accepts a selected **legacy branch BEFORE a helper exists**, and emits **two related edits** from the same validated IR:
 
-Reviewable per-operation binding DATA may explicitly provide *provenance, allowed helper symbols, type/context requirements, authorization/lifecycle policy and validation constraints*. **No** `if driver == rtc` vs `if driver == cons` native **C body** generation, duplicate `render_rtc_source`/`render_cons_source`, or copy-pasted source-body algorithms. Preserve good reviewed constraints from E1 (source SHA, literal constants and selector assertions), adapting pins when there are legitimate source edits. No silent auto-renew of a stale binding.
+1. Insert a non-static, kernel-internal shared helper `long <generated_name>(void *buf, long n, vlong off)` into the same C translation unit, using the verified original value expression, width, offset handling, return shape and pre-dispatch `n <= 0` guard. Choose a safe insertion location outside functions, declarations and conditional compilation. Do not move `#define`s, comments or unrelated code; avoid including expression dependencies not visible there. Preserve the original expressions/casts precisely or record and justify strictly equivalent normalization.
+2. Replace **only the one selected Qid case body** with `return <generated_name>(buf, n, off);`, keeping the same case label and preserving the original function's other cases, default/error handling, init, `open` permissions and lifecycle. The new helper becomes the **single executable implementation** used by the legacy case and, once accepted in a separately reviewed step, by the existing generic E2 native emitter.
 
-Source parse must conservatively refuse unsupported control flow: fallthrough, hidden macro side effects, goto, uninitialized locals, conflicting preprocessor branches, ambiguous indirect calls, or unsafe/unsupported local variables. Important differences: `consread` has a preliminary `if(n <= 0) return n` before dispatch; `rtcread` computes `offset=off`; their native functions must preserve the selected branches' actual semantics, including zero/negative n, offset casts and readnum sizing. A partial token match must **never** generate executable C. No regular-expression-only rewrite that silently changes C semantics.
+The ordinary `Chan`/Qid/Dev machinery may remain in the wrapper; the *extracted helper and its bounded transitive call chain* must not need `Chan`, path walk, mount, `namec`, `Dirtab` or synthetic `Fgrp`. An internal numeric selector is allowed, but do not equate it to persistent OID. Native user access is NOT authorized by creating a helper; these remain kernel-internal until a separately designed capability boundary.
 
-**Single source of functionality:** both the inherited `Dev` read branch and its generated native entry should use the same underlying executable implementation rather than maintain two diverging copies of the algorithm. Prefer a small, reviewed shared helper extraction where necessary, with `Dev` branch delegating to the helper and the generator emitting a thin direct binding; or a verified generated shared helper consumed by both paths. Pick the smallest scheme that actually builds in Plan 9 C and preserves upstream legacy logic. Document exactly which part of the transformation is generated and which part required a one-off manual review; do not claim a fully automatic C-to-C refactoring if manual source editing was needed.
+**Hard problem: data/control dependencies.** Do not copy arbitrary lexical text from a switch branch and hope it compiles. For each proposal, prove or conservatively verify:
+- selected branch has no fall-through, `goto`, `break`-dependent return, hidden side effects, aliasing/captures, conflicting conditional compilation or multiple exits;
+- every local referenced in the copied branch has its type/initialization and lifetime resolved; shared locals still needed by neighboring cases remain untouched;
+- no `Chan` fields (`c->qid`, `c->aux`, flags, offsets, mode), member or indirect callbacks with unknown target, unsafe macros, missing `up` context, unknown helper declarations, or unreviewed hardware side effects occur in the proposed helper;
+- permission evaluation still happens at the original `open`/Dirtab boundary; direct kernel calls are explicitly declared **kernel-internal-only**, not silently equivalent to an authorized userspace API;
+- negative/zero lengths, offsets, numeric conversions and errors preserve the actual source behavior. In particular `consread`'s `n<=0` guard and RTC's shared `offset` have different semantics. Check symbol visibility and target Plan 9 C dialect.
 
-The C emitted for both operations must have **no `Chan*`, `qid.path`, `Dirtab`, `walk`, `namec` or namespace traversal** in its executed helper chain. Kernel `up` may still be used for Qpid, but its context and authorization must be explicit; native helper availability is NOT a permission to expose the API indiscriminately to userspace. No new general syscall, `/dev` adapter, fake `Fgrp`, or new OID kind.
+If any requirement cannot be validated **fail closed** with a machine-readable reason and source evidence. Do not label a copied helper DIRECT merely because it compiles.
 
-Keep generating a manifest for active `pc64` devices, with correct DIRECT/BRIDGE/MANUAL/LEGACY reasons. Mark DIRECT only for truly backed and validated operations. Other E1 claims (e.g. RTC NVRAM read/write) must remain accurate or be downgraded explicitly rather than discarded silently.
+## Output and CLI
 
-## 3. Test true generality, not merely a second hardcoded recipe
-
-Use `tools/test_kernel_opmap.py` with fixtures that demonstrate:
-- RTC Qrtc and console Qpid use **the very same renderer/extractor** with distinct input expressions and initialization/proc-context contracts.
-- An **additional synthetic static Dev fixture** (different names, selector and size) works without adding a new C emitter branch or driver name to Python.
-- `readnum` assign/return vs direct-return shapes, source line mapping, byte-offset behavior, length `n<=0`, and permission provenance.
-- Deliberate unsupported syntax, altered permission rule, modified source hash, unresolved helper, macro alias, indirect callback, preprocessor branch or unsafe local variable cause a deterministic explicit refusal — never guessed C.
-- Output is byte-for-byte reproducible; `--generate-native --check` catches stale or modified output.
-- No per-driver duplicate algorithm in emitted C or the driver source; inspect source changes to substantiate this.
-
-Be cautious about a semantic trap: matching the `readnum` call is not sufficient proof that the wrapper has the original `devopen` permission behavior or that every inherited pre-dispatch check was preserved. Include an operation-level authorization contract or explicitly label a helper **kernel-internal-only**, never silently public.
-
-## 4. Link and boot a real native probe, without disrupting D2b
-
-Produce real generated `.c/.h` files in `build/generated/kernel-native/` and arrange **opt-in integration** into the `pc64` Plan 9 kernel build from that directory (or copy generated files to an ignored build staging directory under `build/` through a reproducible mk step). Provide a coherent dependency graph so regeneration precedes compilation; a manually copied static generated file is not acceptable. Do not add generated multi-megabyte artifacts to Git. The normal kernel build must continue to work without the opt-in probe mode.
-
-Create one narrowly scoped **opt-in boot test switch** (name `onativeprobe=1` or equivalent, distinct from `oboot=server` selector) and a disposable-QEMU test `tools/test-o-native-generator.sh` (name indicative) that verifies:
-- both generated symbols **actually link** into the kernel (no undefined or discarded references), and both are invoked in a genuine kernel process after valid initialization, not simulated with host Python or serial text;
-- Qrtc reads a plausible numeric time with bounded read and correct size; Qpid reads the current probe process's PID with correct formatting and offset; capture exact return count, source symbol ID, and value on UART;
-- the probe has a legitimate `up` process context and the RTC is initialized appropriately. Audit `chandevreset()` vs `chandevinit()` in native `oboot=server` (the latter may not have run); **do not silently call hardware before device readiness**. Avoid duplicate init or unsafe PCI/clock startup. Prefer a separate one-time disposable test boot if it isolates those concerns; preserve D2b's existing pathless boot.
-- errors (unsupported selector, bounds, invalid input length, absent permission) are tested when safe and can be triggered without dangerous privileged writes. RTC and Qpid are **read-only** in this experiment. If normal read outputs vary (time/PID), assert invariant formats and ranges, not exact fixed timestamps.
-- trace native calls and a short list of legacy-path/Chan counters during the measured probe. **No namec/walk or synthetic Chan** may be introduced by the **new native call chain**. State exactly the trace window; do not conflate unused legacy kernel code or the separate setup phase with execution of a native operation.
-- no kernel panic, no QEMU hang, hard timeout with saved serial logs. Keep verification logs in `build/verification/`. Test on disposable images only.
-
-Compare to legacy results / source policy where defensible. A probe reading two values proves actual native dispatch but **not** complete equivalence of all legacy modes, offset/permissions/lifecycle or whole-kernel Chan independence. Do not claim more.
-
-**If the selected probe context cannot guarantee RTC initialization or process readiness without substantial new boot machinery**, prefer fail-safe `E2 NOT YET` with the exact blocker, rather than fabricating a test hook that bypasses hardware safety. Finish static generic-generation tests even if runtime is blocked.
-
-## 5. Preserve regression and correct the stale OMAP signal
-
-Run and explicitly report actual outcomes:
+Add one opt-in `tools/kernel_opmap.py` mode, naming at your discretion, e.g.:
 
 ```sh
+python3 tools/kernel_opmap.py --propose-extraction \
+  --config pc64 --source-tree build/e3/pre-e2 \
+  --selectors rtc:read:Qrtc,cons:read:Qpid \
+  --out-dir build/generated/e3-pre-e2
+
+python3 tools/kernel_opmap.py --propose-extraction \
+  --config pc64 --selectors cons:read:Qppid \
+  --out-dir build/generated/e3-head
+```
+
+Document the **actual working CLI** if changed. For historical input, either accept a snapshot with the normal repo build/config context or create it safely from an archive in an ignored temp/build directory. Do not require rewriting all E2 pinned hashes to analyze old input; proposal analysis is a **separate opt-in stage** with its own pinned raw input hashes and approval state. A proposal may be generated but **must not automatically become an approved DIRECT binding**. After an eventual human-reviewed patch is applied, E2's normal generator may use a consciously reviewed and re-pinned binding; never silently bless the new source hash.
+
+Place outputs under ignored `build/generated/` only:
+- `*.patch`: standard deterministic unified diff using real repo-relative paths; suitable for `git apply --check` against the **exact named base**.
+- `extraction-decisions.json`: schema/version, source commit (if known), per-source full SHA-256, selected Dev/handler/Qid, line and byte spans, value/size/offset/guard, newly introduced symbols, external dependencies, permission/context/lifecycle notes, patch hash, DIRECT-CANDIDATE / REFUSED / ALREADY-EXTRACTED status, and reasons.
+- optionally `*.preview.c` for review, **not** an applied source edit.
+
+Support a check/determinism mode; no unexpected writes to tracked code or `docs/KERNEL-OPMAP.*` in dry-run. A rerun against identical sources yields byte-identical patch and manifest. A modified source hash, wrong source-ref, stale span, overlap, duplicate helper or changed case causes **explicit refusal**, never fuzzy patching. Keep existing `--write`, `--check`, `--stats`, `--generate-native`, native `--check` compatible with E2. Do not add any duplicate parser to `tools/`.
+
+## Test gates (must genuinely run)
+
+Expand `tools/test_kernel_opmap.py` with tests for:
+1. pre-E2 Qrtc and Qpid generate the two expected reviewable patches using ONE transform rule; new HEAD Qppid candidate or an honest refusal;
+2. synthetic driver produces same patch shape without any driver-name-specific C emitter;
+3. valid `git apply --check` on a **disposable copy of the exact matching base** (not checkout/reset on main); applying to this isolated copy changes exactly approved lines, leaves neighboring `Qnvram`, `Qppid`, `Qkmesg`, `Qdir` and pre-dispatch guards correct;
+4. optional isolated Plan 9 `6c` compile of patched files, plus compare their semantics and expected helper calls with E2's manually reviewed source. A generated patch is NOT a working Chan-free native kernel until compiled/linked/called;
+5. fail-closed cases: changed SHA; offsets, comments/strings and line endings; incompatible casts; parameter/local name collision; `#if` branch; `case` fall-through; multiple assignments; unreviewed macro/callback; unresolved `up`; pre-dispatch side-effect or missing guard; overlapping patch spans; already-extracted branch; missing/ambiguous Qid;
+6. a second run yields identical output, checking mode detects tampering and **generator never modifies tracked files**.
+
+Required commands (adapt script names to chosen CLI, report exact executions):
+```sh
 python3 tools/test_kernel_opmap.py
+python3 tools/kernel_opmap.py --check
 python3 tools/kernel_opmap.py --generate-native --config pc64 --out-dir build/generated/kernel-native
 python3 tools/kernel_opmap.py --generate-native --check --config pc64 --out-dir build/generated/kernel-native
-python3 tools/kernel_opmap.py --check
-WHAT=kernel tools/build.sh
-tools/test-o-native-generator.sh  # use actual chosen script name
-tools/test-oboot-server.sh
-tools/test-oboot-output.sh
-tools/test-o-boot.sh
-tools/test-o-pathless.sh
+# E3 proposal creation and E3 proposal verification for both source sets
+# git apply --check, and apply ONLY to disposable copy for test
 ```
 
-Run other Boot A/B/C/exec/handles regressions if shared boot or driver code changed. `test-oboot-server.sh` requires built host tools/selfroot; follow existing build instructions. Record PASS/FAIL/NOT RUN without inventing results.
+Because the task is **proposal-only**, do not modify tracked kernel C files, build configs or execute a new user-facing native ABI. If generator source/tests alone change, normal kernel rebuild and QEMU may be reported **NOT RUN** with rationale; optionally rerun `tools/test-o-native-generator.sh` and `tools/test-oboot-server.sh` if built artifacts are available, reporting their actual status, never assumed success. If you intentionally perform a separate isolated trial compile, label it as such, not as regression verification of main.
 
-If normal OMAP `--check` is still stale, establish **why** (real source fingerprint vs tracked artifacts). If current source changed and regenerating `docs/KERNEL-OPMAP.{json,md}` is legitimate, run `--write` *deliberately*, inspect the large diff and document its cause. Do not weaken `--check`, automatically mask failure, or stage unrelated churn just to produce a green check. This housekeeping must not block or obscure the substantive E2 gate if reconciliation turns out extensive.
+## Documentation and finish
 
-## 6. Scope, documents and completion
+Keep the repo's default agent context small. Update `docs/KERNEL-NATIVE-GENERATOR.md` **briefly** with E3 CLI, candidate source hashes, exact patch/refusal outcomes, unhandled syntax and proof scope. Update the concise E3 section of `docs/STATUS.md` and write final factual summary to `docs/to_chatgpt_review.md`. Do not regenerate large OMAP files unless actual scanned source changed, and never restore `O-BOOT-EXPERIMENT-*.md`. Existing `docs/to_opencode.md` is the active assignment; the completion automation can preserve it as history or replace it only per existing agent workflow. Commit/push only intended generator, tests and compact documentation using existing OpenCode completion automation.
 
-- No 27-driver batch conversion, userland keyboard/REPL (D2c), `kbdfs`, new native filesystem, general resource registry, 9P proxy, OID ontology work, or wholesale Plan9 kernel rewrite.
-- Keep ONE scanner `tools/kernel_opmap.py` and its test file; no obsolete new tools except the meaningful runtime regression test.
-- Keep docs compact: extend `docs/KERNEL-NATIVE-GENERATOR.md` with E2 source-to-output mapping, generic rule and refusal cases, manual-reviewed changes, link/probe evidence and limitations; update `docs/STATUS.md` and `docs/to_chatgpt_review.md`. No resurrection of old `O-BOOT-EXPERIMENT-*.md`.
-- Commit and push intended changes via existing completion automation.
-
-**Required final verdict:**
+**Final result format (evidence, not optimism):**
 ```
-E2 GENERIC EXTRACTION PASS / PARTIAL / NOT YET
-EXTRACTION: RTC Qrtc READ + CONS Qpid READ, same renderer = ...
-SINGLE IMPLEMENTATION: legacy/native share actual underlying operation = ...
-BUILT AND LINKED: Plan 9 6c/6l evidence ...
-QEMU EXECUTED: real RTC and PID, exact probe markers ...
-SAFETY: process context, init, permissions, rejected cases ...
-OMAP: old --check and native --check outcomes ...
-D2b REGRESSION: PASS / FAIL / NOT RUN
-REMAINING: precisely what still uses Chan/Walk/Qid or needs manual review
+E3 SOURCE EXTRACTION PROPOSALS: PASS / PARTIAL / NOT YET
+PRE-E2 RTC Qrtc: PATCH / REFUSED — source SHA, exact edits, apply --check
+PRE-E2 CONS Qpid: PATCH / REFUSED — preserved guard, exact edits
+HEAD CONS Qppid: PATCH / REFUSED — no source mutation
+SYNTHETIC GENERALITY: PASS/FAIL
+SINGLE IMPLEMENTATION: original case -> proposed shared helper -> native generator compatibility
+SOURCE SAFETY: no tracked source touched; stale/unsafe cases rejected
+E2 CLI REGRESSION: PASS/FAIL
+RUNTIME AND KERNEL BUILDS: actual PASS/FAIL/NOT RUN
+REMAINING: what must still be reviewed manually and what cannot be auto-converted
 ```
 
-**E2 PASS requires: two distinct real drivers using the same extraction mechanism, generated C actually linked and executed from a booted kernel, safe behavior and preserved D2b.** Generating two handwritten per-driver wrappers is **not** a PASS. If only static generation or linking succeeds, report PARTIAL honestly.
+**E3 PASS** means two independent real historical branches plus a synthetic new-driver case yield correct, deterministic, reviewable source patches from the existing analyser, the patch applies cleanly to the exact disposable base, source semantics and adjacent branches are convincingly preserved, and all old generator tests remain intact. A runtime kernel-wide Chan-free claim is categorically out of scope. If the HEAD Qppid candidate is refused for a documented safety reason, that does **not** force a false PASS; record it transparently.
