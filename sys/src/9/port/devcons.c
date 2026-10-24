@@ -669,3 +669,31 @@ writebintime(char *buf, int n)
 	}
 	return n+1;
 }
+
+/*
+ *  legacy #c Qhostowner operation.  This lives with its only caller so
+ *  profiles without the cons Dev do not link the host-owner rename path
+ *  (and therefore do not pull in the srv/shr namespace adapters).
+ *  Writing hostowner also sets the current user.
+ */
+long
+hostownerwrite(char *a, int n)
+{
+	char buf[KNAMELEN];
+
+	if(!iseve())
+		error(Eperm);
+	if(n <= 0)
+		error(Ebadarg);
+	if(n >= sizeof buf)
+		error(Etoolong);
+	memmove(buf, a, n);
+	buf[n] = 0;
+
+	renameuser(eve, buf);
+	srvrenameuser(eve, buf);
+	shrrenameuser(eve, buf);
+	kstrdup(&eve, buf);
+	procsetuser(buf);
+	return n;
+}

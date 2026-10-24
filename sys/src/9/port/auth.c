@@ -121,32 +121,8 @@ userwrite(char *a, int n)
 }
 
 /*
- *  called by devcons() for host owner/domain
- *
- *  writing hostowner also sets user
+ *  called by devcons() for host domain
  */
-long
-hostownerwrite(char *a, int n)
-{
-	char buf[KNAMELEN];
-
-	if(!iseve())
-		error(Eperm);
-	if(n <= 0)
-		error(Ebadarg);
-	if(n >= sizeof buf)
-		error(Etoolong);
-	memmove(buf, a, n);
-	buf[n] = 0;
-
-	renameuser(eve, buf);
-	srvrenameuser(eve, buf);
-	shrrenameuser(eve, buf);
-	kstrdup(&eve, buf);
-	procsetuser(buf);
-	return n;
-}
-
 long
 hostdomainwrite(char *a, int n)
 {
