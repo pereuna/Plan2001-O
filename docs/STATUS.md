@@ -1,7 +1,7 @@
 # Plan2001-O — current implementation and verification
 
-**Last runtime verification:** 24 October 2026, independently executed E4 on base `10d9fcd2640496e085a6e7b13d02d0643fbad1d0`; tested implementation committed as `f60211d0cd61886c839401262dff4a17abadd8a6` on `main`.
-**Scope:** amd64/`pc64` and opt-in `pc64native`, disposable QEMU images. E4 results below were executed by Codex/Astra; older sections retain their original agent-reported scope. Full independent review: [to_astra_review.md](to_astra_review.md).
+**Last runtime verification:** 24 October 2026, OpenCode E5 on base `dd3c4f2cc3bd462a6a6f285daccb322a52e9ef9b`; implementation `53785d754cd6239d7ac3e0ce70e5792f543a07d1` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md)). Earlier E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
+**Scope:** amd64/`pc64`, opt-in `pc64native`, and opt-in no-`#c` `pc64oconsole`, disposable QEMU images. E5 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
 **Historical record:** `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/STATUS.md`. The six completed `docs/O-BOOT-EXPERIMENT-*.md` reports can be restored with `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/O-BOOT-EXPERIMENT-D2B.md` (substitute A, B, C, D1, D2A or D2B).
 
 ## Current proven vertical slice
@@ -24,6 +24,73 @@
 **D2b image identity:** O-resident MicroPython 2,195,994 bytes; SHA-256 `cb3fe6159cf9e6ea148da15ccca71cbc8d118de42b82fd28120a44ba70723eaa`. Host seed and native `OEXECUTE` digests reportedly matched.
 
 **D2b negative evidence:** a failing `run()` produces no successful commit/done; missing `OID_MP_EXEC` returns an error without legacy fallback. The agent's QEMU logs were under `build/verification/` and are NOT assumed committed to Git. Original report and historical STATUS remain in Git history.
+
+## E5 #c native-service decomposition and O-only console profile
+
+**APPROVE (agent-executed).** The `#c` aggregator is split into concrete kernel
+services without a generic `NativeDev`, handle table or userspace ABI:
+
+- `sys/src/9/port/cons.c`: console output (`consputstr`), `print`/`iprint`/
+  `panic`/`putstrn`, `sysfatal`/`_assert`, log ring (`kmesgwrite`/
+  `kmesgreadat`), exclusive `kprint` operations, `readnum`/`readstr`,
+  `consinit`, `consactive`, `prflush`, `cpushutdown`.
+- `sys/src/9/port/procobs.c`: typed current-process PID/PPID/user and six
+  accounting slots (`proccputimes`). E4's `consqpidread`/
+  `consread_qppid_read` remain the legacy text adapters.
+- `sys/src/9/port/sysinfo.c`: system name/domain/owner/config getters,
+  `sysnameset`, typed `Sysstat`, privileged clock gate, null/zero semantics.
+- `tod.c`/`random.c`: pre-existing time/entropy implementations are used
+  directly. `main`-time `chandevinit` was not assumed: the O path calls
+  `consinit()` from `ouserproc` and the native probe after `up` exists, so
+  `randomseed` is a normal kproc rather than a parentless boot process.
+- `devcons.c` is now the legacy `Chan`/`Qid`/`Dirtab` adapter plus time
+  text/binary encoding only. `pprint` is retained in the core because fault
+  paths use it, and its legacy fd 2/`Fgrp`/`Chan` dependency is explicit.
+
+`docs/CONS-MIGRATION.md` covers all 23 live Qid enumerators plus the core
+symbols: **19 native, 2 legacy-only (`Qdir`, `Qdrivers`), 2
+intentionally-unsupported (`Qconsctl`, `Qmordor`), 0 unclassified**. No
+userspace ABI was added; process/log/time/config/control operations are
+kernel-only. `IOWRITE` was not broadened.
+
+The opt-in `pc64oconsole` profile removes only the `cons` line from the normal
+`pc64` `dev` section. The generated `devtab[]` has no `&consdevtab`, and the
+linked kernel has no `consdevtab` symbol while retaining `consinit`, `panic`,
+`iprint`, `putstrn`, `kmesgreadat`, `procpid`, `sysstatget`, `todinit`,
+`randominit`, `readnum` and `readstr`. `pc64`, `pc64mp` and `pc64native` keep
+the `#c` registration.
+
+Executed gates (all PASS):
+
+```sh
+python3 tools/cons_migration_check.py
+python3 tools/kernel_opmap.py --write
+python3 tools/kernel_opmap.py --check
+python3 tools/test_kernel_opmap.py
+NATIVE_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-o-native-generator.sh
+WHAT=kernel tools/build.sh
+tools/test-o-boot.sh
+OCONSOLE=1 WHAT=kernel tools/build.sh
+python3 tools/cons_migration_check.py --kernel build/amd64/9pc64oconsole --devc build/amd64/pc64oconsole.devc.c
+OCONSOLE=1 tools/test-oboot-server.sh
+```
+
+Observed: E5 console/log marker `logmark=1`; time/random plausible and
+distinct; typed PID/PPID/user/accounting and config getters; clock control
+denied for an unprivileged process context; kprint acquire/busy/read/close/
+reopen correct; typed sysstat, null/zero semantics; legacy adapter cputime
+format `72` bytes and Qtime denial. D2b on the O-only profile booted the same
+disk three times (`run() -> 1,2,3`), no panic/fault, `cons: init tod=1
+random=1`, and `namec/newchan/walk/devwalk/mount/exec` all zero at the
+measured `n=64` window. Legacy `tools/test-o-boot.sh` (normal `9pc64`) also
+passed. Logs: `build/verification/e5/` (ignored by Git).
+
+Limitations: this proves the O-only server profile does not register or link
+`consdevtab`; it does **not** remove all legacy `#c` code from the repository,
+and `Qdir`/attach/walk/stat/open/close, `Qdrivers` and `Qmordor`/`Qconsctl`
+remain deliberate legacy/unsupported cases. `pprint` still uses legacy fd 2
+and `Chan`. `#b`, `#i`, `#v`, `#t`, UART and screen drivers are unchanged.
 
 ## E4 independently reviewed Qppid integration
 
