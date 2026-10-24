@@ -1,7 +1,7 @@
 # Plan2001-O — current implementation and verification
 
-**Last runtime verification:** 23 October 2026, implementation commit `3cfd4ed27082c98e009030797290c6b1f84be380`, documented on `main` at `62564d1dea270b9f924cc4f7eebf466bf8798074`.
-**Scope:** amd64/`pc64`, disposable QEMU images, results **reported by the coding agent**. Source review is not independent test execution.
+**Last runtime verification:** 24 October 2026, independently executed E4 on base `10d9fcd2640496e085a6e7b13d02d0643fbad1d0`; tested implementation committed as `f60211d0cd61886c839401262dff4a17abadd8a6` on `main`.
+**Scope:** amd64/`pc64` and opt-in `pc64native`, disposable QEMU images. E4 results below were executed by Codex/Astra; older sections retain their original agent-reported scope. Full independent review: [to_astra_review.md](to_astra_review.md).
 **Historical record:** `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/STATUS.md`. The six completed `docs/O-BOOT-EXPERIMENT-*.md` reports can be restored with `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/O-BOOT-EXPERIMENT-D2B.md` (substitute A, B, C, D1, D2A or D2B).
 
 ## Current proven vertical slice
@@ -24,6 +24,54 @@
 **D2b image identity:** O-resident MicroPython 2,195,994 bytes; SHA-256 `cb3fe6159cf9e6ea148da15ccca71cbc8d118de42b82fd28120a44ba70723eaa`. Host seed and native `OEXECUTE` digests reportedly matched.
 
 **D2b negative evidence:** a failing `run()` produces no successful commit/done; missing `OID_MP_EXEC` returns an error without legacy fallback. The agent's QEMU logs were under `build/verification/` and are NOT assumed committed to Git. Original report and historical STATUS remain in Git history.
+
+## E4 independently reviewed Qppid integration
+
+**APPROVE.** The actual E3 proposal from base `10d9fcd` was reviewed, applied
+first in an exact-base disposable worktree, compiled with Plan 9 `6c`, then
+applied unchanged to the working tree. Legacy Qppid and generated
+`native_cons_qppid_read` share `consread_qppid_read`; live enum/Dirtab mapping
+is 13. Qrtc/Qpid remain. This is kernel-internal-only, requires `up != nil`
+and a valid caller buffer; it adds no user authorization or userspace ABI.
+
+Audit fixes reject a mutation hidden in a directory guard, lossy UTF-8 source
+round-tripping, and unmanifested stale proposal patches. All 27 existing tests
+remain covered; the original Qppid proposal assertion now uses its historical
+input, while current source must report ALREADY-EXTRACTED. The final 29 tests
+pass. `WHAT=kernel` now exports the interpreter it already compiles, enabling
+D2b to use fresh bytes without a full tree build.
+
+Executed gates (all PASS; no unrelated regression battery):
+
+```sh
+python3 tools/test_kernel_opmap.py
+python3 tools/kernel_opmap.py --check
+python3 tools/kernel_opmap.py --propose-extraction --config pc64 --selectors cons:read:Qppid --out-dir build/generated/e4-applied
+python3 tools/kernel_opmap.py --propose-extraction --config pc64 --selectors cons:read:Qppid --out-dir build/generated/e4-applied --check
+python3 tools/kernel_opmap.py --generate-native --config pc64 --out-dir build/generated/kernel-native
+python3 tools/kernel_opmap.py --generate-native --config pc64 --out-dir build/generated/kernel-native --check
+NATIVE_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-o-native-generator.sh
+WHAT=kernel tools/build.sh
+tools/test-oboot-server.sh
+```
+
+The first OMAP check correctly failed on new source fingerprints; deliberate
+`--write`, constrained diff review, and recheck passed. Only devcons/probe
+source records changed. Native QEMU ran **once**, before the normal build
+replaced staging/loader output. Both builds' VM inputs matched all 232 kernel
+source files; staged native C/header also matched the validated generator output.
+Kernel fingerprint: `3fe196b84e63da346e5783fad13478a6c10ef3ba8f62f5cbbb32b6939a58f2d6`.
+
+QEMU observed Qppid=0 equal to `up->parentpid`, return 12, exact decimal
+formatting, offset-8 partial read, clamp/zero/negative-length, out-of-range,
+negative-offset and 32-bit offset-wrap behavior. Existing Qrtc/Qpid and
+unsupported-selector gates passed. BEGIN/END counters: namec/newchan/walk/
+devwalk/mount/exec all zero. D2b passed three same-disk boots (`1 → 2 → 3`,
+Counter OID=alias=7), run-failure/no-commit and missing-executable negatives.
+Logs: `build/verification/e4/` (including native serial and `d2b/` copies).
+MicroPython: 2,195,994 bytes, SHA-256
+`bc4156a0e44c5e8c96647eb9923e052f5eec6ec7e8e816a761a8ba8c9319c2ba`.
 
 ## E2 native generator (linked and executed)
 
@@ -78,7 +126,7 @@ OMAP `--write`/`--check`/`--stats` behaviour is unchanged.
   Plan 9 `6c` against the repository kernel headers.  E1 was not linked or
   booted.
 
-**E2 checks (latest):** `python3 tools/test_kernel_opmap.py` 21/21 PASS;
+**E2 checks (historical):** `python3 tools/test_kernel_opmap.py` 21/21 PASS;
 native `--generate-native --check` PASS; normal `--check` PASS after a
 deliberate `--write`; `NATIVE_PROBE=1 WHAT=kernel tools/build.sh` PASS;
 `tools/test-o-native-generator.sh` PASS; `WHAT=kernel tools/build.sh` PASS;
@@ -96,7 +144,7 @@ kernel sources or activates a patch.
 
 - **Pre-E2 input** `7b4dfac`: RTC `Qrtc` and cons `Qpid` both `DIRECT-CANDIDATE`,
   two patches; source SHAs `45722e4f...` and `b6811757...`.
-- **Current HEAD**: cons `Qppid` `DIRECT-CANDIDATE` (no source mutation);
+- **E3 input (through `10d9fcd`)**: cons `Qppid` `DIRECT-CANDIDATE` (no source mutation);
   RTC `Qrtc` and cons `Qpid` correctly reported `ALREADY-EXTRACTED`.
 - **Synthetic** renamed static Dev also produces a patch through the same rule.
 - **Apply/compile evidence:** `git apply --check` PASS against disposable exact
@@ -106,7 +154,8 @@ kernel sources or activates a patch.
   needed because no kernel source changed; optional reruns of the existing E2
   native probe and D2b server gates PASS against the unchanged kernel.
 
-Proposals remain unapplied and are not approved native bindings.  The helper is
+At E3 completion the proposals were unapplied, not approved native bindings.
+E4 above applies and verifies Qppid. The helper is
 kernel-internal-only; runtime/Chan-free claims require a separate reviewed
 apply, link and boot step.
 
@@ -155,7 +204,8 @@ Use **disposable** QEMU disk images only; never write to physical disks in routi
 - `docs/KERNEL-NATIVE-GENERATOR.md`: E2 generator CLI, generic readnum rule, RTC/console probe evidence, refusals and remaining `Chan` dependencies.
 - `docs/O-BOOT-DEPENDENCIES.md`: **historical Level A snapshot**, includes B/C NOT YET as of that earlier experiment; it does not override the newer Boot A–D2b results.
 - Detailed completed boot reports are intentionally **not present at HEAD**. Read historical versions using the pinned Git commit `62564d1dea270b9f924cc4f7eebf466bf8798074`; do not re-create them merely because old links exist in past prompts.
-- `docs/to_opencode.md`: **current assignment only**; a completed assignment is not an active task.
+- `docs/to_astra.md`: E4 assignment and acceptance criteria.
+- `docs/to_astra_review.md`: independent E4 verdict and executed evidence.
 - `docs/to_chatgpt_review.md`: latest compact agent review summary.
 
 The earlier full `docs/STATUS.md`, experiments and their source commits are retained in Git history, not deleted from history.

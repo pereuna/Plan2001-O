@@ -1,24 +1,26 @@
-# Kernel native-operation generator (E2)
+# Kernel native-operation generator (E2–E4)
 
 `tools/kernel_opmap.py` remains the one kernel analyser.  E1 added an opt-in
 manifest/emitter; E2 generalises the emitter to one **source-verified readnum
 rule** and proves the generated entries in a linked, booted `pc64native`
 kernel.  The default `--write`, `--check`, `--stats` and OMAP artifacts are
-still the tracked signal.
+still the tracked signal. E4 applies an independently reviewed E3 Qppid
+extraction and executes it through the same E2 renderer.
 
 ## Status
 
-**E2 GENERIC EXTRACTION PASS** for the two bounded read operations:
+**E4 APPROVE** for three bounded reads; [independent review](to_astra_review.md):
 
 | Driver | Selector | Shared helper | Generated entry | Result |
 | --- | --- | --- | --- | --- |
 | `sys/src/9/pc/devrtc.c` | `Qrtc` read | `rtcqread` | `native_rtc_qrtc_read` | linked and executed |
 | `sys/src/9/port/devcons.c` | `Qpid` read | `consqpidread` | `native_cons_qpid_read` | linked and executed |
+| `sys/src/9/port/devcons.c` | `Qppid` read | `consread_qppid_read` | `native_cons_qppid_read` | independently reviewed, linked and executed |
 
-Both use the same renderer/extractor.  No per-driver C body, `if driver ==`
+All three use the same renderer/extractor.  No per-driver C body, `if driver ==`
 branch or duplicate `render_rtc_source`/`render_cons_source` exists.
 
-## Source identity
+## E2 source identity (historical)
 
 - E2 base revision: `7b4dfac4903e909dc2a00f37e9320335808029ac`.
 - `sys/src/9/pc/devrtc.c`: SHA-256
@@ -26,8 +28,9 @@ branch or duplicate `render_rtc_source`/`render_cons_source` exists.
 - `sys/src/9/port/devcons.c`: SHA-256
   `068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896`.
 
-Both hashes are pinned in the generator binding; a source edit fails closed
-until the binding is reviewed and deliberately updated.
+The current RTC pin is unchanged; E4 deliberately replaces the devcons pin
+with `5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61`.
+A source edit fails closed until reviewed and deliberately repinned.
 
 ## CLI and outputs
 
@@ -196,7 +199,7 @@ must stay under `build/generated/` and contain one deterministic
 | --- | --- | --- | --- |
 | pre-E2 RTC `Qrtc` read | `45722e4f...f1bcb` | `DIRECT-CANDIDATE`, helper `rtcread_qrtc_read` | `7b715be6...402b524` |
 | pre-E2 cons `Qpid` read | `b6811757...1ece4` | `DIRECT-CANDIDATE`, helper `consread_qpid_read` | `ce667228...188de324` |
-| HEAD cons `Qppid` read | `068dca67...0e901896` | `DIRECT-CANDIDATE`, helper `consread_qppid_read` | `abb25340...f2119ee3` |
+| E3 input `10d9fcd` cons `Qppid` read | `068dca67...0e901896` | `DIRECT-CANDIDATE`, helper `consread_qppid_read` | `abb25340...f2119ee3` |
 | HEAD RTC `Qrtc` / cons `Qpid` | current | `ALREADY-EXTRACTED`, no patch | n/a |
 
 Each patch inserts a non-static, kernel-internal helper at file top level and
@@ -257,3 +260,34 @@ not supported` and no patch.  The three positive E3 patch hashes are unchanged
 and still pass disposable `git apply --check`.  No tracked kernel source was
 modified.  This is still lexical/structural analysis, not full dataflow or
 semantic equivalence.
+
+## E4 independent integration (24 October 2026)
+
+Implementation commit `f60211d0cd61886c839401262dff4a17abadd8a6` on `main`.
+The actual generated Qppid patch retained SHA-256
+`abb253408f780ef4955fe3759da74dcf7ba3389ae5d83c3a38ecbfa6f2119ee3`.
+It was read, applied and compiled in isolation before applying the same patch
+to devcons. E3 now reports Qppid ALREADY-EXTRACTED. Historical pins remain.
+The binding requires exact `up->parentpid`, NUMSIZE=12, a live current process,
+and a valid kernel caller buffer. Legacy 0444 permissions do **not** authorize
+native callers: this helper is strictly kernel-internal, without a syscall.
+
+Independent audit fixed three issues: a mutation hidden inside a directory
+condition could be discarded; invalid UTF-8 could rewrite unrelated bytes;
+and --check ignored leftover patches after a refusal. Directory recognition
+is now exact, byte round-tripping is required, and unmanifested patches fail
+check. Artifact publication is not transactional; an error or failed check
+must stop consumption. DIRECT-CANDIDATE remains a review proposal.
+
+All 29 generator tests, inventory/proposal/native checks, both kernel builds,
+one fresh native QEMU boot, and D2b continuity passed. Native C/header and all
+232 kernel files in the build input matched reviewed source. The existing
+probe now checks actual parentpid (observed 0), exact text/length, offset-8
+partial data, size/zero/negative/bounds/wrap cases alongside Qrtc/Qpid.
+BEGIN–END path counters remained zero. D2b preserved 1→2→3 and both negatives.
+Kernel builds now export their freshly compiled MicroPython for that gate.
+Commands are maintained in [STATUS](STATUS.md); exact logs, hashes, reviewed
+lines, limitations and verdict are in [the E4 review](to_astra_review.md).
+This establishes three reads, not general driver conversion or whole-kernel
+Chan removal. Existing Qzero remains MANUAL: memset/return is outside the
+readnum rule. No generalized conversion or new ABI was added.
