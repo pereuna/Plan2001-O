@@ -1,150 +1,120 @@
-# E7.1 — OpenCode: native Ethernet kernel C boundary (parallel to E6)
+# E7.2 — OpenCode: first real native IPv6 receive and response path
 
-**ACTIVE TASK FOR THIS BRANCH ONLY. Implement E7.1, verify what you actually changed, commit/push verified checkpoints, and write an agent-readable completion report.** Do not implement the whole E7 networking stack, an IPv6-only runtime claim, or E6's disk migration in this task.
+**ACTIVE assignment. Execute in `design/e72-native-ipv6-20261024` only.**
+This branch starts from the completed E7.1 branch `design/ipv6-only-native-20261024`. E7.1 proved real VirtIO L2 TX/RX via `ethercore`; it did NOT prove IPv6, ICMPv6, Neighbor Discovery, or native IP initialization. E7.2 must produce the first **real IPv6 packet-processing vertical slice**, reusing the existing Plan 9/9front IPv6 implementation rather than implementing a second IP stack.
 
-## Repository, branch and parallel-work rules — read first
+**Concurrency and branch safety are mandatory.** E6 is completed on `main`; E8 is actively pruning unrelated legacy Dev registrations on `main`. Never check out, merge into, rebase, reset, commit to, or push `main`. Do not update E7.1's completed branch or PR #1. Use a dedicated clone/worktree; verify `git status --short`, `git branch --show-current`, `git remote -v`, `git rev-parse HEAD` and upstream before writing. An OpenCode automation that stages/commits/pushes must affect **this branch only**; disable or isolate a hook if it targets `main` or silently pulls another branch. No force-push. If any unrelated worktree modification is present, stop before overwriting it.
 
-- **Repository:** `pereuna/Plan2001-O`
-- **Required branch / push destination:** `design/ipv6-only-native-20261024`. This branch already carries the accepted IPv6-only **target decision** in `docs/GENERAL-SOFTWARE-SPECIFICATION.md`. The branch originally forked from `1c61dd175c0757e5eaed016c1a7305f7ccad5c91` and has a later specification commit `d71d9794d72ff7b91a3da7d9d553f09c64035e0b`. Verify current HEAD/merge base yourself.
-- **E6 agent is concurrently editing/pushing `main`.** NEVER check out, merge, rebase onto, commit to, or push `main` from this E7.1 run. Never overwrite or update `docs/to_opencode.md` on `main`. Do not merge this branch's draft PR #1.
-- **Use a separate physical Git worktree or clone.** Running a second OpenCode session in the same worktree as the E6 agent is NOT safe, even on different branches. Before touching code, check `git status --short`, `git branch --show-current`, `git remote -v` and `git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`. Abort if the local branch/upstream is not the required E7.1 branch or if another task's uncommitted files are present. If E6 shares the working tree, create a **separate clone** of the exact E7.1 branch, run OpenCode there, and leave E6's checkout untouched.
-- **Hooks:** the existing OpenCode JS automation may run `git add .`, commit, and `git push`. It MUST publish ONLY to `origin/design/ipv6-only-native-20261024`. If a hook uses explicit `origin main` or automatically pulls/merges `main`, do not allow the hook to run with that configuration; isolate/disable that hook in the E7.1 worktree before execution. Never force-push. Perform a final branch/upstream check before the automatic push.
-- **Merge policy:** E7.1 is a branch-local implementation. Integration with E6's eventual combined O-only kernel is **E7.2+**, after E6 is approved. Do not alter E6's acceptance results.
+**Integration rule:** Do NOT merge E6/E8 into this implementation branch while E8 is active. The final integration into the approved O-only server kernel is a separate, later review gate. The agent must record concrete E6/E8 merge conflicts and an integration test plan, not pretend this isolated branch already proves `pc64onativedisk` or E8's pruned configuration. Preserve E7.1's default/legacy kernels. Do not alter `docs/to_chatgpt_review.md` (E6/E8 ownership) or global `docs/STATUS.md`. Write the E7.2 report separately to `docs/to_chatgpt_review_e72.md`.
 
-**Authoritative context:** `AGENTS.md`, `docs/KERNEL-API-ABI.md` (canonical vocabulary), `docs/GENERAL-SOFTWARE-SPECIFICATION.md` (new IPv6-only target), `docs/STATUS.md` (what is actually proven), `docs/KERNEL-OPMAP-NOTES.md` (historical hints; verify source), `docs/CONS-MIGRATION.md` (E5 pattern). Read the entire current Ethernet sources before editing.
+## Objective and exact evidence boundary
 
-## Goal and explicitly limited scope
-
-**E7.1 GOAL:** extract and **actually execute** a direct, narrow, native **kernel C Ethernet lifecycle + frame data interface** beneath the existing `#l` legacy adapter. Reuse `Ether`, `Netif`, `Block`, `Queue`, controller-specific operations and registration callbacks when their semantics are correct. Do NOT replace them with a new file abstraction or artificial `NativeDev.open/read/write/close`. Keep the legacy `etherdevtab` fully functioning in existing builds.
-
-Specifically demonstrate:
-1. A native, independently callable controller discovery/initialization and lookup path, not just `etherdevtab.reset` renamed. Single initialization per controller, correctly sequenced after PCI/IRQ/memory requirements. No premature device attach in interrupt/`up == nil` contexts.
-2. Native **Ethernet frame receive and transmit** boundaries that take/produce concrete `Block` payloads, have documented ownership, valid frame length/EtherType behavior, and do **not** require `Chan`/`Qid`/`Dirtab`/`Netfile` **in the native public C API** or their executed native callback/dispatch chain. Preserve the legacy `Netfile` multiplex/bridge/filter path separately; do not silently disable it.
-3. A bounded real QEMU **VirtIO Ethernet** probe covering controller initialization and at least a genuine hardware TX/RX path if an isolated fixture can safely stimulate both directions. Separate hardware evidence from any injected `Block` unit test; do not label a fabricated ingress as NIC RX.
-4. An exact dependency map of the next boundaries (`#I` IP, UDP/TCP, `#W` WireGuard), identifying what still uses `Chan`. NO functional rewrite of these protocols in E7.1.
-
-**Out of scope:** unregistration/removal of `etherdevtab`, `ipdevtab` or `wgdevtab`; elimination of IPv4 symbols; new TCP/UDP socket or Handle ABI; IPv6 routing/NDP complete test; WireGuard cryptographic changes; changing D2b persistence or E6 SD core; physical NIC validation. At E7.1 completion the default and opt-in kernels may still link legacy IPv4, ARP and three network `Dev` tables: name this status **TRANSITIONAL**, never IPv6-only implemented.
-
-## Exact source observations to confirm, not hand-wave
-
-All observations below are from the pre-E7.1 branch; re-evaluate current C before assuming unchanged.
-
-- `sys/src/9/port/devether.c` (~950 lines) combines `etherdevtab`, `etherreset()`, `etherprobe()`, `addethercard()`, `etheriq()`, `etheroq()`, `ethermux()` and IPv4-only `netconsole()`. `etherreset` currently probes cards via `cards[].reset`, installs `Ether.oq = qopen(... Qmsg|Qkick ..., ether->transmit, ether)`, calls `netifinit` and enables legacy IPv4 `netconsole(1)`. Do not assume controller reset and IP configuration are the same event.
-- `Ether` in `sys/src/9/port/etherif.h` contains concrete hardware operations (`attach`, `transmit`, `ctl`, `shutdown`), MAC/MTU/link, `Queue *oq`, and an embedded `Netif`. Distinguish its physical controller state from a legacy `Netfile` subscription. The output `Queue` is a buffer; an Ethernet **frame** is a length-delimited `Message`; neither is a TCP `Stream`.
-- The RX driver entry `etheriq(Ether*, Block*)` calls filtering/DMAT and `ethermux`; `ethermux` currently selects and delivers to legacy `Netfile.f[].in` subscriptions. This is a **real legacy dependency**, even though `etheriq` itself takes no `Chan*`. Do not claim a fully independent native RX datapath while its only sink is `Netfile`.
-- `etheroq` and `etherwrite` send via `ethermux` and `qbwrite(ether->oq, bp)`. The `Qkick` transmit callback is installed by `etherprobe`, so a successful enqueue is not by itself a proven NIC transmit. Preserve frame ownership on rejection, copy-on-write, queue backpressure and link state; avoid unbounded spinning or use-after-free.
-- `sys/src/9/port/netif.c` (~738 lines) combines `Netfile` state/permission/multicast control with ``netifwalk/open/read/write/close` using `Chan`/`Qid`. A native consumer must not call these legacy file helpers. Keep legacy rights/modes, exclusivity, bridge, bypass, promisc, multicast and queue close behavior intact.
-- `sys/src/9/pc/ether8169.c`, `ether82563.c`, `etheri225.c`, `sys/src/9/port/ethervirtio10.c` and `etheriwl.c` register via `addethercard(...)` and invoke `etheriq` on receive. Keep their controller firmware/DMA/IRQ behavior unchanged unless a narrowly justified fix is required. Intel Wi-Fi firmware may use inherited file lookups, so **do not** claim Wi-Fi works without a filesystem in O-only. QEMU VirtIO is the only required real NIC for this stage.
-- `devether.c`'s `netconsole()` is an IPv4 UDP utility. **Classify it LEGACY-ONLY** and keep it operational in old builds; do not transfer it to native IPv6-only API, confuse it with E5's UART diagnostics, or break `print/iprint/panic`.
-- `sys/src/9/ip/devip.c` initializes `Fs` through `ipattach`; `sys/src/9/ip/ethermedium.c` opens `#l` paths via `namec`/`chandial` and uses legacy `devtab[]->bread/bwrite`. `sys/src/9/ip/devwg.c` calls `namec("/net/udp/clone",...)` and reads via `Chan`. This is E7.2+ work, **audit only**. `ip.h` has `Fs`/`Proto`/`Conv`/`Medium` and existing `Queue` data paths. Do not replace working protocol machinery or use IPv4-specific conversion in the native API.
-- Current D2b server test normally boots with `-nic none`. A successful D2b storage boot does NOT prove networking. `tools/wgtest.sh` labels itself a historical legacy CPU-server test with unavailable old root, not a native O-only WG regression.
-
-## E7.1.0 — baseline audit and proof obligations
-
-Before code edits, create `docs/ETHER-MIGRATION.md` as a **single agent-readable operation map**, with source/function/consumer/ownership/lifetime and a status per entry. Include at least:
-
-- `etherreset/etherprobe/addethercard`, registry `etherxx[]` and `cards[]`, `etherattach`, `Ether.attach/transmit/ctl/shutdown`, all active controller reset/probe callbacks, netconsole-on-reset, controller shutdown;
-- `etheriq`, `ethermux`, `etheroq`, `etherwrite/etherbwrite`, `Netif/Netfile`, `netifinit/open/close/read/write`, `qopen(Qmsg|Qkick)` and TX ownership;
-- `dmatproxy`, multicast/promisc/bypass/bridge, frame copying, NIC IRQ RX, enable/attach ordering and drop accounting;
-- the three legacy `Dev` tables (`etherdevtab`, `ipdevtab`, `wgdevtab`) and exactly where the IP-to-Ethernet and WG-to-UDP paths traverse `namec/chandial/devtab/Chan`;
-- nonlegacy or unrelated network paths (loopback medium, native `ipoput4/6` packet processing, existing `SDifc` etc.) as context only.
-
-Use a table with columns:
-`symbol | source | current_callers | semantic_owner | input/output | allocation_ownership | call_context/locking | Chan_or_Netfile_edge | E7.1_target | legacy_compatibility | evidence`.
-
-**Audit gate:** distinguish (a) concrete native frame operations, (b) legacy multiplexer policy, (c) IP-specific processing, and (d) hardware controller operations. Do not assume that a function is Chan-free just because its signature omits `Chan*`. Mark unresolved ownership/callback choices as OPEN, not "implemented."
-
-## E7.1.1 — introduce the direct Ethernet C core
-
-Separate independent hardware/controller registry/lifecycle from `etherdevtab`. A small `ethercore.c` next to `devether.c` is a reasonable outcome, but code ownership may differ if the existing implementation reveals unavoidable coupling. Prefer an **actual independent compiled core** rather than a new generic object framework, large generated wrappers or unrelated code movement.
-
-Core must own or directly implement:
-- controller registration/probe, stable in-memory `Ether*` lookup for the native kernel, and exactly-once initialization; explicit errors for absent devices, preinit calls and invalid indices;
-- controller-specific `reset/attach/transmit/shutdown` using the existing function pointer semantics;
-- MAC, MTU, link, output `Queue` and core stats in their real structures;
-- direct frame TX using `Block` with a documented transfer-of-ownership rule, actual queue/backpressure and eventual `Ether.transmit` kick, independent of a legacy `Chan` endpoint;
-- direct frame RX dispatch, clearly separating **native frame subscriber/delivery** from legacy `Netfile` demultiplexing.
-
-For the E7.1 native RX path use the smallest **explicit, fixed-purpose** mechanism suitable for one kernel networking consumer (e.g., an Ether RX callback with strictly defined registration/ownership/IRQ behavior), **not** a universal class, automatic copy for every network protocol, unbounded publisher/subscriber bus, global user-visible Handle scheme, or callback accepting a `Chan*`. Specify whether RX is IRQ context or worker context. Do not take sleeping locks or allocate unsafe memory in IRQ; copying or deferring into a `Queue` may be necessary if the actual driver invokes `etheriq` under interrupt constraints. If the existing driver path cannot safely meet a direct callback's lifetime contract, implement a bounded deferred path and document it.
-
-**Ownership invariants required:** exactly one owner of every ingress/egress `Block`; precise behavior when RX delivery is absent/full, TX length invalid, carrier is down, queue full, driver not enabled, and shutdown/unbind races. Preserve EtpType and L2 framing; ensure IPv6 EtherType 0x86DD is not silently interpreted as an IPv4 address or converted. At E7.1 a raw Ethernet frame being accepted is **not** proof that the IPv6 stack accepted the packet; likewise legacy receiving IPv4 remains transitional, not a policy violation in this development build.
-
-If full datapath extraction would require reimplementing `Netfile` bridging semantics, leave those policies in the adapter and add the minimal explicit compatibility dispatch needed to retain them. Demonstrate the **native path** not touching `Chan`/`Qid`/`Netfile`; do not claim all legacy code was removed from the resulting binary.
-
-## E7.1.2 — retain exact legacy `#l` functionality
-
-Keep `etherdevtab` registered for all existing kernel profiles in E7.1. Legacy `etherattach`, `etherwalk/stat/open/read/write/bread/bwrite/close/wstat` and `netif.c` must keep access checks, per-`Netfile` state, buffer/polling/offset semantics and closed subscription behavior. Wrap/delegate to the same new hardware/core operations where semantically equivalent, but **do not equate** a legacy `Chan` write (which carries `Netfile` identity and policy) with direct core TX from a trusted kernel caller.
-
-Controller registry and resetting must not occur twice when normal boot calls `chandevreset`. Use the actual boot constraints in `pc64/main.c`. Retain status/formatting, link notifications, `netconsole` legacy option, and power/shutdown logic. If `devether.c` is split, keep old linker source assignments coherent and preserve `netif.c` behavior in legacy; monitor same-name symbols and init races.
-
-**A legacy-compatible kernel must still link, boot and receive/transmit using its previous device mechanism.** If preserving an edge requires a specific `Netfile` compatibility callback, document it clearly; no conversion of existing controller driver's RX `Block` into raw bytes then back purely for cosmetic API shape.
-
-## E7.1.3 — focused verification with actual VirtIO NIC
-
-Use a *separate disposable* QEMU fixture with `virtio-net-pci` (or the repo's already supported VirtIO Ethernet device) and serial output; the existing D2b storage fixture disables NIC so **it is not sufficient**. Do not interact with physical NICs or users' running servers. Do not require old CPU-server `wgtest.sh` infrastructure.
-
-Verify, in the same coherent E7.1 build:
-- compile/link the actual new core and existing `etherdevtab` on amd64; preserve default kernel and E5 (E6 is running elsewhere);
-- controller discovery, MAC address, init exactly once, ring/queue setup and relevant DMA/IRQ attachment by observing *actual* NIC driver; do not call `etherdevtab.reset` from the native C entry;
-- a trusted native caller uses the direct TX frame function, with a host-observable transmitted test Ethernet frame or a driver/hardware completion counter proven to correspond to that frame, **not** merely `qbwrite` success;
-- a host-generated Ethernet frame reaches the **real VirtIO RX handler** and the direct native receive sink. A synthetic injected `Block` is useful for isolated ownership/negative tests, but it does not satisfy this hardware-RX criterion;
-- negative cases: absent/no controller, invalid frame lengths, full/down queue, and failed native RX registration or rejected/unbound sink; verify bounds and cleanup with actual assertions/markers;
-- a minimal legacy `#l` control test (e.g. existing `ether` attach/read with a QEMU card) confirms native refactor did not sever `Netfile` semantics. If an IPv4 legacy test is used, do not present that as IPv6-only evidence.
-
-A small new `tools/test-e71-ether.sh` / `tools/test_e71_ether.py` and opt-in native probe are acceptable; keep tests deterministic with serial markers and fail closed. **Do not introduce a general-purpose Python build system or tool dependency.** Existing `tools/build.sh` may need a small config/build profile addition for an opt-in test, but do not overwrite E6's simultaneous modifications in `main`. Retain a branch-local diff and explain exactly which shared files will need careful merge later. Prefer untouched `tools/test-oboot-server.sh`, `tools/build.rc`, kernel disk configs, `docs/STATUS.md` and `docs/to_chatgpt_review.md` if unrelated to E7.1; these are under E6's active ownership.
-
-Run at least an actual kernel build plus focused QEMU evidence. If host injection/packet capture cannot be made reliable or QEMU unavailable, report `PARTIAL-HOLD` and exact missing gate; do not fake a test PASS. A timeout, test code presence or log grep without a correlated RX/TX marker is not proof of data movement. Keep logs under ignored `build/verification/e71/` and name the exact commands.
-
-## E7.1.4 — IP/UDP/TCP/WireGuard boundary audit ONLY
-
-Without changing `sys/src/9/ip/*` implementation, append to `docs/ETHER-MIGRATION.md` a brief **E7.2+ dependency graph**:
+Prove this *real* incoming and outgoing hardware-driven path in an opt-in amd64 test profile:
 
 ```text
-NIC driver -> Ether RX -> legacy Netfile OR native frame sink (E7.1)
-IPv6 native candidate: frame sink -> IP6/ICMPv6/NDP -> TCP6/UDP6 (future)
-Current legacy: #l -> ethermedium.c namec/chandial/Chan -> ipiput4/6
-Current WG: #W -> wglisten("/net/udp/clone") -> Chan -> UDP
+QEMU VirtIO NIC real RX
+  -> driver RX / etheriq(Ether*, Block*)
+  -> E7.1 EtherRxSink (IRQ-safe, bounded handoff)
+  -> process-context native IPv6 worker
+  -> existing IPv6/ICMPv6/NDP implementation (Fs / Ipifc / ipiput6)
+  -> existing IPv6 output, route and neighbor resolution where needed
+  -> native Ethernet framing + ethercore_tx(Ether*, Block*)
+  -> VirtIO NIC real TX, observed by host
 ```
 
-Show concrete source edges for `ipattach/Fs` init, `etherbind`, `etherread4/6`, `Proto/Conv`, `udpinit`/`tcpinit` and `wglisten/wgreader`. Separate packet-processing reuse from file-namespace initialization. State exact later acceptance conditions:
-- native IPv6-only IP core (with working ICMPv6/NDP);
-- native UDP6/TCP6 connection management with appropriate `Stream` vs datagram `Message` semantics;
-- native WG outer/inner IPv6-only routing;
-- eventual new O-only config removing `etherdevtab`, `ipdevtab` and `wgdevtab`;
-- eventual exclusion of executable IPv4/ARP from the final kernel **without breaking legitimate shared C code**.
+**Acceptance requires an observed ICMPv6 Echo Reply AND an observed NDP Neighbor Advertisement (NA) to valid host-originated packets through real VirtIO RX/TX.** Sending/receiving only EtherType `0x86DD` is NOT proof. A synthetic Block/unit fixture is supplemental evidence only. Use deterministic link-local addressing in an isolated QEMU L2 fixture (no tap/bridge, no root privileges) and host-side byte/checksum verification. If genuine reuse of the existing IPv6 core cannot be made safe within the scope below, report **PARTIAL-HOLD**, preserve tested work and explain the smallest missing dependency. Do NOT claim success by inserting a trivial custom echo/NA packet generator that bypasses the existing IP/ICMPv6 stack.
 
-These are **NOT** E7.1 coding or runtime requirements. If proposing a future userspace ABI, mark `OPEN`; do not add syscalls or conflate `OID`, kernel `Ether*` and userspace `Handle`.
+This stage is intentionally **TRANSITIONAL**: legacy `#l`, `#I`, `#W`, IPv4, ARP, UDP and TCP may still be linked in ordinary profiles. Neither “native IPv6-only kernel” nor “all network Dev removed” is an E7.2 completion claim.
 
-## Acceptance gates and reporting
+## Required source inspection before coding (E7.2.0)
 
-**E7.1 APPROVE** requires:
-1. Actual source-backed operation/ownership map covering the above registry, datapath, Netif and three-Dev dependencies;
-2. Independent compiled/linked native Ethernet C lifecycle + RX/TX data interface, no synthetic Qid selector, no `Chan`/`Netfile` in its *executed native path*, precisely documented buffering and IRQ/ownership rules;
-3. Legacy `#l` behavior preserved in a built and relevant tested standard kernel; E5 no-`#c` profile build preserved when affected;
-4. A real VirtIO NIC probe and **observed native TX and RX** in disposable QEMU, with negative cases;
-5. No change to the new IPv6-only **target** and no false claim that runtime is already IPv6-only;
-6. All commits pushed **ONLY to the E7.1 branch**, without updating `main` or merging PR #1.
+Read `AGENTS.md`, `docs/KERNEL-API-ABI.md`, `docs/GENERAL-SOFTWARE-SPECIFICATION.md`, `docs/ETHER-MIGRATION.md`, `docs/to_chatgpt_review_e71.md`, `docs/CONS-MIGRATION.md` and the CURRENT code. Do not rely on historical line numbers. Inspect at least:
 
-If one gate is unresolved, use `PARTIAL-HOLD`, push only stable verified checkpoints and identify exact missing evidence. Do not delete tests, weaken assertions, or label a mock NIC a real NIC to obtain APPROVE.
+- `sys/src/9/port/ethercore.c`, `devether.c`, `etherif.h`, `netif.c`, `qio.c` and VirtIO `ethervirtio10.c`; identify precisely where hardware reset, attach, IRQ, RX copy, legacy mux, TX queue, wakeup and shutdown occur.
+- `sys/src/9/ip/devip.c`: `ipattach` currently initializes `Fs`, `ip_init`, `arpinit`, `netloginit` and `ipprotoinit[]` behind a `Chan` entrypoint. Identify which initialized structures are indispensable for IPv6 and which are genuinely only file-interface policy.
+- `sys/src/9/ip/ethermedium.c`: `etherbind` uses `namec/chandial` and opens IPv4, IPv6, ARP `Chan`; `etherread6` strips L2 then invokes `ipiput6`; `etherbwrite` resolves neighbors and transmits via `devtab[Chan]->bwrite`. These are the concrete ingress/egress legacy boundaries; do not call them from the native slice.
+- `sys/src/9/ip/ipv6.c` `ipiput6/ipoput6`, `icmp6.c` including NS/NA and Echo handling, `ipifc.c` including `ipifcinit/ipifcadd/ipforme`, `ip.h` `Fs/Proto/Conv/Ipifc/Medium`, IPv6 routing and neighbor-cache code. Inspect address initialization, multicast, NDP hop-limit and checksum validation, lock/context requirements, packet ownership, and the `Proto` receive path.
 
-**Deliverables:** `docs/ETHER-MIGRATION.md` (single agent-friendly map, design and evidence), new or altered C source/header only where necessary, small focused test scripts, and `docs/to_chatgpt_review_e71.md` (dedicated E7.1 report; do not overwrite E6's `docs/to_chatgpt_review.md` in `main`). When editing `docs/KERNEL-API-ABI.md` is necessary, add evidence-backed notes without changing unrelated canonical terminology or binding hypothetical C prototypes as facts. Do not update global `docs/STATUS.md` concurrently with E6; reference exact E7.1 report in the branch and reconcile STATUS only at merge review.
+Produce `docs/IPV6-NATIVE-MIGRATION.md`: a machine-readable, source-backed table with columns
+`symbol | source | callers | required_state | init_owner | call_context/locking | Block_ownership | Chan_or_Netfile_edge | native_reuse | test_evidence`.
+Include an RX/TX call graph, clear separation of reusable IP packet logic from `#I` filesystem policy, and exact dependencies on legacy `netifinit` and `etherlegacyrx`. Mark unresolved work `OPEN`; do not rewrite code to make a misleading diagram appear clean.
 
-**Final report exact headings:**
+## E7.2.1 — correct E7.1 issues before attaching a native protocol consumer
 
-```text
-E7.1 VERDICT: APPROVE / PARTIAL-HOLD / REJECT
-BRANCH / UPSTREAM / BASE / FINAL COMMIT(S):
-SOURCE MAP: exact symbols, owners, IRQ/call context and Chan/Netfile edges
-NATIVE ETHER CORE: actual functions, files, init and lookup contracts
-FRAME RX/TX: ownership, link/MTU, backpressure and Qkick evidence
-LEGACY #l: Dev registration and representative behavior tests
-VIRTIO QEMU: exact build/boot/network commands, correlated RX and TX observations, log paths
-NEGATIVES: rejected bad length, absent/down interface, RX sink/queue error, results
-IP/UDP/WG FOLLOW-UP: audited concrete source edges only, not modified behavior
-IPV6-ONLY STATUS: architecture target ACCEPTED; implementation still TRANSITIONAL
-SHARED E6 FILES / MERGE RISK: list exact paths; no E6 edits on main
-TESTS ACTUALLY RUN: PASS / FAIL / NOT RUN with source logs
-UNRESOLVED: precise blockers and next bounded action
-```
+Bounded corrections, without redesigning controllers or inventing abstractions:
 
-**Commit discipline:** reviewable E7.1 subcommits (`E7.1.0 audit`, `E7.1.1 native core`, `E7.1.2 adapter`, `E7.1.3 QEMU`, `E7.1.4 report`) without deliberately breaking the checked-out kernel. Push to the E7.1 branch only. **No PR merge, no main push, no E6 code change.**
+1. `ethercore_attach` currently publishes `attached=1` before `Ether.attach` completes. Ensure that a concurrent caller cannot observe “ready” while driver rings/workers are still initializing. Define a minimal synchronized detached/attaching/attached lifecycle and failure rollback; respect process vs interrupt context. Verify exactly-once attach in a repeated/concurrent test.
+2. `ethercore_tx` checks `qfull` separately from `qpassnolim`, which is not an atomic capacity check. Define and implement an enforceable nonblocking backpressure/ownership contract under concurrent producers, including queue closed and link-down cases. No leaking Blocks, double free or unbounded spin. Inspect actual `qio.c` semantics; do not simply rename an unsafe check.
+3. `ethercore_rxunregister` may race an in-flight sink invocation after the lock is dropped. Either provide safe lifetime synchronization, or strictly enforce a mechanically verified quiesced-only unregister and prevent callback/context use-after-free in the E7.2 consumer. Do not block in the driver IRQ path.
+4. `ethercore_probe_at` has a possible occupied-slot race and resource leak. Serialize the registry transition, or explicitly isolate/disable unsafe concurrent explicit probes and test the permitted lifecycle. Do not free a partially initialized controller by merely freeing its `Ether*` after driver resources were allocated.
+5. E7.1's negative queue test temporarily replaces a live VirtIO controller's `e->oq` pointer while its TX worker can read it. Replace this with an isolated, race-free queue/backpressure unit path. Preserve the real VirtIO TX/RX correlation test.
+
+Keep `#l` working throughout these repairs. Record what was changed, what could not safely be changed, and evidence; no unrelated global `qio` refactor.
+
+## E7.2.2 — native Fs/IPv6 initialization without a file attach
+
+Extract or reuse the existing `Fs`/IPv6 initialization logic behind a **direct kernel C entrypoint**, callable in process context, without `namec`, `Chan`, `Qid`, `Dirtab`, `devattach` or `ipdevtab.attach`. Keep `ipattach` as a thin legacy entrypoint that delegates to the same idempotent initialization where possible. Preserve IPv6 `Proto` registration, ICMPv6, `Ipifc`, routing/self/neighbor state and all invariants required by `ipiput6` and `ipoput6`.
+
+Use existing `Fs`, `Proto`, `Ipifc`, `Medium`, `Block` and `Queue` semantics; do **not** introduce a parallel “native IPv6” protocol stack, generic object/device framework, fake process namespace, synthetic `Chan` wrapper, new OID/Space layout, or userspace ABI. A few narrowly scoped functions and structs are acceptable. IP version-specific legacy code may remain linked for this transition, but the demonstrated native ingress and egress MUST NOT dispatch IPv4/ARP.
+
+Prove the init operation is idempotent: no double `Fs`, duplicated `Proto` registrations or leaked state after a second call. A test profile may opt in after scheduler startup; never run sleeping `attach`/IP setup from interrupt context or an early boot stage lacking `up`.
+
+## E7.2.3 — native Ethernet-to-IPv6 medium and safe worker
+
+Implement the minimum typed native adapter connecting E7.1's `EtherRxSink` to the existing IPv6 stack:
+
+- The callback may execute under IRQ on inherited NIC drivers. Validate only cheap L2 properties and enqueue owned frames in a **bounded, IRQ-safe** queue; do not call `ipiput6`, sleeping locks, name service, or blocking allocators inside an IRQ callback. Count rejected/overfull frames accurately.
+- The worker owns each dequeued `Block`; accept valid EtherType `0x86DD` only, check minimum lengths and Ethernet destination (own unicast / required IPv6 multicast), remove the Ethernet header exactly once, then hand ownership to the canonical `ipiput6(Fs*, Ipifc*, Block*)` in process context with its required locking. No duplicate/free-after-transfer.
+- Build one native IPv6 `Ipifc` backed by the existing `Ether*`, with a deterministic test-only link-local address and appropriate multicast/neighbor state. Any production address policy or userspace interface is `OPEN`. Do not call the legacy `etherbind` `namec/chandial` path.
+- IPv6 output must use a native medium callback that constructs a complete Ethernet frame and calls `ethercore_tx`. Reuse existing route/ND logic (including Neighbor Solicitation and Advertisement) rather than bypassing it with permanent fake neighbor entries. Preserve correct EtherType, MAC destination, MTU, checksums, and Block ownership on TX success/failure. Do not route replies through `devtab[Chan]->bwrite`, `etherwrite` or a `Netfile`.
+- The E7.1 compatibility path still receives its own copy for legacy profiles. Avoid duplicating native/legacy IPv6 consumers in the E7.2 test configuration; report explicitly that the legacy adapter is still linked and called. Do not claim that `ethercore.c` is fully independent of `devether.c` or `netifinit` until that dependency is genuinely eliminated and tested.
+
+Inspect NDP's real multicast join and routing calls; if they require a `Chan`-only helper, extract the actual concrete function rather than manufacturing a path-based device. A single fixed-purpose consumer is enough, not an extensible subscription framework.
+
+## E7.2.4 — real QEMU VirtIO IPv6 + ICMPv6 + NDP fixture
+
+Add an **opt-in** profile (for example `pc64e72` selected by `IPV6_PROBE=1`) and a narrow test `tools/test-e72-ipv6.sh` / `tools/test_e72_ipv6.py`. Extend E7.1's existing UDP dgram raw-L2/QEMU test approach; do not set up TAP, bridges, host network namespaces or require root. Use Python standard library for host packet generation/verification. Place ignored run logs under `build/verification/e72/`.
+
+Minimum proof, all correlated to the **same actual VirtIO guest**:
+
+1. Native Ethernet controller attached exactly once; native `Fs` and one IPv6 `Ipifc` initialized without a file attach. Record MAC, link-local address, native vs legacy registration and packet counters.
+2. Host sends a valid ICMPv6 **Neighbor Solicitation** for the guest's link-local IPv6 address (proper IPv6 destination, multicast MAC, checksum, Hop Limit 255, SLLA option as appropriate); host observes a matching **Neighbor Advertisement** from the guest's real TX path and validates bytes, checksum, addresses, flags and target. Include any necessary host-side NDP state exchange for the reply.
+3. Host sends a valid ICMPv6 **Echo Request** to the same guest IPv6 address with a unique identifier, sequence and payload; host observes an **Echo Reply** through VirtIO TX with matching ID/sequence/payload, valid checksum and IPv6 source/destination. Verify the host packet was seen in the native worker, not only legacy `#l`.
+4. Prove a bounded native-path `namec/newchan/walk/devwalk/mount/exec` counter window remains unchanged during IP setup, ND and Echo and reply TX. Counters alone do not prove correctness: combine with hardware and IP-level evidence.
+5. Negative cases must be **assertions that fail the harness**: no NIC; EtherType `0x0800` must not be consumed by native IPv6; truncated Ethernet/IPv6; bad IPv6 version/payload length; invalid ICMPv6 checksum and invalid NDP Hop Limit; destination not local or subscribed multicast; native RX queue saturation; RX unbind/shutdown safety; TX down/full/closed; repeat init/attach. For any case the existing stack intentionally handles differently, document the verified behavior and adapt the negative to the real protocol contract, never silently delete the check.
+6. Retain and rerun the E7.1 real native TX/RX + legacy `#l` behavior and default kernel boot. Verify there is no panic, use-after-free or resource exhaustion. A fixture that only greps “PASS” log strings without cross-checking host bytes is insufficient.
+
+Use proper ICMPv6 pseudoheader checksum, not an ICMPv4 checksum. Use fixed local link-layer test addresses within this fixture only; do not accidentally require IPv4 on the Plan2001 guest because QEMU uses localhost UDP as the **host-side transport for Ethernet frames**.
+
+## Strictly out of scope for E7.2
+
+- No full native UDP6/TCP6 connection manager, listener/stream/message userspace API, socket compatibility layer, WireGuard migration, routing daemon, DNS, DHCPv6, router support or new network config language.
+- No final removal of `etherdevtab`, `ipdevtab`, `wgdevtab`; no global deletion of IPv4 or ARP sources; no claim that the final O-only image is IPv6-only. That requires later isolated linkage and runtime proof.
+- No changes to E6 disk `sdcore`, E8 Dev pruning, OID/Space persistence, MicroPython interpreter/ABI, kernel filesystems, or unrelated architectures. Do not break the ordinary `pc64`, `pc64mp`, `pc64native`, `pc64oconsole` or legacy `#I` behavior.
+- No merge/rebase of an actively changing `main` during this task. Cross-branch integration with E6/E8 requires a separate clean review and complete O-server regression matrix after the parallel work finishes.
+
+## Required delivery, test gates and report
+
+Use reviewable commits for `E7.2.0` audit, `E7.2.1` lifecycle/ownership repairs, `E7.2.2` native IP initialization, `E7.2.3` native IPv6 medium, `E7.2.4` real QEMU fixture and final report. If a step is blocked, stop broadening the scope; keep only source-proven, runnable checkpoints. No fabricated success or unexplained test skips.
+
+Deliver:
+- `docs/IPV6-NATIVE-MIGRATION.md` containing the exact source/ownership/context map, native and legacy call graphs, proof constraints, failure cases, and later IPv6-only/UDP/WG cutover dependencies.
+- Minimal kernel C/header and build changes in the E7.2 branch; opt-in test fixture; preserve E7.1 fixture.
+- `docs/to_chatgpt_review_e72.md` with headings:
+  `VERDICT (APPROVE / PARTIAL-HOLD / REJECT)`,
+  `BRANCH / BASE / COMMITS`,
+  `E7.1 HARDENING`,
+  `Fs INITIALIZATION`,
+  `NATIVE RX/TX OWNERSHIP`,
+  `ICMPv6/NDP REAL HARDWARE EVIDENCE`,
+  `NEGATIVE CASES`,
+  `CHAN COUNTERS`,
+  `LEGACY REGRESSIONS`,
+  `TEST COMMANDS / LOG PATHS`,
+  `NOT RUN / OPEN`,
+  `E6/E8 INTEGRATION RISKS AND LATER GATE`.
+- Commands and observed outputs for actual kernel build(s), real QEMU test(s) and original E7.1/default regressions. Explicitly distinguish test results **executed by the agent** from earlier E7.1 report results; ignored build logs are local, not published Git evidence.
+
+**APPROVE** only if the branch demonstrably boots the test profile, sends real NDP NA and ICMPv6 Echo Reply from reused native IPv6 code over VirtIO with host verification, has no `Chan`/`Netfile` dispatch on the demonstrated native IP chain, passes negative tests, and preserves E7.1/default legacy behavior. If any mandatory proof is missing, use **PARTIAL-HOLD**; do not relabel raw Ethernet delivery as protocol support.
+
+At the end, verify branch/upstream, commit and push **only** `origin/design/e72-native-ipv6-20261024` using the existing OpenCode automation as appropriate. Never merge PR #1 or write to `main`.
