@@ -813,7 +813,16 @@ icmpclose6(Conv *c)
 {
 	Icmpcb6 *icb = (Icmpcb6*)c->ptcl;
 	icb->headers = 0;
+#ifdef E7_IPV6_ONLY
+	/* icmp.c (IPv4) is not linked in the native-only profile. */
+	qclose(c->rq);
+	qclose(c->wq);
+	ipmove(c->laddr, IPnoaddr);
+	ipmove(c->raddr, IPnoaddr);
+	c->lport = 0;
+#else
 	icmpclose(c);
+#endif
 }
 
 void

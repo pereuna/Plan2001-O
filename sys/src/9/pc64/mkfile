@@ -1,8 +1,13 @@
 CONF=pc64
-CONFLIST=pc64 pc64mp pc64native pc64oconsole pc64e71 pc64e72 pc64e73 pc64e74 pc64e7native
+CONFLIST=pc64 pc64mp pc64native pc64oconsole pc64e71 pc64e72 pc64e73 pc64e74 pc64e7native pc64e7v6only
 
 objtype=amd64
 </$objtype/mkfile
+
+# E7.7 opt-in compile-time profile switch, passed by tools/build.rc.
+# Empty for every ordinary build.
+XCFLAGS=$IP6CFLAGS
+
 p=9
 
 # must match mem.h

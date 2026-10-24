@@ -534,10 +534,15 @@ ipifcadd(Ipifc *ifc, char **argv, int argc, int tentative, Iplifc *lifcp)
 	if(ipcmp(mask, IPallbits) == 0)
 		type |= Rptpt;
 
+#ifdef E7_IPV6_ONLY
+	if(isv4(ip) || ipcmp(ip, IPnoaddr) == 0)
+		return Ebadip;
+#else
 	if(isv4(ip) || ipcmp(ip, IPnoaddr) == 0){
 		type |= Rv4;
 		tentative = 0;
 	}
+#endif
 
 	wlock(ifc);
 	if(ifc->m == nil || ifc->m == &unboundmedium){
@@ -623,6 +628,7 @@ ipifcadd(Ipifc *ifc, char **argv, int argc, int tentative, Iplifc *lifcp)
 	if(type & Rproxy)
 		ipifcregisterproxy(f, ifc, ip, 1);
 
+#ifndef E7_IPV6_ONLY
 	if(type & Rv4) {
 		/* add subnet directed broadcast address to the self cache */
 		for(i = 0; i < IPaddrlen; i++)
@@ -638,7 +644,9 @@ ipifcadd(Ipifc *ifc, char **argv, int argc, int tentative, Iplifc *lifcp)
 
 		/* add all nodes multicast address */
 		addselfcache(f, ifc, lifc, IPv4allsys, Rmulti);
-	} else {
+	} else
+#endif
+	{
 		if(ipcmp(ip, v6loopback) == 0) {
 			/* add node-local mcast address */
 			addselfcache(f, ifc, lifc, v6allnodesN, Rmulti);
@@ -1168,6 +1176,8 @@ out:
 	qunlock(f->self);
 }
 
+#ifndef E7_IPV6_ONLY
+
 long
 ipselftabread(Fs *f, char *cp, ulong offset, int n)
 {
@@ -1194,6 +1204,8 @@ ipselftabread(Fs *f, char *cp, ulong offset, int n)
 	}
 	return m;
 }
+
+#endif
 
 /*
  *  returns
@@ -1361,6 +1373,7 @@ findprimaryipv6(Fs *f, uchar *local)
 	}
 }
 
+#ifndef E7_IPV6_ONLY
 /*
  *  returns first v4 address configured
  */
@@ -1386,7 +1399,9 @@ findprimaryipv4(Fs *f, uchar *local)
 	}
 	ipmove(local, IPnoaddr);
 }
+#endif
 
+#ifndef E7_IPV6_ONLY
 /*
  * ipv4local, ipv6local:
  *  return a local address associated with an interface close to remote.
@@ -1419,6 +1434,7 @@ ipv4local(Ipifc *ifc, uchar *local, int prefixlen, uchar *remote)
 	}
 	return b >= 0;
 }
+#endif
 
 int
 ipv6local(Ipifc *ifc, uchar *local, int prefixlen, uchar *remote)
@@ -1432,12 +1448,17 @@ ipv6local(Ipifc *ifc, uchar *local, int prefixlen, uchar *remote)
 	ulong now;
 	Iplifc *lifc;
 
+#ifdef E7_IPV6_ONLY
+	if(isv4(remote))
+		return 0;
+#else
 	if(isv4(remote)){
 		memmove(local, v4prefix, IPv4off);
 		if((prefixlen -= IPv4off*8) < 0)
 			prefixlen = 0;
 		return ipv4local(ifc, local+IPv4off, prefixlen, remote+IPv4off);
 	}
+#endif
 
 	atype = v6addrtype(remote);
 	b.atype = unknownv6;
@@ -1490,6 +1511,14 @@ ipv6local(Ipifc *ifc, uchar *local, int prefixlen, uchar *remote)
 void
 findlocalip(Fs *f, uchar *local, uchar *remote)
 {
+#ifdef E7_IPV6_ONLY
+	if(isv4(remote)){
+		memset(local, 0, IPaddrlen);
+		return;
+	}
+	if(v6source(f, remote, local) == nil)
+		findprimaryipv6(f, local);
+#else
 	if(isv4(remote)) {
 		memmove(local, v4prefix, IPv4off);
 		if(v4source(f, remote+IPv4off, local+IPv4off) == nil)
@@ -1498,6 +1527,7 @@ findlocalip(Fs *f, uchar *local, uchar *remote)
 		if(v6source(f, remote, local) == nil)
 			findprimaryipv6(f, local);
 	}
+#endif
 }
 
 /*

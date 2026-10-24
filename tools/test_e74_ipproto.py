@@ -23,6 +23,7 @@ GUEST_MAC = bytes.fromhex("525400123456")
 HOST_MAC = bytes.fromhex("020000000002")
 HOST_LL = bytes.fromhex("fe800000000000000000000000000002")
 GUEST_LL = None
+IPV4_FROM_GUEST = 0
 
 E74_PROTO = 253
 
@@ -275,9 +276,12 @@ class Link:
         self.sock.sendto(frame, ("127.0.0.1", self.p1))
 
     def recv(self, timeout=0.2):
+        global IPV4_FROM_GUEST
         self.sock.settimeout(timeout)
         try:
             f, _ = self.sock.recvfrom(65536)
+            if len(f) >= 14 and f[12:14] == b"\x08\x00":
+                IPV4_FROM_GUEST += 1
             return f
         except socket.timeout:
             return None
@@ -451,7 +455,7 @@ def run_nic(args):
         if not wait_ip253(link, alive):
             die("no post-negative ALIVE 253 echo")
         s.wait(r"^E74IP: ALIVE ", 8, "alive marker")
-        m = s.wait(r"^E74IP: NEG-RESULT .* unhandled=(\d+) badhdr=(\d+)$", 8, "neg result")
+        m = s.wait(r"^E74IP: NEG-RESULT .* unhandled=(\d+) badhdr=(\d+)(?: other=(\d+))?$", 8, "neg result")
         if int(m.group(1)) < 1:
             die("guest did not count an unhandled Next Header")
         if int(m.group(2)) < 1:
@@ -493,6 +497,15 @@ def run_nic(args):
                 die("missing marker /%s/" % what)
         if re.search(r"panic|fault|suicide", s.data):
             die("guest panic/fault marker")
+        if args.profile == "e77":
+            m = s.wait(r"^E74IP: NEG-RESULT .* other=(\d+)$", 8, "e77 IPv4 drop count")
+            if int(m.group(1)) < 1:
+                die("real IPv4 EtherType frame was not counted as rxother")
+            s.wait(r"^E74IP: CHECK ipv4-drop other=1 rxframes=0$", 8, "synthetic IPv4 drop")
+            s.wait(r"^E74IP: CHECK udp6-open-v4 rc=-4$", 8, "IPv4-mapped UDP6 open rejection")
+            if IPV4_FROM_GUEST != 0:
+                die("guest emitted %d IPv4 EtherType frames" % IPV4_FROM_GUEST)
+            print("E77: IPv4 EtherType dropped, IPv4-mapped API rejected, no IPv4 TX")
     finally:
         stop_qemu(q, qlog)
         link.sock.close()
@@ -528,6 +541,7 @@ def main():
     ap.add_argument("--kernel", required=True)
     ap.add_argument("--espname", required=True)
     ap.add_argument("--workdir", required=True)
+    ap.add_argument("--profile", choices=("e74", "e76", "e77"), default="e74")
     args = ap.parse_args()
 
     for t in ("mformat", "mmd", "mcopy"):

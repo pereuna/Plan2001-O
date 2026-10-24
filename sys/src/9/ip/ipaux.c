@@ -381,6 +381,8 @@ iphtlook(Ipht *ht, uchar *sa, ushort sp, uchar *da, ushort dp)
 	return nil;
 }
 
+#ifndef E7_IPV6_ONLY
+
 static Translation*
 deltrans(Proto *p, Translation *q)
 {
@@ -749,6 +751,8 @@ transwrite(Proto *p, char *a, ulong off, int n)
 
 	return n;
 }
+
+#endif
 
 /*
  * Checksum adjusting hnputs()

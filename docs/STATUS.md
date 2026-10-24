@@ -25,6 +25,39 @@
 
 **D2b negative evidence:** a failing `run()` produces no successful commit/done; missing `OID_MP_EXEC` returns an error without legacy fallback. The agent's QEMU logs were under `build/verification/` and are NOT assumed committed to Git. Original report and historical STATUS remain in Git history.
 
+## E7.7 native-only IPv6 profile (branch `design/ipv6-only-native-20261024`)
+
+**PASS (branch-local; not merged to `main`).** `pc64e7v6only` is the E7.7
+opt-in profile: `ip6only.c`/`iproute6.c` replace `ip.c`/`iproute.c`, and
+`E7_IPV6_ONLY` removes V4 route/ARP/UDP/translation/loopback branches from
+the shared files.  Legacy `pc64`, `pc64mp`, E7.1-E7.4, E7.6 and E5 profiles
+retain their original sources.  The E7.6 `pc64e7native` profile is unchanged.
+
+Executed gates on this branch (all PASS):
+
+```sh
+E77_NATIVE=1 WHAT=kernel tools/build.sh
+tools/test-e77-ipv6-only.sh
+ETHER_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e71-ether.sh
+IPV6_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e72-ipv6.sh
+UDP6_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e73-udp6.sh
+E74_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e74-ipproto.sh
+E76_NATIVE=1 WHAT=kernel tools/build.sh && tools/test-e76-network.sh
+WHAT=kernel tools/build.sh && tools/test-qemu.sh
+OCONSOLE=1 WHAT=kernel tools/build.sh
+python3 tools/cons_migration_check.py --kernel build/amd64/9pc64oconsole --devc build/amd64/pc64oconsole.devc.c
+```
+
+`9pc64e7v6only` (1736176 bytes, md5
+`2b249a1d1ea6e75518cbc461390d1425`) has no `ipoput4`/`ipiput4`/`tcpinit`/
+`icmpinit`/`v4lookup`/`v4source`/`arpwrite`/`convmac` symbols and no legacy
+network Devtabs.  Real VirtIO traffic still completes NDP, ICMPv6, UDP6 and
+Next Header 253; a real IPv4 EtherType frame is counted as `rxother=1` and
+produces no IPv4 TX, and an IPv4-mapped UDP6 open returns `Udp6ErrFamily`.
+Evidence: `build/verification/e77/` and
+[to_chatgpt_review_e77.md](to_chatgpt_review_e77.md).  E7.5 remains
+deferred; SEALED is not implemented.
+
 ## E5 #c native-service decomposition and O-only console profile
 
 **APPROVE (agent-executed).** The `#c` aggregator is split into concrete kernel

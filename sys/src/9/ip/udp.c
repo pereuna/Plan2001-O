@@ -248,11 +248,18 @@ udpkick(void *x, Block *bp)
 		version = convipvers(c);
 		ipmove(laddr, ucb->srcip);
 	}
+#ifdef E7_IPV6_ONLY
+	if(version != V6){
+		freeb(bp);
+		return;
+	}
+#endif
 
 	dlen = blocklen(bp);
 
 	/* fill in pseudo header and compute checksum */
 	switch(version){
+#ifndef E7_IPV6_ONLY
 	case V4:
 		bp = padblock(bp, UDP4_IPHDR_SZ+UDP_UDPHDR_SZ);
 		uh4 = (Udp4hdr *)(bp->rp);
@@ -283,6 +290,7 @@ udpkick(void *x, Block *bp)
 		uh4->vihl = IP_VER4;
 		ipoput4(f, bp, nil, c->ttl, c->tos, rh);
 		break;
+#endif
 
 	case V6:
 		/*
@@ -348,19 +356,20 @@ udpiput(Proto *udp, Ipifc *ifc, Block *bp)
 	uh4 = (Udp4hdr*)(bp->rp);
 	uh6 = (Udp6hdr*)(bp->rp);
 	version = ((uh4->vihl&0xF0)==IP_VER6) ? V6 : V4;
+#ifdef E7_IPV6_ONLY
+	if(version != V6){
+		freeblist(bp);
+		return;
+	}
+#endif
 
 	/* Put back pseudo header for checksum
 	 * (remember old values for icmpnoconv()) */
 	switch(version) {
+#ifndef E7_IPV6_ONLY
 	case V4:
-		if(BLEN(bp) < UDP4_IPHDR_SZ+UDP_UDPHDR_SZ){
-Badhdr:
-			upriv->lenerr++;
-			upriv->ustats.udpInErrors++;
-			netlog(f, Logudp, "udp: bad header\n");
-			freeblist(bp);
-			return;
-		}
+		if(BLEN(bp) < UDP4_IPHDR_SZ+UDP_UDPHDR_SZ)
+			goto Badhdr;
 		ottl = uh4->ttl;
 		uh4->ttl = 0;
 		len = nhgets(uh4->udplen);
@@ -372,20 +381,13 @@ Badhdr:
 		lport = nhgets(uh4->udpdport);
 		rport = nhgets(uh4->udpsport);
 
-		if(nhgets(uh4->udpcksum)) {
-			if(ptclcsum(bp, UDP4_PHDR_OFF, len+UDP4_PHDR_SZ)) {
-Badcrc:
-				upriv->csumerr++;
-				upriv->ustats.udpInErrors++;
-				netlog(f, Logudp, "udp: checksum error %I\n", raddr);
-				DPRINT("udp: checksum error %I\n", raddr);
-				freeblist(bp);
-				return;
-			}
-		}
+		if(nhgets(uh4->udpcksum)
+		&& ptclcsum(bp, UDP4_PHDR_OFF, len+UDP4_PHDR_SZ))
+			goto Badcrc;
 		uh4->ttl = ottl;
 		hnputs(uh4->udpplen, olen);
 		break;
+#endif
 	case V6:
 		if(BLEN(bp) < UDP6_IPHDR_SZ+UDP_UDPHDR_SZ)
 			goto Badhdr;
@@ -431,9 +433,11 @@ Noconv:
 		       laddr, lport);
 
 		switch(version){
+#ifndef E7_IPV6_ONLY
 		case V4:
 			icmpnoconv(f, ifc, bp);
 			break;
+#endif
 		case V6:
 			icmpnoconv6(f, ifc, bp);
 			break;
@@ -444,6 +448,7 @@ Noconv:
 		freeblist(bp);
 		return;
 	}
+#ifndef E7_IPV6_ONLY
 	if(iph->trans){
 		Routehint *rh;
 		Translation *q;
@@ -467,6 +472,7 @@ Noconv:
 		ipoput4(f, bp, ifc, hop - 1, uh4->tos, rh);
 		return;
 	}
+#endif
 	c = iphconv(iph);
 	ucb = (Udpcb*)c->ptcl;
 
@@ -553,6 +559,21 @@ Noconv:
 		qpass(c->rq, concatblock(bp));
 	}
 	qunlock(c);
+	return;
+Badhdr:
+	upriv->lenerr++;
+	upriv->ustats.udpInErrors++;
+	netlog(f, Logudp, "udp: bad header\n");
+	freeblist(bp);
+	return;
+Badcrc:
+	upriv->csumerr++;
+	upriv->ustats.udpInErrors++;
+	netlog(f, Logudp, "udp: checksum error %I\n", raddr);
+	DPRINT("udp: checksum error %I\n", raddr);
+	freeblist(bp);
+	return;
+
 }
 
 char*
@@ -578,16 +599,27 @@ udpctl(Conv *c, char **f, int n)
 void
 udpadvise(Proto *udp, Block *bp, Ipifc *ifc, char *msg)
 {
+#ifndef E7_IPV6_ONLY
 	Udp4hdr *h4;
+#endif
 	Udp6hdr *h6;
 	uchar source[IPaddrlen], dest[IPaddrlen];
 	ushort psource, pdest;
 	Iphash *iph;
 	Conv *s;
 
-	h4 = (Udp4hdr*)(bp->rp);
 	h6 = (Udp6hdr*)(bp->rp);
-
+#ifdef E7_IPV6_ONLY
+	if((h6->viclfl[0]&0xF0) != IP_VER6){
+		freeblist(bp);
+		return;
+	}
+	ipmove(dest, h6->udpdst);
+	ipmove(source, h6->udpsrc);
+	psource = nhgets(h6->udpsport);
+	pdest = nhgets(h6->udpdport);
+#else
+	h4 = (Udp4hdr*)(bp->rp);
 	if((h4->vihl&0xF0)==IP_VER4) {
 		v4tov6(dest, h4->udpdst);
 		v4tov6(source, h4->udpsrc);
@@ -599,12 +631,14 @@ udpadvise(Proto *udp, Block *bp, Ipifc *ifc, char *msg)
 		psource = nhgets(h6->udpsport);
 		pdest = nhgets(h6->udpdport);
 	}
+#endif
 
 	/* Look for a connection (source/dest reversed; this is the original packet we sent) */
 	qlock(udp);
 	iph = iphtlook(udp->ht, dest, pdest, source, psource);
 	if(iph == nil || iph->match != IPmatchexact)
 		goto raise;
+#ifndef E7_IPV6_ONLY
 	if(iph->trans){
 		Translation *q;
 
@@ -622,6 +656,7 @@ udpadvise(Proto *udp, Block *bp, Ipifc *ifc, char *msg)
 		icmpproxyadvice(udp->f, ifc, bp, h4->udpsrc);
 		return;
 	}
+#endif
 	s = iphconv(iph);
 	if(s->ignoreadvice || s->state == Announced)
 		goto raise;
@@ -637,6 +672,7 @@ raise:
 	freeblist(bp);
 }
 
+#ifndef E7_IPV6_ONLY
 Block*
 udpforward(Proto *udp, Block *bp, Route *r)
 {
@@ -671,6 +707,8 @@ udpforward(Proto *udp, Block *bp, Route *r)
 	return bp;
 }
 
+#endif
+
 int
 udpstats(Proto *udp, char *buf, int len)
 {
@@ -703,7 +741,11 @@ udpinit(Fs *fs)
 	udp->close = udpclose;
 	udp->rcv = udpiput;
 	udp->advise = udpadvise;
+#ifndef E7_IPV6_ONLY
 	udp->forward = udpforward;
+#else
+	udp->forward = nil;
+#endif
 	udp->stats = udpstats;
 	udp->ipproto = IP_UDPPROTO;
 	udp->nc = Nchans;

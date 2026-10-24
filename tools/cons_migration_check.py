@@ -182,7 +182,9 @@ def config_has_cons(path: Path) -> bool:
 
 def check_configs() -> None:
     mk = (PCDIR / "mkfile").read_text(encoding="utf-8")
-    if "CONFLIST=pc64 pc64mp pc64native pc64oconsole" not in mk:
+    m = re.search(r"^CONFLIST=(.*)$", mk, re.M)
+    confs = m.group(1).split() if m else []
+    if "pc64oconsole" not in confs:
         fail("pc64oconsole is not in CONFLIST")
     for name in ("pc64", "pc64mp", "pc64native"):
         if not config_has_cons(PCDIR / name):

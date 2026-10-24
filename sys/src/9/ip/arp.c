@@ -340,10 +340,14 @@ arpenter(Fs *fs, int version, uchar *ip, uchar *mac, int maclen, uchar *ia, Ipif
 	rh.a = nil;
 	switch(version){
 	case V4:
+#ifdef E7_IPV6_ONLY
+		return -1;	/* IPv4 ARP disabled in the native-only profile */
+#else
 		r = v4lookup(fs, ip, ia, &rh);
 		v4tov6(v6ip, ip);
 		ip = v6ip;
 		break;
+#endif
 	case V6:
 		r = v6lookup(fs, ip, ia, &rh);
 		break;
@@ -367,8 +371,10 @@ arpenter(Fs *fs, int version, uchar *ip, uchar *mac, int maclen, uchar *ia, Ipif
 	bp = a->hold;
 	a->hold = a->last = nil;
 	arpresolve(arp, a, mac, &rh);	/* unlocks arp */
+#ifndef E7_IPV6_ONLY
 	if(version == V4)
 		ip += IPv4off;
+#endif
 	for(; bp != nil; bp = next){
 		next = bp->list;
 		bp->list = nil;
@@ -395,26 +401,37 @@ arpforme(Fs *fs, int version, uchar *targ, uchar *src, Ipifc *ifc)
 	Iplifc *lifc;
 	Route *r;
 
+#ifdef E7_IPV6_ONLY
+	if(version == V4)
+		return 0;
+#else
 	if(version == V4) {
 		v4tov6(ipv6, targ);
 		targ = ipv6;
 	}
+#endif
 	lifc = iplocalonifc(ifc, targ);
 	if(lifc != nil){
 		if(lifc->tentative)
 			return 0;
 		return Runi;
 	}
+#ifdef E7_IPV6_ONLY
+	r = v6lookup(fs, targ, src, nil);
+#else
 	if(version == V4){
 		targ += IPv4off;
 		r = v4lookup(fs, targ, src, nil);
 	} else {
 		r = v6lookup(fs, targ, src, nil);
 	}
+#endif
 	if(r == nil || r->ifc == ifc && r->ifcid == ifc->ifcid)
 		return 0;
 	return r->type & Rproxy;
 }
+
+#ifndef E7_IPV6_ONLY
 
 int
 arpwrite(Fs *fs, char *s, int len)
@@ -586,6 +603,8 @@ arpread(Arp *arp, char *s, ulong offset, int len)
 	return p - s;
 }
 
+#endif
+
 void
 ndpsendsol(Fs *f, Arpent *a)
 {
@@ -640,9 +659,11 @@ rxmt(Arp *arp)
 		cleanarpent(arp, a);
 	}
 
+#ifndef E7_IPV6_ONLY
 	/* timeout waiting ipv4 arp entries */
 	while((a = arp->rxmt[1]) != nil && NOW - a->ctime > 3*RETRANS_TIMER)
 		cleanarpent(arp, a);
+#endif
 
 	bp = arp->dropf;
 	arp->dropf = arp->dropl = nil;
@@ -666,16 +687,28 @@ drop(Fs *f, Block *bp)
 
 		rh.r = nil;
 		rh.a = nil;
+#ifdef E7_IPV6_ONLY
+		if((bp->rp[0]&0xF0) == IP_VER4){
+			freeblist(bp);
+			continue;
+		}
+		r = v6lookup(f, ((Ip6hdr*)bp->rp)->src, ((Ip6hdr*)bp->rp)->dst, &rh);
+#else
 		if((bp->rp[0]&0xF0) == IP_VER4)
 			r = v4lookup(f, ((Ip4hdr*)bp->rp)->src, ((Ip4hdr*)bp->rp)->dst, &rh);
 		else
 			r = v6lookup(f, ((Ip6hdr*)bp->rp)->src, ((Ip6hdr*)bp->rp)->dst, &rh);
+#endif
 		if(r != nil && (ifc = r->ifc) != nil && canrlock(ifc)){
 			if(ifc->ifcid == r->ifcid && !waserror()){
+#ifdef E7_IPV6_ONLY
+				icmpnohost6(f, ifc, bp, &rh);
+#else
 				if((bp->rp[0]&0xF0) == IP_VER4)
 					icmpnohost(f, ifc, bp, &rh);
 				else
 					icmpnohost6(f, ifc, bp, &rh);
+#endif
 				poperror();
 			}
 			runlock(ifc);

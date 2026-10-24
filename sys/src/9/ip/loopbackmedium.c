@@ -22,7 +22,11 @@ readloopback(void *x)
 			runlock(ifc);
 			continue;
 		}
+#ifdef E7_IPV6_ONLY
+		ipiput6(f, ifc, bp);
+#else
 		ipiput4(f, ifc, bp);
+#endif
 		runlock(ifc);
 		poperror();
 	}

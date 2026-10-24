@@ -28,8 +28,9 @@ ipv6_probe=${IPV6_PROBE:-0}
 udp6_probe=${UDP6_PROBE:-0}
 e74_probe=${E74_PROBE:-0}
 e76_native=${E76_NATIVE:-0}
-if [ "$((native_probe + oconsole + ether_probe + ipv6_probe + udp6_probe + e74_probe + e76_native))" -gt 1 ]; then
-	echo "build.sh: NATIVE_PROBE, OCONSOLE, ETHER_PROBE, IPV6_PROBE, UDP6_PROBE, E74_PROBE and E76_NATIVE are separate opt-in builds" >&2
+e77_native=${E77_NATIVE:-0}
+if [ "$((native_probe + oconsole + ether_probe + ipv6_probe + udp6_probe + e74_probe + e76_native + e77_native))" -gt 1 ]; then
+	echo "build.sh: NATIVE_PROBE, OCONSOLE, ETHER_PROBE, IPV6_PROBE, UDP6_PROBE, E74_PROBE, E76_NATIVE and E77_NATIVE are separate opt-in builds" >&2
 	exit 2
 fi
 if [ "$native_probe" = 1 ]; then
@@ -72,9 +73,15 @@ elif [ "$e74_probe" = 1 ]; then
 	testkconf=
 	testkernel=
 elif [ "$e76_native" = 1 ]; then
-	# E7.6 opt-in: NORMAL IPv6 without #l/#I/#W legacy device registration.
+	# E7.6 opt-in: NORMAL IPv6 without #l/#I/#W.
 	kconf=pc64e7native
 	kernel=9pc64e7native
+	testkconf=
+	testkernel=
+elif [ "$e77_native" = 1 ]; then
+	# E7.7 opt-in: native-only IPv6, no executable IPv4/ARP.
+	kconf=pc64e7v6only
+	kernel=9pc64e7v6only
 	testkconf=
 	testkernel=
 fi
@@ -97,6 +104,9 @@ elif [ "$e74_probe" = 1 ]; then
 	printf "kconf=pc64e74\nkernel=9pc64e74\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 elif [ "$e76_native" = 1 ]; then
 	printf "kconf=pc64e7native\nkernel=9pc64e7native\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+elif [ "$e77_native" = 1 ]; then
+	printf "kconf=pc64e7v6only\nkernel=9pc64e7v6only\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+	printf "ip6cflags=-DE7_IPV6_ONLY\n" >> "$b/target"
 fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"

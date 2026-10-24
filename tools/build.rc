@@ -18,6 +18,8 @@
 #                the first one's tools and compares their binaries
 rfork en
 . /tmp/target
+if(~ $#ip6cflags 0)
+	ip6cflags=''
 d=/usr/glenda/plan2001build
 rm -rf $d
 mkdir -p $d/src $d/out
@@ -81,7 +83,7 @@ fn mklog {
 
 fn kernel {
 	echo '### kernel '^$kconf
-	mklog /sys/src/9/$kdir kernel-$kconf 'CONF='^$kconf
+	mklog /sys/src/9/$kdir kernel-$kconf 'CONF='^$kconf 'IP6CFLAGS='^$ip6cflags
 	test -f /sys/src/9/$kdir/$kernel || fail kernel
 	size /sys/src/9/$kdir/$kernel
 	md5sum /sys/src/9/$kdir/$kernel

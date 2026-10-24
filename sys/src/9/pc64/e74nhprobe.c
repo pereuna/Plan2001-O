@@ -275,11 +275,40 @@ e74ipprobe_proc(void *arg)
 	if(rc != NativeIp6ErrBusy)
 		fail("dup-reg", rc, NativeIp6ErrBusy);
 
+#ifdef E7_IPV6_ONLY
+	ipmove(bad, v4prefix);
+	bad[12] = 127; bad[13] = 0; bad[14] = 0; bad[15] = 1;
+	{
+		Udp6Endpoint *tmp = nil;
+		rc = udp6_open(net, bad, E74UdpPort+1, &tmp);
+		print("E74IP: CHECK udp6-open-v4 rc=%d\n", rc);
+		if(rc != Udp6ErrFamily)
+			fail("udp6-open-v4", rc, Udp6ErrFamily);
+	}
+#endif
+
 	rc = udp6_open(net, ipv6native_lladdr(net), E74UdpPort, &uep);
 	print("E74IP: CHECK udp-open rc=%d\n", rc);
 	if(rc != Udp6Ok)
 		fail("udp-open", rc, Udp6Ok);
 	kproc("*e74echo*", echoproc, nil);
+
+#ifdef E7_IPV6_ONLY
+	{
+		uvlong oth0, fr0;
+		ipv6native_stats(net, &st);
+		oth0 = st.rxother;
+		fr0 = st.rxframes;
+		bp = mketh(e->ea, 0x0800, 64);
+		if(bp != nil)
+			ipv6native_inject(net, bp);
+		ipv6native_stats(net, &st);
+		print("E74IP: CHECK ipv4-drop other=%llud rxframes=%llud\n",
+			st.rxother-oth0, st.rxframes-fr0);
+		if(st.rxother-oth0 != 1 || st.rxframes != fr0)
+			fail("ipv4-drop", (int)(st.rxother-oth0), 1);
+	}
+#endif
 
 	print("E74IP: READY\n");
 
@@ -306,15 +335,20 @@ e74ipprobe_proc(void *arg)
 
 	/* Host sends unhandled/malformed frames and then one ALIVE 253 now. */
 	nativeip6_stats(net, &ns0);
+	ipv6native_stats(net, &st);
 	unk0 = net->f->ip->stats[InUnknownProtos];
 	hdr0 = net->f->ip->stats[InHdrErrors];
-	print("E74IP: NEG-READY\n");
-	tsleep(&up->sleep, return0, nil, 3500);
-	nativeip6_stats(net, &ns);
-	unk1 = net->f->ip->stats[InUnknownProtos];
-	hdr1 = net->f->ip->stats[InHdrErrors];
-	print("E74IP: NEG-RESULT iprx=%llud iptx=%llud unhandled=%lud badhdr=%lud\n",
-		ns.rxframes, ns.txaccepted, unk1-unk0, hdr1-hdr0);
+	{
+		uvlong oth0 = st.rxother;
+		print("E74IP: NEG-READY\n");
+		tsleep(&up->sleep, return0, nil, 3500);
+		nativeip6_stats(net, &ns);
+		ipv6native_stats(net, &st);
+		unk1 = net->f->ip->stats[InUnknownProtos];
+		hdr1 = net->f->ip->stats[InHdrErrors];
+		print("E74IP: NEG-RESULT iprx=%llud iptx=%llud unhandled=%lud badhdr=%lud other=%llud\n",
+			ns.rxframes, ns.txaccepted, unk1-unk0, hdr1-hdr0, st.rxother-oth0);
+	}
 	if(unk1 <= unk0){
 		print("E74IP: FAIL unhandled-not-counted\n");
 		fails++;
