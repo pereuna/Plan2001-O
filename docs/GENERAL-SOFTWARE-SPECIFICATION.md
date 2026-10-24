@@ -1,6 +1,6 @@
 # A Computer Implementation of the Olio–Object Manifesto
 
-**General software specification — proposal 0.2 — 23 October 2026**
+**General software specification — proposal 0.3 — 24 October 2026**
 
 **Status:** Proposed architecture, not a statement of implemented behavior. This document defines **one possible computer implementation** of the independent [Finnish epistemological manifesto](OLIO-OBJEKTI-MANIFESTI.md). The manifesto supplies the philosophical distinctions; this document makes explicit engineering choices. Neither document proves a metaphysical theory.
 
@@ -182,7 +182,7 @@ The words **text** and **hexadecimal** in step 3 name interpreters; they do not 
 - SHOULD permit temporary observation without persistent relation writes.
 - MAY use familiar files, octets, streams, numeric OIDs, and code execution as explicit computer-interface choices.
 
-This specification does **not** require an analogue computer, solve the philosophical problem of other minds or external reality, define a universal logic of all possible self-reference, or prescribe a network protocol, GUI, process scheduler, or programming language.
+This specification does **not** require an analogue computer, solve the philosophical problem of other minds or external reality, define a universal logic of all possible self-reference, or define an application-level network protocol, GUI, process scheduler, or programming language.
 
 ## 13. Relationship to the existing proof of concept
 
@@ -198,6 +198,19 @@ Accordingly:
 ### Proof-of-concept execution constraints
 
 The target environment is a typical 64-bit machine with RAM, persistent disk and network connectivity. Desktop use exposes available display and keyboard facilities; server use exposes remote control over the existing network path. The first user interface may be a command line or REPL. A new desktop GUI, remote protocol or replacement network stack is not a prerequisite.
+
+### Native network profile: IPv6-only (accepted scope decision)
+
+**Normative target for Plan2001-O's native O-only kernel, not an implemented property of the current kernel.** The native network architecture MUST support **IPv6 only**. IPv4 is classified as a **legacy compatibility protocol for this project**; it is not a requirement of the new kernel C network API, userspace ABI, or O-only server use cases. This project-specific classification does not mean that IPv4 has been deprecated by the IETF or is intrinsically insecure.
+
+- The native networking profile MUST use IPv6 for IP addressing, routing, TCP, UDP, and any exposed IP network operations. Ethernet and other suitable link-layer drivers remain usable; IPv6's essential ICMPv6/Neighbor Discovery behavior MUST be preserved. Security policy MUST treat IPv6, NDP, and Router Advertisements as attack surfaces; IPv6-only is not a firewall or a security guarantee.
+- The **final IPv6-only O-only kernel** MUST NOT link executable IPv4 packet-processing, IPv4 routing, or ARP protocol implementations. Incoming Ethernet IPv4 frames and IPv4 payloads from virtual/tunnel interfaces MUST NOT be accepted into the native IP datapath. Shared, genuinely IP-version-independent C machinery MAY be retained if it does not enable IPv4 functionality.
+- The native kernel API and userspace ABI MUST NOT introduce IPv4 address types, IPv4 socket compatibility modes, IPv4-mapped IPv6 fallback semantics, or implicit translation to IPv4. NAT64, DNS64, 464XLAT, and other IPv4 interworking mechanisms are outside the native PoC's scope; an external gateway is a possible separate integration choice, not part of this kernel.
+- If WireGuard is enabled in the native profile, both its **outer UDP transport** and its **inner IP packets** MUST use IPv6. This requirement does not mandate implementing WireGuard in the first IPv6 networking milestone.
+- **Compatibility boundary:** the inherited dual-stack networking code MAY remain available in the legacy kernel configurations and existing tests. IPv4/ARP functionality in these builds MUST NOT be mistaken for a requirement to retain it in the native O-only profile.
+- **Migration and evidence:** intermediate development profiles MAY temporarily link inherited IPv4 code while native Ethernet, IP, and UDP/TCP interfaces are disentangled. Such builds MUST be labeled transitional, not "IPv6-only". Final acceptance requires both source/linked-symbol analysis and live IPv6 networking tests, including a negative test that IPv4 frames and IPv4 connection requests cannot succeed. Do not delete shared code or weaken a verified legacy configuration to satisfy this policy by superficial symbol removal.
+
+This is a **product scope decision**, not an instruction to modify the storage subsystem or the active E6 disk migration. It will be implemented through a separately reviewed networking task. The current implementation status remains documented in [STATUS.md](STATUS.md), and naming/API boundaries are governed by [KERNEL-API-ABI.md](KERNEL-API-ABI.md).
 
 Coding work should favor (in order) direct reuse of existing working code, a small adaptation, then a new narrowly scoped component. Keep the existing octet-based representation and on-disk format until a concrete experiment justifies change. Do not replace inherited Plan2001/9front subsystems simply because their terminology differs from the manifesto.
 
