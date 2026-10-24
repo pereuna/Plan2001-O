@@ -1679,81 +1679,6 @@
         "symbol": "amlinit"
       }
     },
-    "chain:0dec197744a0cc98": {
-      "async": "queue/wait/sleep/wakeup primitives observed",
-      "edges": [
-        {
-          "from": "func:sys/src/9/port/devcons.c#consread",
-          "kind": "direct",
-          "line": 541,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "readtime",
-          "to": "func:sys/src/9/port/devcons.c#readtime"
-        },
-        {
-          "from": "func:sys/src/9/port/devcons.c#readtime",
-          "kind": "terminal",
-          "line": 885,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "fastticks",
-          "to": "external:fastticks"
-        }
-      ],
-      "id": "chain:0dec197744a0cc98",
-      "nodes": [
-        "func:sys/src/9/port/devcons.c#consread",
-        "func:sys/src/9/port/devcons.c#readtime"
-      ],
-      "reason": "ambiguous-global-symbol",
-      "responsibilities": [
-        "Qid/command dispatch",
-        "access/bounds validation",
-        "formatting",
-        "lifetime/reference management",
-        "offset translation",
-        "waiting/blocking"
-      ],
-      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
-      "service_edge_count": 3,
-      "service_symbols": [
-        "readstr",
-        "snprint",
-        "todget"
-      ],
-      "start": "func:sys/src/9/port/devcons.c#consread",
-      "status": "unresolved",
-      "terminal": {
-        "candidates": [],
-        "depth": 1,
-        "kind": "ambiguous-symbol",
-        "line": 885,
-        "path": "sys/src/9/port/devcons.c",
-        "path_edges": [
-          {
-            "from": "func:sys/src/9/port/devcons.c#consread",
-            "kind": "direct",
-            "line": 541,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "readtime",
-            "to": "func:sys/src/9/port/devcons.c#readtime"
-          },
-          {
-            "from": "func:sys/src/9/port/devcons.c#readtime",
-            "kind": "terminal",
-            "line": 885,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "fastticks",
-            "to": "external:fastticks"
-          }
-        ],
-        "path_nodes": [
-          "func:sys/src/9/port/devcons.c#consread",
-          "func:sys/src/9/port/devcons.c#readtime"
-        ],
-        "reason": "ambiguous-global-symbol",
-        "symbol": "fastticks"
-      }
-    },
     "chain:0e0fcaa03a833e12": {
       "async": "no asynchronous completion primitive identified",
       "edges": [],
@@ -2762,6 +2687,223 @@
           "func:sys/src/9/port/devsd.c#sdshutdown"
         ],
         "symbol": "disable"
+      }
+    },
+    "chain:13ac4a33f1cfbfcb": {
+      "async": "no asynchronous completion primitive identified",
+      "edges": [
+        {
+          "from": "func:sys/src/9/port/devcons.c#conswrite",
+          "kind": "direct",
+          "line": 766,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "rebootcmd",
+          "to": "func:sys/src/9/port/rebootcmd.c#rebootcmd"
+        },
+        {
+          "from": "func:sys/src/9/port/rebootcmd.c#rebootcmd",
+          "kind": "direct",
+          "line": 55,
+          "path": "sys/src/9/port/rebootcmd.c",
+          "symbol": "readn",
+          "to": "func:sys/src/9/port/rebootcmd.c#readn"
+        },
+        {
+          "candidates": [
+            "archread",
+            "capread",
+            "consread",
+            "drawread",
+            "dupread",
+            "envread",
+            "etherread",
+            "gefsread",
+            "ipread",
+            "kbdread",
+            "kprofread",
+            "mntread",
+            "mouseread",
+            "mread",
+            "piperead",
+            "pnpread",
+            "procread",
+            "rootread",
+            "rtcread",
+            "sdread",
+            "segmentread",
+            "shrread",
+            "srvread",
+            "swapread",
+            "tlsread",
+            "uartread",
+            "usbread",
+            "vgaread",
+            "wgread"
+          ],
+          "expr": "devtab [c->type]->read",
+          "from": "func:sys/src/9/port/rebootcmd.c#readn",
+          "kind": "indirect",
+          "line": 16,
+          "path": "sys/src/9/port/rebootcmd.c",
+          "symbol": "read",
+          "to": "indirect:read"
+        }
+      ],
+      "id": "chain:13ac4a33f1cfbfcb",
+      "nodes": [
+        "func:sys/src/9/port/devcons.c#conswrite",
+        "func:sys/src/9/port/rebootcmd.c#rebootcmd",
+        "func:sys/src/9/port/rebootcmd.c#readn"
+      ],
+      "reason": "indirect callback edge retained; concrete target not statically resolved",
+      "responsibilities": [
+        "Qid/command dispatch",
+        "access/bounds validation",
+        "formatting",
+        "lifetime/reference management",
+        "offset translation",
+        "path/Chan handling",
+        "textual parsing"
+      ],
+      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
+      "service_edge_count": 108,
+      "service_symbols": [
+        "cclose",
+        "chartorune",
+        "error",
+        "exit",
+        "free",
+        "ilock",
+        "iseve",
+        "iunlock",
+        "ksetenv",
+        "kstrdup",
+        "lookupcmd",
+        "malloc",
+        "memmove",
+        "memset",
+        "namec",
+        "nexterror",
+        "panic",
+        "parsecmd",
+        "poperror",
+        "print",
+        "putstrn0",
+        "qlock",
+        "qunlock",
+        "sched",
+        "strcmp",
+        "strncmp",
+        "strncpy",
+        "strtol",
+        "todset",
+        "waserror",
+        "wlock",
+        "wunlock"
+      ],
+      "start": "func:sys/src/9/port/devcons.c#conswrite",
+      "status": "partial",
+      "terminal": {
+        "candidates": [
+          "archread",
+          "capread",
+          "consread",
+          "drawread",
+          "dupread",
+          "envread",
+          "etherread",
+          "gefsread",
+          "ipread",
+          "kbdread",
+          "kprofread",
+          "mntread",
+          "mouseread",
+          "mread",
+          "piperead",
+          "pnpread",
+          "procread",
+          "rootread",
+          "rtcread",
+          "sdread",
+          "segmentread",
+          "shrread",
+          "srvread",
+          "swapread",
+          "tlsread",
+          "uartread",
+          "usbread",
+          "vgaread",
+          "wgread"
+        ],
+        "depth": 2,
+        "expr": "devtab [c->type]->read",
+        "kind": "interface",
+        "line": 16,
+        "path": "sys/src/9/port/rebootcmd.c",
+        "path_edges": [
+          {
+            "from": "func:sys/src/9/port/devcons.c#conswrite",
+            "kind": "direct",
+            "line": 766,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "rebootcmd",
+            "to": "func:sys/src/9/port/rebootcmd.c#rebootcmd"
+          },
+          {
+            "from": "func:sys/src/9/port/rebootcmd.c#rebootcmd",
+            "kind": "direct",
+            "line": 55,
+            "path": "sys/src/9/port/rebootcmd.c",
+            "symbol": "readn",
+            "to": "func:sys/src/9/port/rebootcmd.c#readn"
+          },
+          {
+            "candidates": [
+              "archread",
+              "capread",
+              "consread",
+              "drawread",
+              "dupread",
+              "envread",
+              "etherread",
+              "gefsread",
+              "ipread",
+              "kbdread",
+              "kprofread",
+              "mntread",
+              "mouseread",
+              "mread",
+              "piperead",
+              "pnpread",
+              "procread",
+              "rootread",
+              "rtcread",
+              "sdread",
+              "segmentread",
+              "shrread",
+              "srvread",
+              "swapread",
+              "tlsread",
+              "uartread",
+              "usbread",
+              "vgaread",
+              "wgread"
+            ],
+            "expr": "devtab [c->type]->read",
+            "from": "func:sys/src/9/port/rebootcmd.c#readn",
+            "kind": "indirect",
+            "line": 16,
+            "path": "sys/src/9/port/rebootcmd.c",
+            "symbol": "read",
+            "to": "indirect:read"
+          }
+        ],
+        "path_nodes": [
+          "func:sys/src/9/port/devcons.c#conswrite",
+          "func:sys/src/9/port/rebootcmd.c#rebootcmd",
+          "func:sys/src/9/port/rebootcmd.c#readn"
+        ],
+        "symbol": "read"
       }
     },
     "chain:13e2ed85e9c1c519": {
@@ -5481,223 +5623,6 @@
         "line": null,
         "path": "sys/src/9/port/devdraw.c",
         "symbol": null
-      }
-    },
-    "chain:2651a03106e6930d": {
-      "async": "no asynchronous completion primitive identified",
-      "edges": [
-        {
-          "from": "func:sys/src/9/port/devcons.c#conswrite",
-          "kind": "direct",
-          "line": 754,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "rebootcmd",
-          "to": "func:sys/src/9/port/rebootcmd.c#rebootcmd"
-        },
-        {
-          "from": "func:sys/src/9/port/rebootcmd.c#rebootcmd",
-          "kind": "direct",
-          "line": 55,
-          "path": "sys/src/9/port/rebootcmd.c",
-          "symbol": "readn",
-          "to": "func:sys/src/9/port/rebootcmd.c#readn"
-        },
-        {
-          "candidates": [
-            "archread",
-            "capread",
-            "consread",
-            "drawread",
-            "dupread",
-            "envread",
-            "etherread",
-            "gefsread",
-            "ipread",
-            "kbdread",
-            "kprofread",
-            "mntread",
-            "mouseread",
-            "mread",
-            "piperead",
-            "pnpread",
-            "procread",
-            "rootread",
-            "rtcread",
-            "sdread",
-            "segmentread",
-            "shrread",
-            "srvread",
-            "swapread",
-            "tlsread",
-            "uartread",
-            "usbread",
-            "vgaread",
-            "wgread"
-          ],
-          "expr": "devtab [c->type]->read",
-          "from": "func:sys/src/9/port/rebootcmd.c#readn",
-          "kind": "indirect",
-          "line": 16,
-          "path": "sys/src/9/port/rebootcmd.c",
-          "symbol": "read",
-          "to": "indirect:read"
-        }
-      ],
-      "id": "chain:2651a03106e6930d",
-      "nodes": [
-        "func:sys/src/9/port/devcons.c#conswrite",
-        "func:sys/src/9/port/rebootcmd.c#rebootcmd",
-        "func:sys/src/9/port/rebootcmd.c#readn"
-      ],
-      "reason": "indirect callback edge retained; concrete target not statically resolved",
-      "responsibilities": [
-        "Qid/command dispatch",
-        "access/bounds validation",
-        "formatting",
-        "lifetime/reference management",
-        "offset translation",
-        "path/Chan handling",
-        "textual parsing"
-      ],
-      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
-      "service_edge_count": 108,
-      "service_symbols": [
-        "cclose",
-        "chartorune",
-        "error",
-        "exit",
-        "free",
-        "ilock",
-        "iseve",
-        "iunlock",
-        "ksetenv",
-        "kstrdup",
-        "lookupcmd",
-        "malloc",
-        "memmove",
-        "memset",
-        "namec",
-        "nexterror",
-        "panic",
-        "parsecmd",
-        "poperror",
-        "print",
-        "putstrn0",
-        "qlock",
-        "qunlock",
-        "sched",
-        "strcmp",
-        "strncmp",
-        "strncpy",
-        "strtol",
-        "todset",
-        "waserror",
-        "wlock",
-        "wunlock"
-      ],
-      "start": "func:sys/src/9/port/devcons.c#conswrite",
-      "status": "partial",
-      "terminal": {
-        "candidates": [
-          "archread",
-          "capread",
-          "consread",
-          "drawread",
-          "dupread",
-          "envread",
-          "etherread",
-          "gefsread",
-          "ipread",
-          "kbdread",
-          "kprofread",
-          "mntread",
-          "mouseread",
-          "mread",
-          "piperead",
-          "pnpread",
-          "procread",
-          "rootread",
-          "rtcread",
-          "sdread",
-          "segmentread",
-          "shrread",
-          "srvread",
-          "swapread",
-          "tlsread",
-          "uartread",
-          "usbread",
-          "vgaread",
-          "wgread"
-        ],
-        "depth": 2,
-        "expr": "devtab [c->type]->read",
-        "kind": "interface",
-        "line": 16,
-        "path": "sys/src/9/port/rebootcmd.c",
-        "path_edges": [
-          {
-            "from": "func:sys/src/9/port/devcons.c#conswrite",
-            "kind": "direct",
-            "line": 754,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "rebootcmd",
-            "to": "func:sys/src/9/port/rebootcmd.c#rebootcmd"
-          },
-          {
-            "from": "func:sys/src/9/port/rebootcmd.c#rebootcmd",
-            "kind": "direct",
-            "line": 55,
-            "path": "sys/src/9/port/rebootcmd.c",
-            "symbol": "readn",
-            "to": "func:sys/src/9/port/rebootcmd.c#readn"
-          },
-          {
-            "candidates": [
-              "archread",
-              "capread",
-              "consread",
-              "drawread",
-              "dupread",
-              "envread",
-              "etherread",
-              "gefsread",
-              "ipread",
-              "kbdread",
-              "kprofread",
-              "mntread",
-              "mouseread",
-              "mread",
-              "piperead",
-              "pnpread",
-              "procread",
-              "rootread",
-              "rtcread",
-              "sdread",
-              "segmentread",
-              "shrread",
-              "srvread",
-              "swapread",
-              "tlsread",
-              "uartread",
-              "usbread",
-              "vgaread",
-              "wgread"
-            ],
-            "expr": "devtab [c->type]->read",
-            "from": "func:sys/src/9/port/rebootcmd.c#readn",
-            "kind": "indirect",
-            "line": 16,
-            "path": "sys/src/9/port/rebootcmd.c",
-            "symbol": "read",
-            "to": "indirect:read"
-          }
-        ],
-        "path_nodes": [
-          "func:sys/src/9/port/devcons.c#conswrite",
-          "func:sys/src/9/port/rebootcmd.c#rebootcmd",
-          "func:sys/src/9/port/rebootcmd.c#readn"
-        ],
-        "symbol": "read"
       }
     },
     "chain:265ecfee83d73c3a": {
@@ -10562,79 +10487,6 @@
         "symbol": null
       }
     },
-    "chain:45bc78bf1c97fb51": {
-      "async": "queue/wait/sleep/wakeup primitives observed",
-      "edges": [
-        {
-          "from": "func:sys/src/9/port/devcons.c#consread",
-          "kind": "direct",
-          "line": 544,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "readbintime",
-          "to": "func:sys/src/9/port/devcons.c#readbintime"
-        },
-        {
-          "from": "func:sys/src/9/port/devcons.c#readbintime",
-          "kind": "terminal",
-          "line": 931,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "fastticks",
-          "to": "external:fastticks"
-        }
-      ],
-      "id": "chain:45bc78bf1c97fb51",
-      "nodes": [
-        "func:sys/src/9/port/devcons.c#consread",
-        "func:sys/src/9/port/devcons.c#readbintime"
-      ],
-      "reason": "ambiguous-global-symbol",
-      "responsibilities": [
-        "Qid/command dispatch",
-        "access/bounds validation",
-        "formatting",
-        "lifetime/reference management",
-        "offset translation",
-        "waiting/blocking"
-      ],
-      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
-      "service_edge_count": 1,
-      "service_symbols": [
-        "todget"
-      ],
-      "start": "func:sys/src/9/port/devcons.c#consread",
-      "status": "unresolved",
-      "terminal": {
-        "candidates": [],
-        "depth": 1,
-        "kind": "ambiguous-symbol",
-        "line": 931,
-        "path": "sys/src/9/port/devcons.c",
-        "path_edges": [
-          {
-            "from": "func:sys/src/9/port/devcons.c#consread",
-            "kind": "direct",
-            "line": 544,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "readbintime",
-            "to": "func:sys/src/9/port/devcons.c#readbintime"
-          },
-          {
-            "from": "func:sys/src/9/port/devcons.c#readbintime",
-            "kind": "terminal",
-            "line": 931,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "fastticks",
-            "to": "external:fastticks"
-          }
-        ],
-        "path_nodes": [
-          "func:sys/src/9/port/devcons.c#consread",
-          "func:sys/src/9/port/devcons.c#readbintime"
-        ],
-        "reason": "ambiguous-global-symbol",
-        "symbol": "fastticks"
-      }
-    },
     "chain:46512a734ed1f2ae": {
       "async": "no asynchronous completion primitive identified",
       "edges": [
@@ -11024,59 +10876,6 @@
         ],
         "reason": "external",
         "symbol": "inl"
-      }
-    },
-    "chain:4adf68942df2a694": {
-      "async": "no asynchronous completion primitive identified",
-      "edges": [
-        {
-          "from": "func:sys/src/9/port/devcons.c#conswrite",
-          "kind": "terminal",
-          "line": 762,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "consdebug",
-          "to": "external:consdebug"
-        }
-      ],
-      "id": "chain:4adf68942df2a694",
-      "nodes": [
-        "func:sys/src/9/port/devcons.c#conswrite"
-      ],
-      "reason": "external call without a recognised device/service classification",
-      "responsibilities": [
-        "Qid/command dispatch",
-        "access/bounds validation",
-        "formatting",
-        "lifetime/reference management",
-        "offset translation",
-        "textual parsing"
-      ],
-      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
-      "service_edge_count": 0,
-      "service_symbols": [],
-      "start": "func:sys/src/9/port/devcons.c#conswrite",
-      "status": "partial",
-      "terminal": {
-        "candidates": [],
-        "depth": 0,
-        "kind": "external-unknown",
-        "line": 762,
-        "path": "sys/src/9/port/devcons.c",
-        "path_edges": [
-          {
-            "from": "func:sys/src/9/port/devcons.c#conswrite",
-            "kind": "terminal",
-            "line": 762,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "consdebug",
-            "to": "external:consdebug"
-          }
-        ],
-        "path_nodes": [
-          "func:sys/src/9/port/devcons.c#conswrite"
-        ],
-        "reason": "external",
-        "symbol": "consdebug"
       }
     },
     "chain:4bbf2d8b2af55882": {
@@ -17489,6 +17288,79 @@
         ],
         "reason": "external",
         "symbol": "outb"
+      }
+    },
+    "chain:775b3a34c6c05516": {
+      "async": "queue/wait/sleep/wakeup primitives observed",
+      "edges": [
+        {
+          "from": "func:sys/src/9/port/devcons.c#consread",
+          "kind": "direct",
+          "line": 556,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "readbintime",
+          "to": "func:sys/src/9/port/devcons.c#readbintime"
+        },
+        {
+          "from": "func:sys/src/9/port/devcons.c#readbintime",
+          "kind": "terminal",
+          "line": 943,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "fastticks",
+          "to": "external:fastticks"
+        }
+      ],
+      "id": "chain:775b3a34c6c05516",
+      "nodes": [
+        "func:sys/src/9/port/devcons.c#consread",
+        "func:sys/src/9/port/devcons.c#readbintime"
+      ],
+      "reason": "ambiguous-global-symbol",
+      "responsibilities": [
+        "Qid/command dispatch",
+        "access/bounds validation",
+        "formatting",
+        "lifetime/reference management",
+        "offset translation",
+        "waiting/blocking"
+      ],
+      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
+      "service_edge_count": 1,
+      "service_symbols": [
+        "todget"
+      ],
+      "start": "func:sys/src/9/port/devcons.c#consread",
+      "status": "unresolved",
+      "terminal": {
+        "candidates": [],
+        "depth": 1,
+        "kind": "ambiguous-symbol",
+        "line": 943,
+        "path": "sys/src/9/port/devcons.c",
+        "path_edges": [
+          {
+            "from": "func:sys/src/9/port/devcons.c#consread",
+            "kind": "direct",
+            "line": 556,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "readbintime",
+            "to": "func:sys/src/9/port/devcons.c#readbintime"
+          },
+          {
+            "from": "func:sys/src/9/port/devcons.c#readbintime",
+            "kind": "terminal",
+            "line": 943,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "fastticks",
+            "to": "external:fastticks"
+          }
+        ],
+        "path_nodes": [
+          "func:sys/src/9/port/devcons.c#consread",
+          "func:sys/src/9/port/devcons.c#readbintime"
+        ],
+        "reason": "ambiguous-global-symbol",
+        "symbol": "fastticks"
       }
     },
     "chain:77ee4e9147c7a600": {
@@ -28268,6 +28140,103 @@
         "symbol": "devclose"
       }
     },
+    "chain:b2cb017824096047": {
+      "async": "no asynchronous completion primitive identified",
+      "edges": [
+        {
+          "from": "func:sys/src/9/port/devcons.c#conswrite",
+          "kind": "direct",
+          "line": 703,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "writebintime",
+          "to": "func:sys/src/9/port/devcons.c#writebintime"
+        },
+        {
+          "from": "func:sys/src/9/port/devcons.c#writebintime",
+          "kind": "direct",
+          "line": 1000,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "todsetfreq",
+          "to": "func:sys/src/9/port/tod.c#todsetfreq"
+        },
+        {
+          "from": "func:sys/src/9/port/tod.c#todsetfreq",
+          "kind": "terminal",
+          "line": 100,
+          "path": "sys/src/9/port/tod.c",
+          "symbol": "fastticks",
+          "to": "external:fastticks"
+        }
+      ],
+      "id": "chain:b2cb017824096047",
+      "nodes": [
+        "func:sys/src/9/port/devcons.c#conswrite",
+        "func:sys/src/9/port/devcons.c#writebintime",
+        "func:sys/src/9/port/tod.c#todsetfreq"
+      ],
+      "reason": "ambiguous-global-symbol",
+      "responsibilities": [
+        "Qid/command dispatch",
+        "access/bounds validation",
+        "formatting",
+        "lifetime/reference management",
+        "locking",
+        "offset translation",
+        "textual parsing"
+      ],
+      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
+      "service_edge_count": 12,
+      "service_symbols": [
+        "error",
+        "ilock",
+        "iseve",
+        "iunlock",
+        "panic",
+        "todset"
+      ],
+      "start": "func:sys/src/9/port/devcons.c#conswrite",
+      "status": "unresolved",
+      "terminal": {
+        "candidates": [],
+        "depth": 2,
+        "kind": "ambiguous-symbol",
+        "line": 100,
+        "path": "sys/src/9/port/tod.c",
+        "path_edges": [
+          {
+            "from": "func:sys/src/9/port/devcons.c#conswrite",
+            "kind": "direct",
+            "line": 703,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "writebintime",
+            "to": "func:sys/src/9/port/devcons.c#writebintime"
+          },
+          {
+            "from": "func:sys/src/9/port/devcons.c#writebintime",
+            "kind": "direct",
+            "line": 1000,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "todsetfreq",
+            "to": "func:sys/src/9/port/tod.c#todsetfreq"
+          },
+          {
+            "from": "func:sys/src/9/port/tod.c#todsetfreq",
+            "kind": "terminal",
+            "line": 100,
+            "path": "sys/src/9/port/tod.c",
+            "symbol": "fastticks",
+            "to": "external:fastticks"
+          }
+        ],
+        "path_nodes": [
+          "func:sys/src/9/port/devcons.c#conswrite",
+          "func:sys/src/9/port/devcons.c#writebintime",
+          "func:sys/src/9/port/tod.c#todsetfreq"
+        ],
+        "reason": "ambiguous-global-symbol",
+        "symbol": "fastticks"
+      }
+    },
     "chain:b3dde66320a54841": {
       "async": "no asynchronous completion primitive identified",
       "edges": [
@@ -28533,6 +28502,59 @@
           "func:sys/src/9/port/sysfile.c#read"
         ],
         "symbol": "read"
+      }
+    },
+    "chain:b427a74b057eef6c": {
+      "async": "no asynchronous completion primitive identified",
+      "edges": [
+        {
+          "from": "func:sys/src/9/port/devcons.c#conswrite",
+          "kind": "terminal",
+          "line": 774,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "consdebug",
+          "to": "external:consdebug"
+        }
+      ],
+      "id": "chain:b427a74b057eef6c",
+      "nodes": [
+        "func:sys/src/9/port/devcons.c#conswrite"
+      ],
+      "reason": "external call without a recognised device/service classification",
+      "responsibilities": [
+        "Qid/command dispatch",
+        "access/bounds validation",
+        "formatting",
+        "lifetime/reference management",
+        "offset translation",
+        "textual parsing"
+      ],
+      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
+      "service_edge_count": 0,
+      "service_symbols": [],
+      "start": "func:sys/src/9/port/devcons.c#conswrite",
+      "status": "partial",
+      "terminal": {
+        "candidates": [],
+        "depth": 0,
+        "kind": "external-unknown",
+        "line": 774,
+        "path": "sys/src/9/port/devcons.c",
+        "path_edges": [
+          {
+            "from": "func:sys/src/9/port/devcons.c#conswrite",
+            "kind": "terminal",
+            "line": 774,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "consdebug",
+            "to": "external:consdebug"
+          }
+        ],
+        "path_nodes": [
+          "func:sys/src/9/port/devcons.c#conswrite"
+        ],
+        "reason": "external",
+        "symbol": "consdebug"
       }
     },
     "chain:b5417d5b658fdff0": {
@@ -38151,6 +38173,81 @@
         "symbol": "poolmsize"
       }
     },
+    "chain:f5468bed7c6d45d4": {
+      "async": "queue/wait/sleep/wakeup primitives observed",
+      "edges": [
+        {
+          "from": "func:sys/src/9/port/devcons.c#consread",
+          "kind": "direct",
+          "line": 553,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "readtime",
+          "to": "func:sys/src/9/port/devcons.c#readtime"
+        },
+        {
+          "from": "func:sys/src/9/port/devcons.c#readtime",
+          "kind": "terminal",
+          "line": 897,
+          "path": "sys/src/9/port/devcons.c",
+          "symbol": "fastticks",
+          "to": "external:fastticks"
+        }
+      ],
+      "id": "chain:f5468bed7c6d45d4",
+      "nodes": [
+        "func:sys/src/9/port/devcons.c#consread",
+        "func:sys/src/9/port/devcons.c#readtime"
+      ],
+      "reason": "ambiguous-global-symbol",
+      "responsibilities": [
+        "Qid/command dispatch",
+        "access/bounds validation",
+        "formatting",
+        "lifetime/reference management",
+        "offset translation",
+        "waiting/blocking"
+      ],
+      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
+      "service_edge_count": 3,
+      "service_symbols": [
+        "readstr",
+        "snprint",
+        "todget"
+      ],
+      "start": "func:sys/src/9/port/devcons.c#consread",
+      "status": "unresolved",
+      "terminal": {
+        "candidates": [],
+        "depth": 1,
+        "kind": "ambiguous-symbol",
+        "line": 897,
+        "path": "sys/src/9/port/devcons.c",
+        "path_edges": [
+          {
+            "from": "func:sys/src/9/port/devcons.c#consread",
+            "kind": "direct",
+            "line": 553,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "readtime",
+            "to": "func:sys/src/9/port/devcons.c#readtime"
+          },
+          {
+            "from": "func:sys/src/9/port/devcons.c#readtime",
+            "kind": "terminal",
+            "line": 897,
+            "path": "sys/src/9/port/devcons.c",
+            "symbol": "fastticks",
+            "to": "external:fastticks"
+          }
+        ],
+        "path_nodes": [
+          "func:sys/src/9/port/devcons.c#consread",
+          "func:sys/src/9/port/devcons.c#readtime"
+        ],
+        "reason": "ambiguous-global-symbol",
+        "symbol": "fastticks"
+      }
+    },
     "chain:f588511aa80a6c28": {
       "async": "no asynchronous completion primitive identified",
       "edges": [
@@ -38302,103 +38399,6 @@
         "line": null,
         "path": "sys/src/9/port/usbehci.c",
         "symbol": null
-      }
-    },
-    "chain:f735ef39a53e877f": {
-      "async": "no asynchronous completion primitive identified",
-      "edges": [
-        {
-          "from": "func:sys/src/9/port/devcons.c#conswrite",
-          "kind": "direct",
-          "line": 691,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "writebintime",
-          "to": "func:sys/src/9/port/devcons.c#writebintime"
-        },
-        {
-          "from": "func:sys/src/9/port/devcons.c#writebintime",
-          "kind": "direct",
-          "line": 988,
-          "path": "sys/src/9/port/devcons.c",
-          "symbol": "todsetfreq",
-          "to": "func:sys/src/9/port/tod.c#todsetfreq"
-        },
-        {
-          "from": "func:sys/src/9/port/tod.c#todsetfreq",
-          "kind": "terminal",
-          "line": 100,
-          "path": "sys/src/9/port/tod.c",
-          "symbol": "fastticks",
-          "to": "external:fastticks"
-        }
-      ],
-      "id": "chain:f735ef39a53e877f",
-      "nodes": [
-        "func:sys/src/9/port/devcons.c#conswrite",
-        "func:sys/src/9/port/devcons.c#writebintime",
-        "func:sys/src/9/port/tod.c#todsetfreq"
-      ],
-      "reason": "ambiguous-global-symbol",
-      "responsibilities": [
-        "Qid/command dispatch",
-        "access/bounds validation",
-        "formatting",
-        "lifetime/reference management",
-        "locking",
-        "offset translation",
-        "textual parsing"
-      ],
-      "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
-      "service_edge_count": 12,
-      "service_symbols": [
-        "error",
-        "ilock",
-        "iseve",
-        "iunlock",
-        "panic",
-        "todset"
-      ],
-      "start": "func:sys/src/9/port/devcons.c#conswrite",
-      "status": "unresolved",
-      "terminal": {
-        "candidates": [],
-        "depth": 2,
-        "kind": "ambiguous-symbol",
-        "line": 100,
-        "path": "sys/src/9/port/tod.c",
-        "path_edges": [
-          {
-            "from": "func:sys/src/9/port/devcons.c#conswrite",
-            "kind": "direct",
-            "line": 691,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "writebintime",
-            "to": "func:sys/src/9/port/devcons.c#writebintime"
-          },
-          {
-            "from": "func:sys/src/9/port/devcons.c#writebintime",
-            "kind": "direct",
-            "line": 988,
-            "path": "sys/src/9/port/devcons.c",
-            "symbol": "todsetfreq",
-            "to": "func:sys/src/9/port/tod.c#todsetfreq"
-          },
-          {
-            "from": "func:sys/src/9/port/tod.c#todsetfreq",
-            "kind": "terminal",
-            "line": 100,
-            "path": "sys/src/9/port/tod.c",
-            "symbol": "fastticks",
-            "to": "external:fastticks"
-          }
-        ],
-        "path_nodes": [
-          "func:sys/src/9/port/devcons.c#conswrite",
-          "func:sys/src/9/port/devcons.c#writebintime",
-          "func:sys/src/9/port/tod.c#todsetfreq"
-        ],
-        "reason": "ambiguous-global-symbol",
-        "symbol": "fastticks"
       }
     },
     "chain:f7589c27a2667240": {
@@ -64417,9 +64417,9 @@
       "switch_count": 0
     },
     {
-      "call_count": 40,
+      "call_count": 59,
       "conditions": [],
-      "end_line": 130,
+      "end_line": 152,
       "id": "func:sys/src/9/pc64/onativeprobe.c#onativeprobe_proc",
       "line": 67,
       "name": "onativeprobe_proc",
@@ -64431,9 +64431,9 @@
     {
       "call_count": 4,
       "conditions": [],
-      "end_line": 144,
+      "end_line": 166,
       "id": "func:sys/src/9/pc64/onativeprobe.c#onativeprobe_start",
-      "line": 132,
+      "line": 154,
       "name": "onativeprobe_start",
       "params": "void",
       "path": "sys/src/9/pc64/onativeprobe.c",
@@ -67069,11 +67069,23 @@
       "switch_count": 0
     },
     {
+      "call_count": 1,
+      "conditions": [],
+      "end_line": 488,
+      "id": "func:sys/src/9/port/devcons.c#consread_qppid_read",
+      "line": 482,
+      "name": "consread_qppid_read",
+      "params": "void * buf, long n, vlong off",
+      "path": "sys/src/9/port/devcons.c",
+      "static": false,
+      "switch_count": 0
+    },
+    {
       "call_count": 49,
       "conditions": [],
-      "end_line": 646,
+      "end_line": 658,
       "id": "func:sys/src/9/port/devcons.c#consread",
-      "line": 478,
+      "line": 490,
       "name": "consread",
       "params": "Chan * c, void * buf, long n, vlong off",
       "path": "sys/src/9/port/devcons.c",
@@ -67083,9 +67095,9 @@
     {
       "call_count": 47,
       "conditions": [],
-      "end_line": 803,
+      "end_line": 815,
       "id": "func:sys/src/9/port/devcons.c#conswrite",
-      "line": 648,
+      "line": 660,
       "name": "conswrite",
       "params": "Chan * c, void * va, long n, vlong off",
       "path": "sys/src/9/port/devcons.c",
@@ -67095,9 +67107,9 @@
     {
       "call_count": 0,
       "conditions": [],
-      "end_line": 839,
+      "end_line": 851,
       "id": "func:sys/src/9/port/devcons.c#be2vlong",
-      "line": 828,
+      "line": 840,
       "name": "be2vlong",
       "params": "vlong * to, uchar * f",
       "path": "sys/src/9/port/devcons.c",
@@ -67107,9 +67119,9 @@
     {
       "call_count": 0,
       "conditions": [],
-      "end_line": 852,
+      "end_line": 864,
       "id": "func:sys/src/9/port/devcons.c#vlong2be",
-      "line": 841,
+      "line": 853,
       "name": "vlong2be",
       "params": "uchar * t, vlong from",
       "path": "sys/src/9/port/devcons.c",
@@ -67119,9 +67131,9 @@
     {
       "call_count": 0,
       "conditions": [],
-      "end_line": 867,
+      "end_line": 879,
       "id": "func:sys/src/9/port/devcons.c#be2long",
-      "line": 856,
+      "line": 868,
       "name": "be2long",
       "params": "long * to, uchar * f",
       "path": "sys/src/9/port/devcons.c",
@@ -67131,9 +67143,9 @@
     {
       "call_count": 4,
       "conditions": [],
-      "end_line": 894,
+      "end_line": 906,
       "id": "func:sys/src/9/port/devcons.c#readtime",
-      "line": 876,
+      "line": 888,
       "name": "readtime",
       "params": "ulong off, char * buf, int n",
       "path": "sys/src/9/port/devcons.c",
@@ -67143,9 +67155,9 @@
     {
       "call_count": 5,
       "conditions": [],
-      "end_line": 916,
+      "end_line": 928,
       "id": "func:sys/src/9/port/devcons.c#writetime",
-      "line": 899,
+      "line": 911,
       "name": "writetime",
       "params": "char * buf, int n",
       "path": "sys/src/9/port/devcons.c",
@@ -67155,9 +67167,9 @@
     {
       "call_count": 6,
       "conditions": [],
-      "end_line": 950,
+      "end_line": 962,
       "id": "func:sys/src/9/port/devcons.c#readbintime",
-      "line": 922,
+      "line": 934,
       "name": "readbintime",
       "params": "char * buf, int n",
       "path": "sys/src/9/port/devcons.c",
@@ -67167,9 +67179,9 @@
     {
       "call_count": 12,
       "conditions": [],
-      "end_line": 992,
+      "end_line": 1004,
       "id": "func:sys/src/9/port/devcons.c#writebintime",
-      "line": 958,
+      "line": 970,
       "name": "writebintime",
       "params": "char * buf, int n",
       "path": "sys/src/9/port/devcons.c",
@@ -67179,9 +67191,9 @@
     {
       "call_count": 5,
       "conditions": [],
-      "end_line": 1013,
+      "end_line": 1025,
       "id": "func:sys/src/9/port/devcons.c#cpushutdown",
-      "line": 994,
+      "line": 1006,
       "name": "cpushutdown",
       "params": "void",
       "path": "sys/src/9/port/devcons.c",
@@ -85107,8 +85119,8 @@
     "version": "1"
   },
   "graph": {
-    "external_or_unresolved_direct_edges": 7269,
-    "function_nodes": 3456,
+    "external_or_unresolved_direct_edges": 7277,
+    "function_nodes": 3457,
     "indirect_edges": [
       {
         "candidates": [],
@@ -91496,7 +91508,7 @@
       }
     ],
     "note": "Selected operation chains are stored once in chains[] and referenced by operations[].chain_id; full direct-edge lists are not duplicated here.",
-    "resolved_direct_edges": 16354
+    "resolved_direct_edges": 16366
   },
   "interface_candidates": {
     "Dev": {
@@ -93492,7 +93504,7 @@
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
-      "chain_id": "chain:2651a03106e6930d",
+      "chain_id": "chain:13ac4a33f1cfbfcb",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -93510,7 +93522,7 @@
         "table": "drivermsg"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -93556,7 +93568,7 @@
         "table": "rebootmsg"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -93584,7 +93596,7 @@
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
-      "chain_id": "chain:4adf68942df2a694",
+      "chain_id": "chain:b427a74b057eef6c",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -93602,7 +93614,7 @@
         "table": "rebootmsg"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -93630,7 +93642,7 @@
         "qemu"
       ],
       "async": "no asynchronous completion primitive identified",
-      "chain_id": "chain:2651a03106e6930d",
+      "chain_id": "chain:13ac4a33f1cfbfcb",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -93648,7 +93660,7 @@
         "table": "rebootmsg"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -93704,7 +93716,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -93746,7 +93758,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -93788,7 +93800,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -93875,7 +93887,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; rollback was not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -93917,7 +93929,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "unresolved",
@@ -93977,7 +93989,7 @@
       ],
       "async": "queue/wait/sleep/wakeup primitives observed",
       "branch": "Qbintime",
-      "chain_id": "chain:45bc78bf1c97fb51",
+      "chain_id": "chain:775b3a34c6c05516",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -93993,7 +94005,7 @@
         "qid": "Qbintime"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94007,7 +94019,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 543,
+        "line": 555,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "unresolved",
@@ -94038,7 +94050,7 @@
         "qid": "Qconfig"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94052,7 +94064,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 558,
+        "line": 570,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94083,7 +94095,7 @@
         "qid": "Qcons"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94097,7 +94109,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 496,
+        "line": 508,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94128,7 +94140,7 @@
         "qid": "Qcputime"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94142,7 +94154,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 499,
+        "line": 511,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94173,7 +94185,7 @@
         "qid": "Qdir"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94187,7 +94199,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 493,
+        "line": 505,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94218,7 +94230,7 @@
         "qid": "Qdrivers"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94232,7 +94244,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 612,
+        "line": 624,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94263,7 +94275,7 @@
         "qid": "Qhostdomain"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94277,7 +94289,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 549,
+        "line": 561,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94308,7 +94320,7 @@
         "qid": "Qhostowner"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94322,7 +94334,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 546,
+        "line": 558,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94353,7 +94365,7 @@
         "qid": "Qkmesg"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94367,7 +94379,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 515,
+        "line": 527,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94398,7 +94410,7 @@
         "qid": "Qkprint"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94412,7 +94424,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 531,
+        "line": 543,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94443,7 +94455,7 @@
         "qid": "Qmordor"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94457,7 +94469,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 634,
+        "line": 646,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94488,7 +94500,7 @@
         "qid": "Qnull"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94502,7 +94514,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 555,
+        "line": 567,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94533,7 +94545,7 @@
         "qid": "Qosversion"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94547,7 +94559,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 637,
+        "line": 649,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94578,7 +94590,7 @@
         "qid": "Qpid"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94592,7 +94604,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 534,
+        "line": 546,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94623,7 +94635,7 @@
         "qid": "Qppid"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94637,7 +94649,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 537,
+        "line": 549,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94668,7 +94680,7 @@
         "qid": "Qrandom"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94682,7 +94694,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 609,
+        "line": 621,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94713,7 +94725,7 @@
         "qid": "Qsysname"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94727,7 +94739,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 604,
+        "line": 616,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94758,7 +94770,7 @@
         "qid": "Qsysstat"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94772,7 +94784,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 561,
+        "line": 573,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94787,7 +94799,7 @@
       ],
       "async": "queue/wait/sleep/wakeup primitives observed",
       "branch": "Qtime",
-      "chain_id": "chain:0dec197744a0cc98",
+      "chain_id": "chain:f5468bed7c6d45d4",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -94803,7 +94815,7 @@
         "qid": "Qtime"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94817,7 +94829,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 540,
+        "line": 552,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "unresolved",
@@ -94848,7 +94860,7 @@
         "qid": "Quser"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94862,7 +94874,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 552,
+        "line": 564,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94893,7 +94905,7 @@
         "qid": "Qzero"
       },
       "handler": {
-        "line": 478,
+        "line": 490,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "consread"
       },
@@ -94907,7 +94919,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 630,
+        "line": 642,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94949,7 +94961,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; rollback was not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -94991,7 +95003,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95033,7 +95045,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95075,7 +95087,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95117,7 +95129,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "returns through C return paths; error escalation not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95132,7 +95144,7 @@
       ],
       "async": "no asynchronous completion primitive identified",
       "branch": "Qbintime",
-      "chain_id": "chain:f735ef39a53e877f",
+      "chain_id": "chain:b2cb017824096047",
       "conditions": [],
       "driver": "cons",
       "entry": {
@@ -95148,7 +95160,7 @@
         "qid": "Qbintime"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95162,7 +95174,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 688,
+        "line": 700,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "unresolved",
@@ -95193,7 +95205,7 @@
         "qid": "Qconfig"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95207,7 +95219,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 705,
+        "line": 717,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95238,7 +95250,7 @@
         "qid": "Qcons"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95252,7 +95264,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 664,
+        "line": 676,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95283,7 +95295,7 @@
         "qid": "Qconsctl"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95297,7 +95309,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 680,
+        "line": 692,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95328,7 +95340,7 @@
         "qid": "Qdrivers"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95342,7 +95354,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 709,
+        "line": 721,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95373,7 +95385,7 @@
         "qid": "Qhostdomain"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95387,7 +95399,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 696,
+        "line": 708,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95418,7 +95430,7 @@
         "qid": "Qhostowner"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95432,7 +95444,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 693,
+        "line": 705,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95463,7 +95475,7 @@
         "qid": "Qmordor"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95477,7 +95489,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 795,
+        "line": 807,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95508,7 +95520,7 @@
         "qid": "Qnull"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95522,7 +95534,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 702,
+        "line": 714,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95553,7 +95565,7 @@
         "qid": "Qreboot"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95567,7 +95579,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 742,
+        "line": 754,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95598,7 +95610,7 @@
         "qid": "Qsysname"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95612,7 +95624,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 783,
+        "line": 795,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95643,7 +95655,7 @@
         "qid": "Qsysstat"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95657,7 +95669,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 769,
+        "line": 781,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95688,7 +95700,7 @@
         "qid": "Qtime"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95702,7 +95714,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 683,
+        "line": 695,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95733,7 +95745,7 @@
         "qid": "Quser"
       },
       "handler": {
-        "line": 648,
+        "line": 660,
         "path": "sys/src/9/port/devcons.c",
         "symbol": "conswrite"
       },
@@ -95747,7 +95759,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; waserror/poperror rollback is present",
       "source": {
-        "line": 699,
+        "line": 711,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -95789,7 +95801,7 @@
       "registration_id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "return_behavior": "may raise a Plan 9 error; rollback was not observed in the selected path",
       "source": {
-        "line": 805,
+        "line": 817,
         "path": "sys/src/9/port/devcons.c"
       },
       "status": "partial",
@@ -141410,7 +141422,7 @@
       },
       "id": "reg:Dev:sys/src/9/port/devcons.c#consdevtab",
       "identifier": "consdevtab",
-      "line": 805,
+      "line": 817,
       "name": "cons",
       "path": "sys/src/9/port/devcons.c",
       "type": "Dev"
@@ -147543,7 +147555,7 @@
         {
           "from": "func:sys/src/9/port/devcons.c#conswrite",
           "kind": "direct",
-          "line": 674,
+          "line": 686,
           "path": "sys/src/9/port/devcons.c",
           "symbol": "putstrn0",
           "to": "func:sys/src/9/port/devcons.c#putstrn0"
@@ -150685,7 +150697,7 @@
           "qemu": "outside-config-roots",
           "riscv64": "outside-config-roots"
         },
-        "bytes": 4461,
+        "bytes": 5750,
         "classification": "kernel support source",
         "conditions": [],
         "functions": 5,
@@ -150699,7 +150711,7 @@
         },
         "path": "sys/src/9/pc64/onativeprobe.c",
         "registrations": [],
-        "sha256": "3d2a71402cb8332eac96c458a3b46a21de1f78b863b5629d5a426191c92c7f22"
+        "sha256": "340a1bd76830d90b0dc6a91092c7a8bfc3e0ba373538341efb0e11e8813e6598"
       },
       {
         "build": {
@@ -151167,10 +151179,10 @@
           "qemu": "active",
           "riscv64": "outside-config-roots"
         },
-        "bytes": 17881,
+        "bytes": 18158,
         "classification": "kernel driver/interface source",
         "conditions": [],
-        "functions": 32,
+        "functions": 33,
         "initializers": 10,
         "kind": "c",
         "normal_amd64": "active",
@@ -151183,7 +151195,7 @@
         "registrations": [
           "reg:Dev:sys/src/9/port/devcons.c#consdevtab"
         ],
-        "sha256": "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896"
+        "sha256": "5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61"
       },
       {
         "build": {
@@ -153423,7 +153435,7 @@
       }
     ],
     "fingerprint_algorithm": "sha256 over sorted 'path\\0file-sha256\\n' records",
-    "fingerprint_sha256": "c6394423ca77a7a5bf9bcb286c8e9557b5f9b500b70dc665a97067722df66067",
+    "fingerprint_sha256": "3fe196b84e63da346e5783fad13478a6c10ef3ba8f62f5cbbb32b6939a58f2d6",
     "root": "sys/src/9"
   },
   "structs": {
@@ -159373,7 +159385,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:attach",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159417,7 +159429,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bread",
         "reason": "indirect callback edge retained; concrete target not statically resolved",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159461,7 +159473,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bwrite",
         "reason": "indirect callback edge retained; concrete target not statically resolved",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159489,7 +159501,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:create",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159503,7 +159515,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:init",
         "reason": "ambiguous-global-symbol",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "unresolved",
@@ -159531,7 +159543,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qbintime",
         "reason": "ambiguous-global-symbol",
         "source": {
-          "line": 543,
+          "line": 555,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "unresolved",
@@ -159545,7 +159557,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qconfig",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 558,
+          "line": 570,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159559,7 +159571,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qcons",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 496,
+          "line": 508,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159573,7 +159585,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qcputime",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 499,
+          "line": 511,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159587,7 +159599,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qdir",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 493,
+          "line": 505,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159601,7 +159613,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qdrivers",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 612,
+          "line": 624,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159615,7 +159627,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qhostdomain",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 549,
+          "line": 561,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159629,7 +159641,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qhostowner",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 546,
+          "line": 558,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159643,7 +159655,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qkmesg",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 515,
+          "line": 527,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159657,7 +159669,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qkprint",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 531,
+          "line": 543,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159671,7 +159683,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qmordor",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 634,
+          "line": 646,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159685,7 +159697,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qnull",
         "reason": "no device or service primitive identified within the bounded chain",
         "source": {
-          "line": 555,
+          "line": 567,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159699,7 +159711,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qosversion",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 637,
+          "line": 649,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159713,7 +159725,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qpid",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 534,
+          "line": 546,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159727,7 +159739,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qppid",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 537,
+          "line": 549,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159741,7 +159753,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qrandom",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 609,
+          "line": 621,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159755,7 +159767,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qsysname",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 604,
+          "line": 616,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159769,7 +159781,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qsysstat",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 561,
+          "line": 573,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159783,7 +159795,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qtime",
         "reason": "ambiguous-global-symbol",
         "source": {
-          "line": 540,
+          "line": 552,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "unresolved",
@@ -159797,7 +159809,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Quser",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 552,
+          "line": 564,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159811,7 +159823,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qzero",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 630,
+          "line": 642,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159825,7 +159837,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:remove",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159839,7 +159851,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:reset",
         "reason": "no device or service primitive identified within the bounded chain",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159853,7 +159865,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:shutdown",
         "reason": "no device or service primitive identified within the bounded chain",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159867,7 +159879,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:stat",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159881,7 +159893,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:walk",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159895,7 +159907,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qbintime",
         "reason": "ambiguous-global-symbol",
         "source": {
-          "line": 688,
+          "line": 700,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "unresolved",
@@ -159909,7 +159921,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qconfig",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 705,
+          "line": 717,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159923,7 +159935,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qcons",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 664,
+          "line": 676,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159937,7 +159949,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qconsctl",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 680,
+          "line": 692,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159951,7 +159963,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qdrivers",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 709,
+          "line": 721,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159965,7 +159977,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qhostdomain",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 696,
+          "line": 708,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159979,7 +159991,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qhostowner",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 693,
+          "line": 705,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -159993,7 +160005,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qmordor",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 795,
+          "line": 807,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160007,7 +160019,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qnull",
         "reason": "no device or service primitive identified within the bounded chain",
         "source": {
-          "line": 702,
+          "line": 714,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160021,7 +160033,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qreboot",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 742,
+          "line": 754,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160035,7 +160047,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qsysname",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 783,
+          "line": 795,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160049,7 +160061,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qsysstat",
         "reason": "no device or service primitive identified within the bounded chain",
         "source": {
-          "line": 769,
+          "line": 781,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160063,7 +160075,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qtime",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 683,
+          "line": 695,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160077,7 +160089,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Quser",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 699,
+          "line": 711,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",
@@ -160091,7 +160103,7 @@
         "operation": "op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:wstat",
         "reason": "chain reached only kernel services/generic Dev helpers",
         "source": {
-          "line": 805,
+          "line": 817,
           "path": "sys/src/9/port/devcons.c"
         },
         "status": "partial",

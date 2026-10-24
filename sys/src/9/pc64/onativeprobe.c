@@ -70,7 +70,7 @@ onativeprobe_proc(void *arg)
 	char rbuf[64], pbuf[64], full[64], part[64], tmp[64];
 	char rtext[64], ptext[64];
 	long ret, ret2;
-	ulong rtcval, pidval;
+	ulong rtcval, pidval, ppid;
 
 	USED(arg);
 
@@ -118,6 +118,28 @@ onativeprobe_proc(void *arg)
 	probeaccept("cons", NATIVE_CONS_QPID, pbuf, 0, 0, 0);
 	probeaccept("cons", NATIVE_CONS_QPID, pbuf, -5, 0, -5);
 	probeaccept("cons", NATIVE_CONS_QPID, pbuf, 8, 4096, 0);
+
+	/* Qppid is process context, including a valid parentpid of zero. */
+	ppid = up->parentpid;
+	memset(pbuf, 0, sizeof pbuf);
+	ret = native_cons_read(NATIVE_CONS_QPPID, pbuf, 32, 0);
+	pidval = strtoul(pbuf, 0, 10);
+	snprint(ptext, sizeof ptext, "%11lud ", ppid);
+	print("ONATIVEPROBE: PPID symbol=native_cons_qppid_read source=consread_qppid_read selector=%d n=32 off=0 ret=%ld value=%lud ppid=%lud match=%d\n",
+		NATIVE_CONS_QPPID, ret, pidval, ppid, pidval == ppid);
+	print("ONATIVEPROBE: PPID ");
+	probetext("text", pbuf, ret);
+	print(" format_match=%d\n", ret == NATIVE_CONS_QPPID_SIZE && memcmp(pbuf, ptext, NATIVE_CONS_QPPID_SIZE) == 0);
+	ret = native_cons_read(NATIVE_CONS_QPPID, full, NATIVE_CONS_QPPID_SIZE, 0);
+	ret2 = native_cons_read(NATIVE_CONS_QPPID, part, 4, 8);
+	print("ONATIVEPROBE: PPID OFFSET fullret=%ld partret=%ld match=%d\n",
+		ret, ret2, ret2 == 4 && memcmp(part, full + 8, 4) == 0);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, 64, 0, NATIVE_CONS_QPPID_SIZE);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, 0, 0, 0);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, -5, 0, -5);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, 8, 4096, 0);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, 8, -1, 0);
+	probeaccept("cons", NATIVE_CONS_QPPID, pbuf, 8, 0x100000000LL, 8);
 
 	print("ONATIVEPROBE: AUTH rtc=kernel-internal-only cons=kernel-internal-only up=set\n");
 	probeaccept("rtc", NATIVE_RTC_QRTC + 100, tmp, 8, 0, 0);

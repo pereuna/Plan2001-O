@@ -1,6 +1,6 @@
 #!/bin/bash
 # E2 opt-in native read probe: boot the pc64native kernel in disposable QEMU
-# and verify the generated RTC Qrtc and console Qpid entries are linked and
+# and verify the generated RTC Qrtc and console Qpid/Qppid entries are linked and
 # executed in a real kernel process.  No O disk, user namespace or Chan is
 # involved in the measured window.
 #   SECONDS_TO_RUN  hard timeout, default 120
@@ -96,6 +96,23 @@ grep -q '^ONATIVEPROBE: cons selector=12 n=-5 off=0 ret=-5 want=-5 match=1$' "$l
 grep -q '^ONATIVEPROBE: cons selector=12 n=8 off=4096 ret=0 want=0 match=1$' "$log" ||
 	fail "Qpid bounds read mismatch"
 
+grep -q '^ONATIVEPROBE: PPID symbol=native_cons_qppid_read source=consread_qppid_read selector=13 n=32 off=0 ret=12 value=[0-9][0-9]* ppid=[0-9][0-9]* match=1$' "$log" ||
+	fail "Qppid native read marker missing or parent PID mismatch"
+grep -q '^ONATIVEPROBE: PPID text=\[[ 0-9]*\] format_match=1$' "$log" ||
+	fail "Qppid exact formatting mismatch"
+grep -q '^ONATIVEPROBE: PPID OFFSET fullret=12 partret=4 match=1$' "$log" ||
+	fail "Qppid offset read mismatch"
+for expected in \
+	'n=64 off=0 ret=12 want=12' \
+	'n=0 off=0 ret=0 want=0' \
+	'n=-5 off=0 ret=-5 want=-5' \
+	'n=8 off=4096 ret=0 want=0' \
+	'n=8 off=-1 ret=0 want=0' \
+	'n=8 off=4294967296 ret=8 want=8'; do
+	grep -q "^ONATIVEPROBE: cons selector=13 $expected match=1$" "$log" ||
+		fail "Qppid boundary mismatch: $expected"
+done
+
 grep -q '^ONATIVEPROBE: AUTH rtc=kernel-internal-only cons=kernel-internal-only up=set$' "$log" ||
 	fail "authorization/context marker missing"
 grep -q '^ONATIVEPROBE: rtc selector=101 caught=1 err=native rtc: unsupported selector$' "$log" ||
@@ -110,12 +127,12 @@ grep -q '^ONATIVEPROBE: HANDOFF opt-in native read probe$' "$log" ||
 	fail "native probe handoff marker missing"
 
 # Link evidence: the generated symbols and shared helpers are in the kernel.
-for sym in native_rtc_qrtc_read native_cons_qpid_read rtcqread consqpidread; do
+for sym in native_rtc_qrtc_read native_cons_qpid_read native_cons_qppid_read rtcqread consqpidread consread_qppid_read; do
 	grep -a -q "$sym" "$b/$nkernel" || fail "kernel lacks linked symbol $sym"
 done
 
 if [ "$fails" = 0 ]; then
-	echo "PASS: E2 native RTC Qrtc and console Qpid probe (linked and executed)"
+	echo "PASS: E4 native RTC Qrtc and console Qpid/Qppid probe (linked and executed)"
 	echo "serial: $serial"
 else
 	echo "FAIL: $fails"

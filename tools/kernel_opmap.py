@@ -114,13 +114,35 @@ NATIVE_REVIEWED_BINDINGS: dict[str, dict[str, Any]] = {
         },
     },
     "sys/src/9/port/devcons.c": {
-        "sha256": "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896",
+        "sha256": "5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61",
         "driver": "cons",
         "device": "c",
         "dirtab": "consdir",
-        "selector_values": {"Qpid": 12},
+        "selector_values": {"Qpid": 12, "Qppid": 13},
         "constants": {},
         "operations": {
+            "read:Qppid": {
+                "kind": "readnum",
+                "conversion": "DIRECT",
+                "helper": "consread_qppid_read",
+                "allowed_calls": [],
+                "allowed_idents": ["up", "parentpid"],
+                "allowed_value": "up->parentpid",
+                "allowed_constants": {"NUMSIZE": 12},
+                "require_up": True,
+                "authorization": (
+                    "kernel-internal-only; no independent user authorization; "
+                    "legacy consopen/devopen and consdir ppid 0444 apply only "
+                    "to legacy requests; no userspace entry"
+                ),
+                "context": ["up != nil", "current process parentpid", "read-only",
+                            "caller supplies a valid kernel buffer and bounded length"],
+                "reason": (
+                    "E4 reviewed generated extraction: legacy Qppid and native "
+                    "dispatch share consread_qppid_read; value up->parentpid, "
+                    "NUMSIZE, guard and offset are source-verified"
+                ),
+            },
             "read:Qpid": {
                 "kind": "readnum",
                 "conversion": "DIRECT",
@@ -4424,6 +4446,8 @@ def _extract_readnum_operation(
         binding_op.get("allowed_calls", []),
         binding_op.get("allowed_idents", []),
     )
+    if binding_op.get("allowed_value") is not None and value_expr != binding_op["allowed_value"]:
+        raise NativeGenerationError(f"{helper_name}: readnum value differs from reviewed expression")
     size_expr, size_value = _validate_size_expr(
         readnum_args[4],
         binding_op.get("allowed_constants", {}),
@@ -5070,6 +5094,7 @@ E3_PINNED_SHA = {
     "sys/src/9/port/devcons.c": {
         "b6811757c92d7dcee2cfd5413b8b887f21f8b12c503bb839b301506d7e01ece4",
         "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896",
+        "5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61",
     },
 }
 E3_KNOWN_REV_SHA = {
@@ -5183,15 +5208,29 @@ def _e3_directory_guard(stmt: Sequence[Token]) -> dict[str, Any] | None:
     if close is None or close + 1 >= len(stmt):
         return None
     cond = join_tokens(stmt[2:close])
-    if "qid" not in cond or "QTDIR" not in cond:
+    # This condition is omitted from the native helper.  Merely containing
+    # qid/QTDIR is insufficient: a comma expression can mutate offset first.
+    if [t.value for t in stmt[2:close]] != ["c", "->", "qid", ".", "type", "&", "QTDIR"]:
         return None
     body = list(stmt[close + 1:])
     if body and body[0].value == "{":
         end = find_matching(body, 0, "{", "}")
-        if end is None:
+        if end != len(body) - 1:
             return None
         body = body[1:end]
-    if len(body) < 3 or body[0].value != "return" or body[1].value != "devdirread":
+    if len(body) < 3 or body[0].value != "return" or body[-1].value != ";":
+        return None
+    args = _match_call(body[1:-1], "devdirread")
+    if args is None or len(args) != 6:
+        return None
+    if [[t.value for t in arg] for arg in args[:3]] != [["c"], ["buf"], ["n"]]:
+        return None
+    if len(args[3]) != 1 or args[3][0].kind != "id":
+        return None
+    table = args[3][0].value
+    if [t.value for t in args[4]] != ["nelem", "(", table, ")"]:
+        return None
+    if [t.value for t in args[5]] != ["devgen"]:
         return None
     return {"condition": cond, "text": join_tokens(stmt)}
 
@@ -5808,6 +5847,8 @@ def _e3_candidate(
             raise ExtractionRefusal(f"source file {path!r} is not in the analysed tree")
         if "\r" in sf.text:
             raise ExtractionRefusal("CR/CRLF line endings are not supported")
+        if hashlib.sha256(sf.text.encode("utf-8")).hexdigest() != sf.sha256:
+            raise ExtractionRefusal("source bytes do not round-trip through UTF-8")
         for macro in ("off", "n", "buf", "up", "readnum"):
             if re.search(r"^\s*#\s*define\s+" + macro + r"\b", sf.masked, re.M):
                 raise ExtractionRefusal(
@@ -6130,7 +6171,11 @@ def write_extraction_artifacts(spec: dict[str, Any], out_dir: Path) -> list[Path
 
 def check_extraction_artifacts(spec: dict[str, Any], out_dir: Path) -> list[str]:
     problems: list[str] = []
-    for name, text in sorted(_extraction_outputs(spec, out_dir).items()):
+    outputs = _extraction_outputs(spec, out_dir)
+    for path in sorted(out_dir.glob("*.patch")):
+        if path.name not in outputs:
+            problems.append(f"unexpected extraction patch (not in manifest): {path}")
+    for name, text in sorted(outputs.items()):
         p = out_dir / name
         if not p.is_file():
             problems.append(f"missing extraction proposal artifact: {p}")

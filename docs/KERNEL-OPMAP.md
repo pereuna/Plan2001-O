@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `c6394423ca77a7a5bf9bcb286c8e9557b5f9b500b70dc665a97067722df66067`
+- Source fingerprint (SHA-256): `3fe196b84e63da346e5783fad13478a6c10ef3ba8f62f5cbbb32b6939a58f2d6`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -147,7 +147,7 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native | 1 |
 | `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native | 4 |
 | `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:805 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:817 | pc64, pc64mp, pc64native, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native | 15 |
 | `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, qemu | 15 |
 | `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, qemu | 15 |
@@ -217,54 +217,54 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `cons:cmd panic` | ct->index | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:38 |
 | `cons:cmd rdb` | ct->index | `conswrite` | external-unknown consdebug | partial | E | N | sys/src/9/port/devcons.c:39 |
 | `cons:cmd reboot` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:37 |
-| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
-| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:805 |
-| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:805 |
+| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
+| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:817 |
+| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:817 |
 | `cons:close Qkprint (kprint)` | (ulong) c->qid.path | `consclose` | service-only | partial | - | N | sys/src/9/port/devcons.c:456 |
-| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
-| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:805 |
+| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
+| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:817 |
 | `cons:open Qkprint (kprint)` | (ulong) c->qid.path | `consopen` | service-only | partial | E | N | sys/src/9/port/devcons.c:431 |
-| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:543 |
-| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:558 |
-| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:496 |
-| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:499 |
-| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:493 |
-| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:612 |
-| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:549 |
-| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:546 |
-| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:515 |
-| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:531 |
-| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:634 |
-| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | EA | N | sys/src/9/port/devcons.c:555 |
-| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:637 |
-| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:534 |
-| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:537 |
-| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:609 |
-| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:604 |
-| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:561 |
-| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:540 |
-| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:552 |
-| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:630 |
-| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
-| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:805 |
-| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:805 |
-| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
-| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:805 |
-| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:688 |
-| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:705 |
-| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:664 |
-| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:680 |
-| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:709 |
-| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:696 |
-| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:693 |
-| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:795 |
-| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:702 |
-| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:742 |
-| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:783 |
-| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:769 |
-| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:683 |
-| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:699 |
-| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:805 |
+| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:555 |
+| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:570 |
+| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:508 |
+| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:511 |
+| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:505 |
+| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:624 |
+| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:561 |
+| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:558 |
+| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:527 |
+| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:543 |
+| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:646 |
+| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | EA | N | sys/src/9/port/devcons.c:567 |
+| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:649 |
+| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:546 |
+| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:549 |
+| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:621 |
+| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:616 |
+| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:573 |
+| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:552 |
+| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:564 |
+| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:642 |
+| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
+| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:817 |
+| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:817 |
+| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
+| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
+| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:700 |
+| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:717 |
+| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:676 |
+| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:692 |
+| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:721 |
+| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:708 |
+| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:705 |
+| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:807 |
+| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:714 |
+| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:754 |
+| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:795 |
+| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:781 |
+| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:695 |
+| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:711 |
+| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
 
 #### `i8250`
 
@@ -1720,13 +1720,13 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `conswrite` | sys/src/9/port/devcons.c:648 |
+| 1 | `conswrite` | sys/src/9/port/devcons.c:660 |
 | 2 | `putstrn0` | sys/src/9/port/devcons.c:111 |
 | 3 | `uartputs` | sys/src/9/port/devuart.c:845 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `conswrite` | `func:sys/src/9/port/devcons.c#putstrn0` | sys/src/9/port/devcons.c:674 |
+| 1 | `conswrite` | `func:sys/src/9/port/devcons.c#putstrn0` | sys/src/9/port/devcons.c:686 |
 | 2 | `putstrn0` | `func:sys/src/9/port/devuart.c#uartputs` | sys/src/9/port/devcons.c:145 |
 | 3 | `uartputs` | `indirect:putc` | sys/src/9/port/devuart.c:856 |
 

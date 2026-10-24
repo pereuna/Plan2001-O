@@ -513,6 +513,21 @@ class NativeGeneratorTests(unittest.TestCase):
         self.assertIn("native_cons_qpid_read", source)
         self.assertIn("return rtcqread(buf, n, off);", source)
         self.assertIn("return consqpidread(buf, n, off);", source)
+        ppid = next(o for o in cons["operations"]
+                    if o["selector"].get("symbol") == "Qppid"
+                    and o["semantics"].get("callback") == "read")
+        self.assertEqual(ppid["conversion"], "DIRECT")
+        self.assertEqual(ppid["selector"]["value"], 13)
+        self.assertEqual(ppid["native"]["value_expression"], "up->parentpid")
+        self.assertEqual(ppid["native"]["size_expression"], "NUMSIZE")
+        self.assertEqual(ppid["native"]["size_value"], 12)
+        self.assertEqual(ppid["native"]["guard"]["condition"], "n <= 0")
+        self.assertTrue(ppid["native"]["require_up"])
+        self.assertIn("no independent user authorization", ppid["authorization"])
+        self.assertIn("consread_qppid_read(buf, n, off)", ppid["source"]["branch_call"])
+        self.assertIn("NATIVE_CONS_QPPID = 13", header)
+        self.assertIn("return consread_qppid_read(buf, n, off);", source)
+        self.assertIn("return native_cons_qppid_read(buf, n, off);", source)
         self.assertIn('error("native rtc: unsupported selector")', source)
         self.assertIn('error("native cons: unsupported selector")', source)
         for text in (header, source):
@@ -997,6 +1012,37 @@ def e3_synthetic_spec(
 
 
 class ExtractionProposalTests(unittest.TestCase):
+    def test_e4_source_bytes_and_stale_patch_fail_closed(self) -> None:
+        path = "sys/src/9/port/devsynd.c"
+        with fixture({"port/devsynd.c": e3_synthetic_source(),
+                      "testarch/testconf": "dev\n\ttest\n\tsynd\n"}) as td:
+            root = Path(td)
+            source = root / path
+            raw = b"/* \xff */\n" + source.read_bytes()
+            source.write_bytes(raw)
+            spec = om.propose_extractions(root, "testconf", ["synd:read:Qsyn"],
+                                          expect_sha={path: hashlib.sha256(raw).hexdigest()})
+            self.assertEqual(spec["candidates"][0]["status"], "REFUSED")
+            self.assertIn("UTF-8", spec["candidates"][0]["reasons"][0])
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            spec = e3_synthetic_spec()
+            om.write_extraction_artifacts(spec, out)
+            refused = e3_synthetic_spec(prefix="offset += 1;")
+            om.write_extraction_artifacts(refused, out)
+            self.assertTrue(any("unexpected extraction patch" in p
+                                for p in om.check_extraction_artifacts(refused, out)))
+
+    def test_e4_directory_guard_cannot_hide_mutation(self) -> None:
+        call = "return devdirread(c, buf, n, syndir, nelem(syndir), devgen);"
+        for prefix in ("offset += 1;",
+                       "if((offset += 1, c->qid.type & QTDIR)) " + call):
+            spec = e3_synthetic_spec(prefix=prefix)
+            self.assertEqual(spec["candidates"][0]["status"], "REFUSED")
+            self.assertEqual(spec["patches"], [])
+        spec = e3_synthetic_spec(prefix="if(c->qid.type & QTDIR) " + call)
+        self.assertEqual(spec["candidates"][0]["status"], "DIRECT-CANDIDATE")
+
     def test_pre_e2_rtc_and_cons_generate_reviewable_patches(self) -> None:
         with e3_pre_fixture() as td:
             root = Path(td)
@@ -1077,31 +1123,36 @@ class ExtractionProposalTests(unittest.TestCase):
     def test_head_qppid_proposal_and_already_extracted(self) -> None:
         devcons = REPO / "sys/src/9/port/devcons.c"
         before = devcons.read_bytes()
-        spec = om.propose_extractions(REPO, "pc64", ["cons:read:Qppid"])
-        self.assertEqual(len(spec["patches"]), 1)
-        cand = spec["candidates"][0]
-        self.assertEqual(cand["status"], "DIRECT-CANDIDATE")
-        self.assertEqual(cand["generated_helper"]["name"], "consread_qppid_read")
-        self.assertEqual(cand["value_expression"], "up->parentpid")
-        self.assertEqual(cand["entry_guard"]["condition"], "n <= 0")
-        self.assertEqual(cand["permission"]["perm"], "0444")
-        self.assertIn("up->parentpid", cand["context"])
-        patch = om._extraction_outputs(spec, REPO)["devcons.c.patch"]
-        self.assertEqual(
-            hashlib.sha256(patch.encode()).hexdigest(),
-            "abb253408f780ef4955fe3759da74dcf7ba3389ae5d83c3a38ecbfa6f2119ee3",
-        )
-        with e3_copy_paths(REPO, ["sys/src/9/port/devcons.c"]) as copy_td:
-            copy = Path(copy_td)
-            e3_apply_check(copy, "devcons.c.patch", patch)
+        # Preserve the E3a unapplied-proposal assertion on its historical input.
+        with e3_pre_fixture() as td:
+            root = Path(td)
+            write(root, "sys/src/9/port/devcons.c", e3_git_show(
+                "10d9fcd2640496e085a6e7b13d02d0643fbad1d0", "sys/src/9/port/devcons.c"))
+            spec = om.propose_extractions(root, "testconf", ["cons:read:Qppid"])
+            self.assertEqual(len(spec["patches"]), 1)
+            cand = spec["candidates"][0]
+            self.assertEqual(cand["status"], "DIRECT-CANDIDATE")
+            self.assertEqual(cand["generated_helper"]["name"], "consread_qppid_read")
+            self.assertEqual(cand["value_expression"], "up->parentpid")
+            self.assertEqual(cand["entry_guard"]["condition"], "n <= 0")
+            self.assertEqual(cand["permission"]["perm"], "0444")
+            self.assertIn("up->parentpid", cand["context"])
+            patch = om._extraction_outputs(spec, REPO)["devcons.c.patch"]
+            self.assertEqual(
+                hashlib.sha256(patch.encode()).hexdigest(),
+                "abb253408f780ef4955fe3759da74dcf7ba3389ae5d83c3a38ecbfa6f2119ee3",
+            )
+            with e3_copy_paths(root, ["sys/src/9/port/devcons.c"]) as copy_td:
+                copy = Path(copy_td)
+                e3_apply_check(copy, "devcons.c.patch", patch)
         self.assertEqual(before, devcons.read_bytes())
 
         extracted = om.propose_extractions(
-            REPO, "pc64", ["rtc:read:Qrtc", "cons:read:Qpid"]
+            REPO, "pc64", ["rtc:read:Qrtc", "cons:read:Qpid", "cons:read:Qppid"]
         )
         self.assertEqual(
             [c["status"] for c in extracted["candidates"]],
-            ["ALREADY-EXTRACTED", "ALREADY-EXTRACTED"],
+            ["ALREADY-EXTRACTED", "ALREADY-EXTRACTED", "ALREADY-EXTRACTED"],
         )
         self.assertEqual(extracted["patches"], [])
         self.assertEqual(before, devcons.read_bytes())

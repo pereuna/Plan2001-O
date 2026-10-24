@@ -135,6 +135,9 @@ if not if(~ $what kernel){
 	mklog /sys/src/libc/9syscall 9syscall install
 	for(c in aux/kbdfs micropython oinit ohandle oexec)
 		mklog /sys/src/cmd/$c `{basename $c} install
+	# Keep the freshly compiled interpreter available to the D2b O seed gate.
+	mkdir -p $out/root/$objtype/bin
+	cp /$objtype/bin/micropython $out/root/$objtype/bin
 	cp /$objtype/bin/aux/kbdfs $out
 	mklog /sys/src/cmd/ktest ktest install 'BIN='^$out
 	kernel

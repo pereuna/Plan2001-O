@@ -475,6 +475,18 @@ consqpidread(void *buf, long n, vlong off)
 	return readnum((ulong)off, buf, n, up->pid, NUMSIZE);
 }
 
+/*
+ * E3 proposal: cons read Qppid extraction candidate.
+ * Kernel-internal only; review before applying.  Not an approved ABI.
+ */
+long
+consread_qppid_read(void *buf, long n, vlong off)
+{
+	if(n <= 0) return n;
+	vlong offset = off;
+	return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);
+}
+
 static long
 consread(Chan *c, void *buf, long n, vlong off)
 {
@@ -535,7 +547,7 @@ consread(Chan *c, void *buf, long n, vlong off)
 		return consqpidread(buf, n, off);
 
 	case Qppid:
-		return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);
+		return consread_qppid_read(buf, n, off);
 
 	case Qtime:
 		return readtime((ulong)offset, buf, n);
