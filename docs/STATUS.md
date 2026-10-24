@@ -87,6 +87,29 @@ deliberate `--write`; `NATIVE_PROBE=1 WHAT=kernel tools/build.sh` PASS;
 `what=kernel` list now builds `ohandle`/`oexec` so a clean kernel build does
 not depend on a previous `WHAT=all`.
 
+## E3 extraction proposals (source-to-source, not applied)
+
+`tools/kernel_opmap.py --propose-extraction` uses the same `Analyzer` token
+spans to propose a helper insertion plus one selected-case replacement, emitted
+as a reviewable unified diff under `build/generated/`.  It never writes tracked
+kernel sources or activates a patch.
+
+- **Pre-E2 input** `7b4dfac`: RTC `Qrtc` and cons `Qpid` both `DIRECT-CANDIDATE`,
+  two patches; source SHAs `45722e4f...` and `b6811757...`.
+- **Current HEAD**: cons `Qppid` `DIRECT-CANDIDATE` (no source mutation);
+  RTC `Qrtc` and cons `Qpid` correctly reported `ALREADY-EXTRACTED`.
+- **Synthetic** renamed static Dev also produces a patch through the same rule.
+- **Apply/compile evidence:** `git apply --check` PASS against disposable exact
+  bases; an isolated Plan 9 `6c` trial compiled both patched pre-E2 files.
+- **Checks:** `python3 tools/test_kernel_opmap.py` 26/26 PASS; E2 native
+  generation/check PASS; normal OMAP `--check` PASS.  No E3 kernel rebuild was
+  needed because no kernel source changed; optional reruns of the existing E2
+  native probe and D2b server gates PASS against the unchanged kernel.
+
+Proposals remain unapplied and are not approved native bindings.  The helper is
+kernel-internal-only; runtime/Chan-free claims require a separate reviewed
+apply, link and boot step.
+
 ## Boundaries and limitations
 
 - **Pathless measured execution is not whole-kernel Chan independence.** The full kernel retains many 9Front `Chan`, `Qid`, `Dirtab`, `Walk`, `Dev`, namespace and 9P implementations. Their *mere presence* is not a runtime path-use claim; their removal is not demonstrated. Read `docs/KERNEL-OPMAP-NOTES.md` and `docs/CHAN-DEPENDENCIES-INDEX.md` for analysis scope.

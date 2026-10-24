@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import difflib
 import hashlib
 import json
 import os
@@ -76,8 +77,9 @@ NATIVE_REVIEWED_BINDINGS: dict[str, dict[str, Any]] = {
                 "allowed_constants": {},
                 "require_up": False,
                 "authorization": (
-                    "kernel-internal-only; rtcdir Qrtc is 0444 and rtcopen "
-                    "permits any user read; this is not a new user entry"
+                    "kernel-internal-only; rtcdir Qrtc is 0664 (other-read "
+                    "set) and rtcopen permits any user read; this is not a "
+                    "new user entry"
                 ),
                 "context": ["shared helper is called by rtcread's Qrtc branch"],
                 "reason": (
@@ -5048,6 +5050,967 @@ def check_native_artifacts(
     return problems
 
 
+
+# ---------------------------------------------------------------------------
+# E3 source-to-source extraction proposals
+#
+# This stage consumes the same Analyzer IR.  It never writes to the source
+# tree: it only proposes a helper insertion and a selected-case replacement,
+# then emits a unified diff under build/generated/ for review.
+
+EXTRACTION_SCHEMA = "plan2001.kernel-extraction/v1"
+EXTRACTION_GENERATOR_VERSION = "1"
+EXTRACTION_DEFAULT_OUT = "build/generated/e3"
+E3_SAFE_PROCESS_FIELDS = {"pid", "parentpid"}
+E3_PINNED_SHA = {
+    "sys/src/9/pc/devrtc.c": {
+        "45722e4fc13195b14924e7781c5eae09412704919233315f2502c0bfed3f1bcb",
+        "6c2f2fd951f861b99323aa372ad902ffedf0f36124ef354be2f1f336c44cbe5d",
+    },
+    "sys/src/9/port/devcons.c": {
+        "b6811757c92d7dcee2cfd5413b8b887f21f8b12c503bb839b301506d7e01ece4",
+        "068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896",
+    },
+}
+E3_KNOWN_REV_SHA = {
+    "7b4dfac4903e909dc2a00f37e9320335808029ac": {
+        "sys/src/9/pc/devrtc.c":
+            "45722e4fc13195b14924e7781c5eae09412704919233315f2502c0bfed3f1bcb",
+        "sys/src/9/port/devcons.c":
+            "b6811757c92d7dcee2cfd5413b8b887f21f8b12c503bb839b301506d7e01ece4",
+    },
+}
+
+
+class ExtractionRefusal(Exception):
+    def __init__(self, reason: str, evidence: dict[str, Any] | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.evidence = evidence or {}
+
+
+def _e3_line_start(text: str, offset: int) -> int:
+    p = text.rfind("\n", 0, offset)
+    return 0 if p < 0 else p + 1
+
+
+def _e3_span_text(text: str, tokens: Sequence[Token]) -> str:
+    if not tokens:
+        return ""
+    first, last = tokens[0], tokens[-1]
+    return text[first.offset:last.offset + len(last.raw)]
+
+
+def _e3_token_end(tok: Token) -> int:
+    return tok.offset + len(tok.raw)
+
+
+def _e3_top_level_depth(sf: SourceFile, offset: int) -> int:
+    depth = 0
+    for t in sf.tokens:
+        if t.offset >= offset:
+            break
+        if t.value == "{":
+            depth += 1
+        elif t.value == "}":
+            depth = max(0, depth - 1)
+    return depth
+
+
+def _e3_token_crosses(sf: SourceFile, offset: int) -> bool:
+    for t in sf.tokens:
+        if t.offset < offset < _e3_token_end(t):
+            return True
+        if t.offset >= offset:
+            break
+    return False
+
+
+def _e3_comment_adjusted_start(text: str, line_start: int) -> int:
+    """Move above a comment block directly attached to the following code."""
+    pos = line_start
+    while pos > 0:
+        prev_end = pos - 1
+        prev_start = text.rfind("\n", 0, prev_end) + 1
+        line = text[prev_start:prev_end].strip()
+        if line == "":
+            break
+        if line.startswith(("/*", "*", "*/", "//")):
+            pos = prev_start
+            continue
+        break
+    return pos
+
+
+def _e3_prefix_statements(handler: Function, switch_start: int) -> list[list[Token]]:
+    pre = list(handler.body[:switch_start])
+    for i in range(len(pre) - 1, -1, -1):
+        if pre[i].value == "switch":
+            pre = pre[:i]
+            break
+    return _split_statements(pre)
+
+
+def _e3_top_level_eq(stmt: Sequence[Token]) -> int | None:
+    depth = 0
+    for i, t in enumerate(stmt):
+        if t.value in ("(", "[", "{"):
+            depth += 1
+        elif t.value in (")", "]", "}"):
+            depth = max(0, depth - 1)
+        elif t.value == "=" and depth == 0:
+            return i
+    return None
+
+
+def _e3_has_call(tokens: Sequence[Token]) -> bool:
+    for i, t in enumerate(tokens):
+        if t.kind == "id" and i + 1 < len(tokens) and tokens[i + 1].value == "(":
+            if t.value not in NATIVE_CAST_TYPES:
+                return True
+        if t.value in ("->", ".") and i + 1 < len(tokens) and tokens[i + 1].kind == "id":
+            if i + 2 < len(tokens) and tokens[i + 2].value == "(":
+                return True
+    return False
+
+
+def _e3_parse_locals(handler: Function, switch_start: int) -> dict[str, list[dict[str, Any]]]:
+    locals_: dict[str, list[dict[str, Any]]] = {}
+    for stmt in _e3_prefix_statements(handler, switch_start):
+        if not stmt or stmt[0].value == "if":
+            continue
+        eq = _e3_top_level_eq(stmt)
+        if eq is None or eq < 1:
+            continue
+        lhs = stmt[:eq]
+        rhs = stmt[eq + 1:-1]
+        name = None
+        for t in reversed(lhs):
+            if t.kind == "id":
+                name = t.value
+                break
+        if name is None:
+            continue
+        type_toks = lhs[:lhs.index([t for t in lhs if t.kind == "id" and t.value == name][-1])]
+        locals_.setdefault(name, []).append({
+            "name": name,
+            "type": join_tokens(type_toks),
+            "init": join_tokens(rhs),
+            "line": stmt[0].line,
+        })
+    return locals_
+
+
+def _e3_directory_guard(stmt: Sequence[Token]) -> dict[str, Any] | None:
+    if not stmt or stmt[0].value != "if":
+        return None
+    if len(stmt) < 5 or stmt[1].value != "(":
+        return None
+    close = find_matching(stmt, 1, "(", ")")
+    if close is None or close + 1 >= len(stmt):
+        return None
+    cond = join_tokens(stmt[2:close])
+    if "qid" not in cond or "QTDIR" not in cond:
+        return None
+    body = list(stmt[close + 1:])
+    if body and body[0].value == "{":
+        end = find_matching(body, 0, "{", "}")
+        if end is None:
+            return None
+        body = body[1:end]
+    if len(body) < 3 or body[0].value != "return" or body[1].value != "devdirread":
+        return None
+    return {"condition": cond, "text": join_tokens(stmt)}
+
+
+def _e3_validate_prefix(
+    handler: Function,
+    switch_start: int,
+    offset_local: dict[str, Any] | None,
+) -> dict[str, Any]:
+    stmts = _e3_prefix_statements(handler, switch_start)
+    guard = None
+    directory = None
+    for stmt in stmts:
+        if not stmt:
+            continue
+        first = stmt[0].value
+        if first == "if":
+            g = _parse_guard(stmt)
+            if g is not None:
+                if guard is not None:
+                    raise ExtractionRefusal("multiple n guards before Qid dispatch")
+                guard = g
+                continue
+            d = _e3_directory_guard(stmt)
+            if d is not None:
+                if directory is not None:
+                    raise ExtractionRefusal("multiple directory guards before Qid dispatch")
+                directory = d
+                continue
+            raise ExtractionRefusal(
+                "unsupported pre-dispatch condition; refusing side-effect or unproven guard"
+            )
+        if first in ("goto", "switch", "for", "while", "do", "break", "continue", "else"):
+            raise ExtractionRefusal(f"unsupported pre-dispatch control flow {first!r}")
+        if "++" in [t.value for t in stmt] or "--" in [t.value for t in stmt]:
+            raise ExtractionRefusal("pre-dispatch increment/decrement is not supported")
+        eq = _e3_top_level_eq(stmt)
+        if eq is None:
+            if _e3_has_call(stmt):
+                raise ExtractionRefusal("pre-dispatch call statement is not supported")
+            continue
+        lhs = stmt[:eq]
+        rhs = stmt[eq + 1:-1]
+        target = None
+        for t in reversed(lhs):
+            if t.kind == "id":
+                target = t.value
+                break
+        if target in ("c", "up"):
+            raise ExtractionRefusal(f"pre-dispatch assignment to {target!r} is not supported")
+        if _e3_has_call(rhs):
+            raise ExtractionRefusal("pre-dispatch initializer with a call is not supported")
+        if target == (offset_local or {}).get("name"):
+            if not _expr_is_off(rhs, None):
+                raise ExtractionRefusal("branch offset local is not initialised from off")
+    return {"guard": guard, "directory_guard": directory}
+
+
+def _e3_chan_free_function(
+    analyzer: Analyzer,
+    func: Function,
+    depth: int = 0,
+    seen: frozenset[str] = frozenset(),
+) -> list[str]:
+    if depth > 4:
+        raise ExtractionRefusal(f"call chain from {func.name!r} exceeds the E3 depth limit")
+    if func.id in seen:
+        raise ExtractionRefusal(f"call cycle through {func.name!r} is not supported")
+    text = func.text
+    forbidden = [
+        (r"\bChan\b", "Chan type"),
+        (r"\bc\s*->", "Chan variable c->"),
+        (r"\bqid\b", "Qid field/type"),
+        (r"\bDirtab\b", "Dirtab"),
+        (r"\bdevwalk\s*\(", "devwalk"),
+        (r"\bdevdirread\s*\(", "devdirread"),
+        (r"\bnamec\s*\(", "namec"),
+        (r"\bmount\s*\(", "mount"),
+    ]
+    for pattern, label in forbidden:
+        if re.search(pattern, text, re.I):
+            raise ExtractionRefusal(
+                f"value helper chain member {func.name!r} contains {label!r}"
+            )
+    deps: list[str] = []
+    for call in func.calls:
+        if call.kind != "direct":
+            raise ExtractionRefusal(
+                f"value helper chain member {func.name!r} has an indirect/member call"
+            )
+        kind = analyzer.classify_external(call.name)
+        if kind in ("hardware", "service"):
+            # Stop at reviewed service/hardware primitives even when a kernel
+            # definition exists; their internal queues are outside this helper.
+            deps.append(call.name)
+            continue
+        callee, _ = analyzer.resolve(call, func)
+        if callee is not None:
+            deps.extend(_e3_chan_free_function(
+                analyzer, callee, depth + 1, seen | {func.id}
+            ))
+        else:
+            raise ExtractionRefusal(
+                f"value helper chain member {func.name!r} calls unreviewed external {call.name!r}"
+            )
+    return deps
+
+
+def _e3_validate_value(
+    tokens: Sequence[Token],
+    analyzer: Analyzer,
+    source_path: str,
+    handler_line: int | None = None,
+) -> tuple[str, list[str], list[str]]:
+    text = join_tokens(tokens)
+    toks = _strip_leading_casts(tokens)
+    if not toks:
+        raise ExtractionRefusal("readnum value is only a cast")
+    if len(toks) == 1 and toks[0].kind == "num":
+        return text, [], []
+    if (
+        len(toks) == 3
+        and toks[0].value == "up"
+        and toks[1].value == "->"
+        and toks[2].kind == "id"
+    ):
+        field = toks[2].value
+        if field not in E3_SAFE_PROCESS_FIELDS:
+            raise ExtractionRefusal(
+                f"process field up->{field} is not in the reviewed scalar-context set"
+            )
+        return text, [], ["up != nil", f"up->{field}"]
+    if (
+        len(toks) >= 3
+        and toks[0].kind == "id"
+        and toks[1].value == "("
+        and find_matching(toks, 1, "(", ")") == len(toks) - 1
+    ):
+        args = call_args(toks, 1)
+        if args:
+            raise ExtractionRefusal("readnum value call with arguments is not supported")
+        func = analyzer._find_function(toks[0].value, source_path)
+        if func is None:
+            func = analyzer._find_function(toks[0].value)
+        if func is None:
+            raise ExtractionRefusal(
+                f"readnum value call {toks[0].value!r} has no resolvable definition"
+            )
+        if func.path != source_path:
+            raise ExtractionRefusal(
+                f"readnum value call {toks[0].value!r} is outside the translation unit"
+            )
+        if handler_line is not None and func.line > handler_line:
+            raise ExtractionRefusal(
+                f"readnum value call {toks[0].value!r} is defined after the insertion point"
+            )
+        deps = _e3_chan_free_function(analyzer, func)
+        context = ["up != nil"] if re.search(r"\bup\b", func.text) else []
+        return text, [toks[0].value] + deps, context
+    raise ExtractionRefusal("readnum value is not a reviewed literal, up scalar or call")
+
+
+def _e3_validate_size(tokens: Sequence[Token], global_enums: dict[str, int]) -> tuple[str, int]:
+    text = join_tokens(tokens)
+    toks = _strip_leading_casts(tokens)
+    if len(toks) == 1 and toks[0].kind == "num":
+        value = _c_int_literal(toks[0].raw)
+        if value is None:
+            raise ExtractionRefusal(f"unsupported size literal {toks[0].raw!r}")
+        return text, value
+    if len(toks) == 1 and toks[0].kind == "id" and toks[0].value in global_enums:
+        return text, global_enums[toks[0].value]
+    raise ExtractionRefusal("readnum size is not a literal or uniquely resolved enum constant")
+
+
+def _e3_offset_local(
+    arg_tokens: Sequence[Token],
+    locals_: dict[str, list[dict[str, Any]]],
+) -> tuple[str, dict[str, Any] | None]:
+    text = join_tokens(arg_tokens)
+    toks = _strip_leading_casts(arg_tokens)
+    if len(toks) != 1 or toks[0].kind != "id":
+        raise ExtractionRefusal("readnum offset is not off or a single reviewed local")
+    name = toks[0].value
+    if name == "off":
+        return text, None
+    if name in ("buf", "n", "off"):
+        raise ExtractionRefusal(
+            f"readnum offset local {name!r} collides with a helper parameter"
+        )
+    entries = locals_.get(name, [])
+    if len(entries) != 1:
+        raise ExtractionRefusal(
+            f"readnum offset local {name!r} is missing or has multiple declarations"
+        )
+    info = entries[0]
+    if info["type"] not in ("ulong", "vlong", "long", "uvlong"):
+        raise ExtractionRefusal(
+            f"readnum offset local {name!r} has unsupported type {info['type']!r}"
+        )
+    if not _expr_is_off(tokenize(info["init"]), None):
+        raise ExtractionRefusal(f"readnum offset local {name!r} is not initialised from off")
+    return text, info
+
+
+def _e3_already_extracted(
+    analyzer: Analyzer,
+    branch_tokens: Sequence[Token],
+    source_path: str,
+) -> str | None:
+    try:
+        stmts = _split_statements(branch_tokens)
+    except NativeGenerationError:
+        return None
+    if len(stmts) != 1 or not stmts[0] or stmts[0][0].value != "return":
+        return None
+    expr = stmts[0][1:-1]
+    if len(expr) < 3 or expr[0].kind != "id" or expr[1].value != "(":
+        return None
+    close = find_matching(expr, 1, "(", ")")
+    if close != len(expr) - 1:
+        return None
+    args = call_args(expr, 1)
+    if len(args) != 3 or not _expr_is_name(args[0], "buf") \
+            or not _expr_is_name(args[1], "n") or not _expr_is_off(args[2], None):
+        return None
+    callee = analyzer._find_function(expr[0].value, source_path)
+    if callee is not None:
+        return expr[0].value
+    return None
+
+
+def _e3_parse_branch(
+    analyzer: Analyzer,
+    branch_tokens: Sequence[Token],
+    source_path: str,
+    handler: Function,
+    switch: Switch,
+    global_enums: dict[str, int],
+) -> dict[str, Any]:
+    locals_ = _e3_parse_locals(handler, switch.start)
+    stmts = _split_statements(branch_tokens)
+    guard = None
+    offset_local = None
+    readnum_args = None
+    assigned = False
+    return_shape = None
+    statement_texts: list[str] = []
+    sf = analyzer.file_by_path[source_path]
+    for stmt in stmts:
+        if not stmt:
+            continue
+        first = stmt[0].value
+        if first == "if":
+            if readnum_args is not None:
+                raise ExtractionRefusal("control flow after readnum in selected branch")
+            g = _parse_guard(stmt)
+            if g is None:
+                raise ExtractionRefusal("unsupported if in selected branch")
+            if guard is not None:
+                raise ExtractionRefusal("duplicate n guard in selected branch")
+            guard = g
+            continue
+        if first == "return":
+            if len(stmt) < 2:
+                raise ExtractionRefusal("empty return in selected branch")
+            expr = stmt[1:-1]
+            args = _match_call(expr, "readnum")
+            if args is not None:
+                if readnum_args is not None or assigned:
+                    raise ExtractionRefusal("multiple readnum results in selected branch")
+                readnum_args = args
+                return_shape = "direct-return"
+                statement_texts.append(_e3_span_text(sf.text, stmt))
+            elif assigned and _expr_is_name(expr, "n"):
+                return_shape = "assign-return"
+                statement_texts.append(_e3_span_text(sf.text, stmt))
+            else:
+                raise ExtractionRefusal("unsupported return expression in selected branch")
+            continue
+        if first in ("goto", "switch", "for", "while", "do", "break", "continue", "else"):
+            raise ExtractionRefusal(f"unsupported control flow {first!r} in selected branch")
+        eq = _e3_top_level_eq(stmt)
+        if eq is None or eq < 1:
+            raise ExtractionRefusal("unsupported statement in selected branch")
+        lhs = stmt[:eq]
+        rhs = stmt[eq + 1:-1]
+        target = None
+        for t in reversed(lhs):
+            if t.kind == "id":
+                target = t.value
+                break
+        if target != "n":
+            raise ExtractionRefusal(
+                f"selected branch assignment to {target!r} is not supported"
+            )
+        args = _match_call(rhs, "readnum")
+        if args is None:
+            raise ExtractionRefusal("selected branch assignment is not from readnum")
+        if assigned or readnum_args is not None:
+            raise ExtractionRefusal("multiple readnum assignments in selected branch")
+        readnum_args = args
+        assigned = True
+        statement_texts.append(_e3_span_text(sf.text, stmt))
+    if readnum_args is None or return_shape is None:
+        raise ExtractionRefusal("selected branch has no supported readnum result")
+    if len(readnum_args) != 5:
+        raise ExtractionRefusal("readnum call does not have five arguments")
+    offset_text, offset_local = _e3_offset_local(readnum_args[0], locals_)
+    if not _expr_is_name(readnum_args[1], "buf"):
+        raise ExtractionRefusal("readnum buffer is not buf")
+    if not _expr_is_name(readnum_args[2], "n"):
+        raise ExtractionRefusal("readnum length is not n")
+    value_text, value_deps, value_context = _e3_validate_value(
+        readnum_args[3], analyzer, source_path, handler.line
+    )
+    size_text, size_value = _e3_validate_size(readnum_args[4], global_enums)
+    prefix = _e3_validate_prefix(handler, switch.start, offset_local)
+    guards = []
+    if prefix["guard"] is not None:
+        guards.append(prefix["guard"])
+    if guard is not None:
+        guards.append(guard)
+    return {
+        "locals": locals_,
+        "offset_expression": offset_text,
+        "offset_local": offset_local,
+        "value_expression": value_text,
+        "size_expression": size_text,
+        "size_value": size_value,
+        "return_shape": return_shape,
+        "guard": guard,
+        "entry_guard": prefix["guard"],
+        "directory_guard": prefix["directory_guard"],
+        "guards": guards,
+        "statement_texts": statement_texts,
+        "value_deps": value_deps,
+        "value_context": value_context,
+    }
+
+
+def _e3_render_helper(
+    name: str,
+    driver: str,
+    callback: str,
+    qid: str,
+    ir: dict[str, Any],
+) -> str:
+    lines = [
+        "/*",
+        f" * E3 proposal: {driver} {callback} {qid} extraction candidate.",
+        " * Kernel-internal only; review before applying.  Not an approved ABI.",
+        " */",
+        "long",
+        f"{name}(void *buf, long n, vlong off)",
+        "{",
+    ]
+    for guard in ir["guards"]:
+        lines.append(f"\t{guard['text']}")
+    local = ir["offset_local"]
+    if local is not None:
+        lines.append(f"\t{local['type']} {local['name']} = {local['init']};")
+    for text in ir["statement_texts"]:
+        if "\n" in text or "\r" in text:
+            raise ExtractionRefusal("multi-line selected-branch statements are not supported")
+        lines.append(f"\t{text}")
+    lines.extend(["}", "", ""])
+    return "\n".join(lines)
+
+
+def _e3_symbol_in_use(analyzer: Analyzer, sf: SourceFile, name: str) -> bool:
+    if analyzer.global_by_name.get(name):
+        return True
+    if re.search(r"\b" + re.escape(name) + r"\b", sf.masked):
+        return True
+    for func in analyzer.functions:
+        for call in func.calls:
+            if call.name == name:
+                return True
+    return False
+
+
+def _e3_insertion_offset(sf: SourceFile, handler: Function) -> int:
+    if handler.conditions:
+        raise ExtractionRefusal(
+            f"handler {handler.name!r} is inside preprocessor conditions"
+        )
+    tok = sf.tokens[handler.source_start]
+    start = _e3_line_start(sf.text, tok.offset)
+    start = _e3_comment_adjusted_start(sf.text, start)
+    if _e3_top_level_depth(sf, start) != 0:
+        raise ExtractionRefusal("proposed helper insertion is not at file top level")
+    if _e3_token_crosses(sf, start):
+        raise ExtractionRefusal("proposed helper insertion falls inside an existing token")
+    line = sf.text[start:sf.text.find("\n", start) if sf.text.find("\n", start) >= 0 else len(sf.text)]
+    if line.lstrip().startswith("#"):
+        raise ExtractionRefusal("proposed helper insertion is on a preprocessor line")
+    return start
+
+
+def _e3_selector_metadata(data: dict[str, Any], op: dict[str, Any]) -> dict[str, Any]:
+    path = op.get("source", {}).get("path")
+    qid = op.get("entry", {}).get("qid")
+    for tab in data.get("dirtab", []):
+        if tab.get("path") != path:
+            continue
+        for item in tab.get("entries", []):
+            if item.get("qid_symbol") == qid:
+                return {
+                    "name": item.get("name"),
+                    "perm": item.get("perm"),
+                    "length": item.get("length"),
+                    "table": tab.get("name"),
+                }
+    return {}
+
+
+def _e3_find_operation(
+    data: dict[str, Any], config: str, driver: str, callback: str, qid: str
+) -> dict[str, Any]:
+    matches = [
+        o for o in data.get("operations", [])
+        if o.get("driver") == driver
+        and o.get("entry", {}).get("callback") == callback
+        and o.get("entry", {}).get("qid") == qid
+        and config in o.get("active_configs", [])
+    ]
+    if not matches:
+        raise ExtractionRefusal(
+            f"selector {driver}:{callback}:{qid} was not found in config {config}"
+        )
+    if len(matches) > 1:
+        paths = sorted({m.get("source", {}).get("path") or "" for m in matches})
+        if len(paths) > 1:
+            raise ExtractionRefusal(
+                f"selector {driver}:{callback}:{qid} is ambiguous across {paths}"
+            )
+    return matches[0]
+
+
+def _e3_candidate(
+    analyzer: Analyzer,
+    data: dict[str, Any],
+    config: str,
+    spec: str,
+    global_enums: dict[str, int],
+    expect_sha: dict[str, str],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    parts = spec.split(":")
+    if len(parts) != 3 or not all(parts):
+        raise ExtractionRefusal(f"invalid selector {spec!r}; expected driver:callback:qid")
+    driver, callback, qid = parts
+    base = {
+        "selector": spec,
+        "driver": driver,
+        "callback": callback,
+        "qid": qid,
+        "status": "REFUSED",
+        "reasons": [],
+        "approval_state": "proposal-only; not an approved native binding",
+    }
+    try:
+        op = _e3_find_operation(data, config, driver, callback, qid)
+        path = op.get("source", {}).get("path") or ""
+        sf = analyzer.file_by_path.get(path)
+        base["source"] = {
+            "path": path,
+            "sha256": sf.sha256 if sf is not None else None,
+            "pinned": False,
+            "handler": op.get("handler", {}).get("symbol"),
+            "handler_line": op.get("handler", {}).get("line"),
+            "case_line": op.get("source", {}).get("line"),
+        }
+        if sf is None:
+            raise ExtractionRefusal(f"source file {path!r} is not in the analysed tree")
+        if "\r" in sf.text:
+            raise ExtractionRefusal("CR/CRLF line endings are not supported")
+        expected = expect_sha.get(path)
+        if expected is not None:
+            if sf.sha256 != expected:
+                raise ExtractionRefusal(
+                    f"source SHA-256 changed: got {sf.sha256}, expected {expected}"
+                )
+        elif sf.sha256 not in E3_PINNED_SHA.get(path, set()):
+            raise ExtractionRefusal(
+                f"source SHA-256 {sf.sha256} is not pinned for {path}"
+            )
+        base["source"]["pinned"] = (
+            expected is not None or sf.sha256 in E3_PINNED_SHA.get(path, set())
+        )
+        handler = _handler_function(analyzer, op)
+        if handler is None:
+            raise ExtractionRefusal("handler definition was not found")
+        if handler.conditions:
+            raise ExtractionRefusal("selected handler is inside preprocessor conditions")
+        case, switch = _find_case(handler, qid)
+        branch_tokens = handler.body[case.start:case.end]
+        branch_text = _e3_span_text(sf.text, branch_tokens)
+        base["source"].update({
+            "case_start_offset": branch_tokens[0].offset,
+            "case_end_offset": _e3_token_end(branch_tokens[-1]),
+            "case_start_line": branch_tokens[0].line,
+            "case_end_line": branch_tokens[-1].line,
+            "branch_text": branch_text,
+        })
+        if "#" in branch_text:
+            raise ExtractionRefusal("selected branch contains preprocessor text")
+        if mask_comments(branch_text) != branch_text:
+            raise ExtractionRefusal("selected branch contains comments inside the replace span")
+        already = _e3_already_extracted(analyzer, branch_tokens, path)
+        if already is not None:
+            base["status"] = "ALREADY-EXTRACTED"
+            base["reasons"].append(
+                f"selected branch already calls same-file helper {already!r}"
+            )
+            return base, None
+        ir = _e3_parse_branch(
+            analyzer, branch_tokens, path, handler, switch, global_enums
+        )
+        span_start = branch_tokens[0].offset
+        span_end = _e3_token_end(branch_tokens[-1])
+        if any(ctx.startswith("up") or "up->" in ctx for ctx in ir["value_context"]):
+            outside = sf.text[:span_start] + sf.text[span_end:]
+            if not re.search(r"\bup\b", outside):
+                raise ExtractionRefusal(
+                    "process context 'up' is not visible outside the selected branch"
+                )
+        helper = f"{handler.name}_{qid.lower()}_read"
+        if _e3_symbol_in_use(analyzer, sf, helper):
+            raise ExtractionRefusal(f"generated helper name {helper!r} collides with an existing symbol")
+        insert = _e3_insertion_offset(sf, handler)
+        helper_text = _e3_render_helper(helper, driver, callback, qid, ir)
+        replacement = f"return {helper}(buf, n, off);"
+        metadata = _e3_selector_metadata(data, op)
+        deps = sorted(set(
+            ir["value_deps"]
+            + [t for t in ("readnum",) if t not in ir["value_deps"]]
+            + (["up"] if ir["value_context"] else [])
+            + ([ir["size_expression"]] if ir["size_expression"] and ir["size_expression"][0].isalpha() else [])
+        ))
+        if ir["directory_guard"] is not None:
+            deps = sorted(set(deps))
+        base.update({
+            "status": "DIRECT-CANDIDATE",
+            "reasons": [
+                "selected branch matched the narrow readnum shape; proposal only"
+            ],
+            "value_expression": ir["value_expression"],
+            "size_expression": ir["size_expression"],
+            "size_value": ir["size_value"],
+            "offset_expression": ir["offset_expression"],
+            "offset_local": ir["offset_local"],
+            "return_shape": ir["return_shape"],
+            "guard": ir["guard"],
+            "entry_guard": ir["entry_guard"],
+            "directory_guard": ir["directory_guard"],
+            "generated_helper": {
+                "name": helper,
+                "signature": "long (void *buf, long n, vlong off)",
+                "insertion_offset": insert,
+                "insertion_line": sf.text.count("\n", 0, insert) + 1,
+            },
+            "external_dependencies": deps,
+            "permission": {
+                **metadata,
+                "policy": "legacy open/Dirtab boundary remains; helper is kernel-internal-only",
+            },
+            "context": sorted(set(ir["value_context"] + (
+                ["offset local reconstructed from off"] if ir["offset_local"] else []
+            ))),
+            "lifecycle": "read-only; legacy open/close and Qid dispatch unchanged",
+            "replacement": replacement,
+            "normalization": {
+                "readnum_text": "original selected-branch statement text reused verbatim",
+                "guard": (
+                    "n guard canonicalised to one line; semantics preserved"
+                    if ir["guards"] else "no n guard copied"
+                ),
+                "offset_local": (
+                    "original local type/initialiser copied into the helper; shared local left in place"
+                    if ir["offset_local"] else "no offset local needed"
+                ),
+            },
+            "patch_scope": "one helper insertion and one selected-case replacement",
+        })
+        return base, {
+            "candidate": base,
+            "path": path,
+            "insert": insert,
+            "helper_text": helper_text,
+            "replacement": replacement,
+            "span_start": span_start,
+            "span_end": span_end,
+        }
+    except ExtractionRefusal as exc:
+        base["status"] = "ALREADY-EXTRACTED" if base.get("status") == "ALREADY-EXTRACTED" else "REFUSED"
+        base["reasons"].append(exc.reason)
+        if exc.evidence:
+            base["refusal_evidence"] = exc.evidence
+        return base, None
+
+
+def _e3_apply_edits(text: str, edits: list[tuple[int, int, str]]) -> str:
+    ordered = sorted(edits, key=lambda e: (e[0], e[1]))
+    merged: list[tuple[int, int, str]] = []
+    for start, end, repl in ordered:
+        if merged:
+            ps, pe, pr = merged[-1]
+            if start < pe:
+                raise ExtractionRefusal("overlapping proposed patch spans")
+            if start == pe and start == end and ps == pe:
+                merged[-1] = (ps, pe, pr + repl)
+                continue
+            if start == ps and end == ps:
+                merged[-1] = (ps, pe, pr + repl)
+                continue
+        merged.append((start, end, repl))
+    out = text
+    for start, end, repl in sorted(merged, key=lambda e: (e[0], e[1]), reverse=True):
+        out = out[:start] + repl + out[end:]
+    return out
+
+
+def _e3_unified_diff(path: str, before: str, after: str) -> str:
+    diff = list(difflib.unified_diff(
+        before.splitlines(True),
+        after.splitlines(True),
+        fromfile=f"a/{path}",
+        tofile=f"b/{path}",
+        n=3,
+    ))
+    if not diff:
+        return ""
+    patch = "".join(diff)
+    if not patch.endswith("\n"):
+        patch += "\n"
+    return patch
+
+
+def _e3_input_pin(source_root: Path, expect_sha: dict[str, str]) -> dict[str, Any]:
+    return {
+        "source_tree": str(source_root),
+        "expect_sha": dict(sorted(expect_sha.items())),
+    }
+
+
+def propose_extractions(
+    source_root: Path,
+    config: str,
+    selectors: Sequence[str],
+    source_rev: str | None = None,
+    expect_sha: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    expect_sha = expect_sha or {}
+    seen: set[str] = set()
+    for spec in selectors:
+        if spec in seen:
+            raise ValueError(f"duplicate selector {spec!r}")
+        seen.add(spec)
+    analyzer = Analyzer(source_root)
+    data = analyzer.analyze()
+    global_enums = _global_enum_constants(analyzer)
+    candidates: list[dict[str, Any]] = []
+    edit_groups: dict[str, list[dict[str, Any]]] = {}
+    patch_texts: dict[str, str] = {}
+    for spec in selectors:
+        record, edit = _e3_candidate(
+            analyzer, data, config, spec, global_enums, expect_sha
+        )
+        candidates.append(record)
+        if edit is not None:
+            edit_groups.setdefault(edit["path"], []).append(edit)
+    patches: list[dict[str, Any]] = []
+    for path in sorted(edit_groups):
+        sf = analyzer.file_by_path[path]
+        group = edit_groups[path]
+        edits = [(e["insert"], e["insert"], e["helper_text"]) for e in group]
+        edits.extend((e["span_start"], e["span_end"], e["replacement"]) for e in group)
+        try:
+            patched = _e3_apply_edits(sf.text, edits)
+        except ExtractionRefusal as exc:
+            for e in group:
+                e["candidate"]["status"] = "REFUSED"
+                e["candidate"]["reasons"].append(exc.reason)
+            continue
+        patch = _e3_unified_diff(path, sf.text, patched)
+        if not patch:
+            for e in group:
+                e["candidate"]["status"] = "REFUSED"
+                e["candidate"]["reasons"].append("proposed edit produced no diff")
+            continue
+        name = Path(path).name + ".patch"
+        digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+        for e in group:
+            e["candidate"]["patch"] = name
+            e["candidate"]["patch_sha256"] = digest
+        patches.append({
+            "path": path,
+            "file": name,
+            "sha256": digest,
+            "helper_symbols": sorted({e["candidate"]["generated_helper"]["name"] for e in group}),
+        })
+        patch_texts[name] = patch
+    tree_rev = analyzer.source_revision.get("commit")
+    if source_rev is not None:
+        known = E3_KNOWN_REV_SHA.get(source_rev)
+        if known is not None:
+            # Historical snapshot inside the main worktree: git -C resolves the
+            # enclosing repository, so validate by the pinned file hashes.
+            for c in candidates:
+                src = c.get("source") or {}
+                path = src.get("path")
+                if path in known and src.get("sha256") != known[path]:
+                    raise ValueError(
+                        f"source revision {source_rev} does not match {path} SHA-256"
+                    )
+        elif tree_rev is None:
+            raise ValueError(
+                f"unknown source revision {source_rev}; omit --source-rev or use a pinned revision"
+            )
+        elif source_rev != tree_rev:
+            raise ValueError(
+                f"source revision {source_rev} does not match source-tree HEAD {tree_rev}"
+            )
+    # Refused candidates must not claim a patch.
+    for c in candidates:
+        if c["status"] != "DIRECT-CANDIDATE":
+            c.pop("patch", None)
+            c.pop("patch_sha256", None)
+    source_hashes = {}
+    for c in candidates:
+        src = c.get("source") or {}
+        if src.get("path"):
+            source_hashes[src["path"]] = src.get("sha256")
+    spec = {
+        "schema": EXTRACTION_SCHEMA,
+        "generator": {
+            "name": GENERATOR,
+            "version": EXTRACTION_GENERATOR_VERSION,
+            "command": "python3 tools/kernel_opmap.py --propose-extraction",
+            "limitations": [
+                "proposal-only source-to-source experiment; never applied automatically",
+                "reuses Analyzer.analyze() token spans; no second parser",
+                "a patch is a review candidate, not proof of semantic equivalence",
+                "kernel-internal helper only; not a userspace capability or ABI",
+            ],
+        },
+        "config": config,
+        "source_rev": source_rev or analyzer.source_revision.get("commit"),
+        "source_hashes": dict(sorted(source_hashes.items())),
+        "candidates": candidates,
+        "patches": patches,
+        "approval_state": "proposal-only",
+        "_patch_texts": patch_texts,
+    }
+    return spec
+
+
+def _extraction_outputs(spec: dict[str, Any], source_root: Path) -> dict[str, str]:
+    outputs: dict[str, str] = {}
+    # Patch bodies are carried in a private key; the manifest stores only
+    # paths and hashes so it remains deterministic and reviewable.
+    for name, text in spec.get("_patch_texts", {}).items():
+        outputs[name] = text
+    outputs["extraction-decisions.json"] = (
+        json.dumps({k: v for k, v in spec.items() if not k.startswith("_")},
+                   sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    )
+    return outputs
+
+
+def write_extraction_artifacts(spec: dict[str, Any], out_dir: Path) -> list[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for name, text in sorted(_extraction_outputs(spec, out_dir).items()):
+        p = out_dir / name
+        p.write_text(text, encoding="utf-8")
+        paths.append(p)
+    return paths
+
+
+def check_extraction_artifacts(spec: dict[str, Any], out_dir: Path) -> list[str]:
+    problems: list[str] = []
+    for name, text in sorted(_extraction_outputs(spec, out_dir).items()):
+        p = out_dir / name
+        if not p.is_file():
+            problems.append(f"missing extraction proposal artifact: {p}")
+        elif p.read_text(encoding="utf-8") != text:
+            problems.append(f"stale extraction proposal artifact: {p}")
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # Report rendering
 
@@ -5632,9 +6595,78 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default=NATIVE_DEFAULT_CONFIG,
                     help=f"build config for --generate-native (default: {NATIVE_DEFAULT_CONFIG})")
     ap.add_argument("--out-dir", type=Path, default=None,
-                    help=f"generated native output directory (default: {NATIVE_DEFAULT_OUT})")
+                    help=f"generated output directory (default depends on mode)")
+    ap.add_argument("--propose-extraction", action="store_true",
+                    help="propose reviewable source-to-source extraction patches")
+    ap.add_argument("--selectors", default=None,
+                    help="comma-separated driver:callback:qid selectors for proposals")
+    ap.add_argument("--source-tree", type=Path, default=None,
+                    help="source tree for proposals (default: --root)")
+    ap.add_argument("--source-rev", default=None,
+                    help="source revision to record in the proposal manifest")
+    ap.add_argument("--expect-sha", action="append", default=[], metavar="PATH=SHA256",
+                    help="override the pinned source SHA for proposals (repeatable)")
     args = ap.parse_args(argv)
     root = args.root.resolve()
+    if args.propose_extraction:
+        if not args.selectors:
+            print("proposal mode requires --selectors driver:callback:qid", file=sys.stderr)
+            return 2
+        source_root = args.source_tree
+        if source_root is None:
+            source_root = root
+        elif not source_root.is_absolute():
+            source_root = root / source_root
+        source_root = source_root.resolve()
+        if not (source_root / KERNEL_REL).is_dir():
+            print(f"proposal source tree has no {KERNEL_REL}: {source_root}", file=sys.stderr)
+            return 2
+        out_dir = args.out_dir
+        if out_dir is None:
+            out_dir = root / EXTRACTION_DEFAULT_OUT
+        elif not out_dir.is_absolute():
+            out_dir = root / out_dir
+        out_dir = out_dir.resolve()
+        allowed = (root / "build" / "generated").resolve()
+        try:
+            out_dir.relative_to(allowed)
+        except ValueError:
+            print(f"proposal output must stay under {allowed}", file=sys.stderr)
+            return 2
+        selectors = [s.strip() for s in args.selectors.split(",") if s.strip()]
+        expect_sha: dict[str, str] = {}
+        for item in args.expect_sha:
+            if "=" not in item:
+                print(f"bad --expect-sha {item!r}; expected PATH=SHA256", file=sys.stderr)
+                return 2
+            path, sha = item.split("=", 1)
+            expect_sha[path] = sha
+        try:
+            spec = propose_extractions(
+                source_root, args.config, selectors,
+                source_rev=args.source_rev, expect_sha=expect_sha,
+            )
+        except (ValueError, OSError) as exc:
+            print(f"extraction proposal failed: {exc}", file=sys.stderr)
+            return 2
+        if args.check:
+            problems = check_extraction_artifacts(spec, out_dir)
+            if problems:
+                for p in problems:
+                    print(p, file=sys.stderr)
+                return 1
+            print(f"extraction proposals: up to date ({out_dir})")
+            return 0
+        paths = write_extraction_artifacts(spec, out_dir)
+        for path in paths:
+            print(f"wrote {path}")
+        counts: dict[str, int] = {}
+        for c in spec["candidates"]:
+            counts[c["status"]] = counts.get(c["status"], 0) + 1
+        print(f"candidates={len(spec['candidates'])} "
+              + " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+              + f" patches={len(spec['patches'])}")
+        return 0
     analyzer = Analyzer(root)
     data = analyzer.analyze()
     if args.generate_native:

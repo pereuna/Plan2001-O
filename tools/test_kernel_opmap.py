@@ -11,7 +11,10 @@ do not modify the checked-in inventory.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -865,6 +868,348 @@ Dev idevtab = {
                    if r["path"] == "sys/src/9/port/devbroken2.c")
         self.assertEqual(rec["parse_status"], "error")
         self.assertTrue(rec["reason"])
+
+
+E3_PRE_REV = "7b4dfac4903e909dc2a00f37e9320335808029ac"
+E3_TARGET = '''\
+status=supported
+objtype=amd64
+kdir=testarch
+kconf=testconf
+kernel=9test
+ksrc=(port pc testarch)
+'''
+E3_CONF = "dev\n\ttest\n\trtc\n\tcons\n"
+
+
+def e3_git_show(rev: str, path: str) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(REPO), "show", f"{rev}:{path}"],
+        text=True,
+    )
+
+
+def e3_pre_fixture() -> tempfile.TemporaryDirectory:
+    td = tempfile.TemporaryDirectory(prefix="e3-pre-")
+    root = Path(td.name)
+    write(root, "tools/targets/amd64", E3_TARGET)
+    write(root, "sys/src/9/testarch/mkfile", BASE_MKFILE)
+    write(root, "sys/src/9/testarch/testconf", E3_CONF)
+    write(root, "sys/src/9/port/devtest.c", BASE_DEVTEST)
+    write(root, "sys/src/9/port/portdat.h", "enum { NUMSIZE = 12 };\n")
+    write(root, "sys/src/9/pc/devrtc.c", e3_git_show(E3_PRE_REV, "sys/src/9/pc/devrtc.c"))
+    write(root, "sys/src/9/port/devcons.c", e3_git_show(E3_PRE_REV, "sys/src/9/port/devcons.c"))
+    return td
+
+
+def e3_copy_paths(root: Path, paths: list[str]) -> tempfile.TemporaryDirectory:
+    td = tempfile.TemporaryDirectory(prefix="e3-apply-")
+    dest = Path(td.name)
+    for path in paths:
+        write(dest, path, (root / path).read_text())
+    return td
+
+
+def e3_apply_check(dest: Path, patch_name: str, patch: str) -> None:
+    p = dest / patch_name
+    p.write_text(patch, encoding="utf-8")
+    subprocess.run(
+        ["git", "apply", "--check", str(p)],
+        cwd=dest, check=True, capture_output=True, text=True,
+    )
+
+
+def e3_apply(dest: Path, patch_name: str, patch: str) -> None:
+    p = dest / patch_name
+    subprocess.run(
+        ["git", "apply", str(p)],
+        cwd=dest, check=True, capture_output=True, text=True,
+    )
+
+
+SYNTH_SRC = r'''enum { Qdir, Qsyn };
+static Dirtab syndir[] = {
+	".",	{Qdir, 0, QTDIR},	0,	DMDIR|0555,
+	"syn",	{Qsyn},			8,	0444,
+};
+static long
+syndread(Chan *c, void *buf, long n, vlong off)
+{
+	ulong offset = off;
+	if(n <= 0)
+		return n;
+	switch((ulong)c->qid.path){
+	case Qsyn:
+%s
+	}
+	return 0;
+}
+Dev syndevtab = {
+	's', "synd",
+	devreset, devinit, devshutdown, devattach, devwalk, devstat, devopen,
+	devcreate, devclose, syndread, devbread, devwrite, devbwrite, devremove,
+	devwstat,
+};
+'''
+
+
+def e3_synthetic_source(
+    branch: str = "\t\treturn readnum((ulong)offset, buf, n, 4242, 8);",
+    prefix: str = "",
+    preprocessor: str = "",
+    local: str = "ulong offset = off;",
+) -> str:
+    body = SYNTH_SRC % branch
+    body = body.replace("\tulong offset = off;\n", f"\t{local}\n")
+    if prefix:
+        body = body.replace("\n\tswitch((ulong)c->qid.path){", f"\n\t{prefix}\n\tswitch((ulong)c->qid.path){{")
+    return preprocessor + body
+
+
+def e3_synthetic_spec(
+    branch: str = "\t\treturn readnum((ulong)offset, buf, n, 4242, 8);",
+    *,
+    prefix: str = "",
+    preprocessor: str = "",
+    local: str = "ulong offset = off;",
+    selector: str = "synd:read:Qsyn",
+    expect_sha: str | None = None,
+    extra_files: dict[str, str] | None = None,
+    extra_config: str = "",
+) -> dict:
+    path = "sys/src/9/port/devsynd.c"
+    src = e3_synthetic_source(branch, prefix, preprocessor, local)
+    extra = {
+        "port/devsynd.c": src,
+        "testarch/testconf": "dev\n\ttest\n\tsynd\n" + extra_config,
+    }
+    extra.update(extra_files or {})
+    with fixture(extra) as td:
+        root = Path(td)
+        sha = hashlib.sha256((root / path).read_text().encode()).hexdigest()
+        expected = {path: expect_sha if expect_sha is not None else sha}
+        return om.propose_extractions(
+            root, "testconf", [selector], expect_sha=expected
+        )
+
+
+class ExtractionProposalTests(unittest.TestCase):
+    def test_pre_e2_rtc_and_cons_generate_reviewable_patches(self) -> None:
+        with e3_pre_fixture() as td:
+            root = Path(td)
+            sources = ["sys/src/9/pc/devrtc.c", "sys/src/9/port/devcons.c"]
+            before = {p: (root / p).read_bytes() for p in sources}
+            spec = om.propose_extractions(
+                root, "testconf", ["rtc:read:Qrtc", "cons:read:Qpid"],
+                source_rev=E3_PRE_REV,
+            )
+            self.assertEqual(spec["source_rev"], E3_PRE_REV)
+            self.assertEqual([c["status"] for c in spec["candidates"]],
+                             ["DIRECT-CANDIDATE", "DIRECT-CANDIDATE"])
+            self.assertEqual(len(spec["patches"]), 2)
+            rtc = spec["candidates"][0]
+            cons = spec["candidates"][1]
+            self.assertEqual(rtc["generated_helper"]["name"], "rtcread_qrtc_read")
+            self.assertEqual(cons["generated_helper"]["name"], "consread_qpid_read")
+            self.assertEqual(rtc["value_expression"], "(ulong) rtctime()")
+            self.assertEqual(rtc["size_expression"], "12")
+            self.assertEqual(rtc["return_shape"], "assign-return")
+            self.assertEqual(cons["value_expression"], "up->pid")
+            self.assertEqual(cons["size_expression"], "NUMSIZE")
+            self.assertEqual(cons["entry_guard"]["condition"], "n <= 0")
+            self.assertEqual(cons["permission"]["perm"], "0444")
+            self.assertEqual(rtc["permission"]["perm"], "0664")
+
+            outputs = om._extraction_outputs(spec, root)
+            rtc_patch = outputs["devrtc.c.patch"]
+            cons_patch = outputs["devcons.c.patch"]
+            self.assertEqual(
+                hashlib.sha256(rtc_patch.encode()).hexdigest(),
+                "7b715be660380e5f75d323d38b5f0067c158508691e7e33e8c05e3102402b524",
+            )
+            self.assertEqual(
+                hashlib.sha256(cons_patch.encode()).hexdigest(),
+                "ce6672282fead3da4f6ac49d393e05c4822f2e1fa597d9f8fa125abf188de324",
+            )
+            self.assertIn("ulong offset = off;", rtc_patch)
+            self.assertIn("case Qnvram:", rtc_patch)
+            self.assertIn("if(n <= 0) return n;", cons_patch)
+            self.assertIn("case Qppid:", cons_patch)
+            self.assertNotIn("case Qppid:\n-\t\treturn readnum", cons_patch)
+
+            spec2 = om.propose_extractions(
+                root, "testconf", ["rtc:read:Qrtc", "cons:read:Qpid"],
+                source_rev=E3_PRE_REV,
+            )
+            self.assertEqual(outputs, om._extraction_outputs(spec2, root))
+            with tempfile.TemporaryDirectory(prefix="e3-out-") as out_td:
+                out = Path(out_td)
+                om.write_extraction_artifacts(spec, out)
+                self.assertEqual(om.check_extraction_artifacts(spec, out), [])
+                (out / "devrtc.c.patch").write_text("tampered\n", encoding="utf-8")
+                self.assertTrue(om.check_extraction_artifacts(spec, out))
+
+            # Apply only to a disposable copy of the exact base.
+            with e3_copy_paths(root, sources) as copy_td:
+                copy = Path(copy_td)
+                e3_apply_check(copy, "devrtc.c.patch", rtc_patch)
+                e3_apply_check(copy, "devcons.c.patch", cons_patch)
+                e3_apply(copy, "devrtc.c.patch", rtc_patch)
+                e3_apply(copy, "devcons.c.patch", cons_patch)
+                rtc_after = (copy / sources[0]).read_text()
+                cons_after = (copy / sources[1]).read_text()
+                self.assertIn("long\nrtcread_qrtc_read(void *buf", rtc_after)
+                self.assertIn("return rtcread_qrtc_read(buf, n, off);", rtc_after)
+                self.assertIn("case Qnvram:", rtc_after)
+                self.assertIn("offset >= Nvsize", rtc_after)
+                self.assertIn("long\nconsread_qpid_read(void *buf", cons_after)
+                self.assertIn("if(n <= 0) return n;", cons_after)
+                self.assertIn("return consread_qpid_read(buf, n, off);", cons_after)
+                self.assertIn("case Qppid:", cons_after)
+                self.assertIn("case Qkmesg:", cons_after)
+                self.assertIn("case Qdir:", cons_after)
+                self.assertIn("return readnum((ulong)offset, buf, n, up->parentpid, NUMSIZE);", cons_after)
+            self.assertEqual(before, {p: (root / p).read_bytes() for p in sources})
+
+    def test_head_qppid_proposal_and_already_extracted(self) -> None:
+        devcons = REPO / "sys/src/9/port/devcons.c"
+        before = devcons.read_bytes()
+        spec = om.propose_extractions(REPO, "pc64", ["cons:read:Qppid"])
+        self.assertEqual(len(spec["patches"]), 1)
+        cand = spec["candidates"][0]
+        self.assertEqual(cand["status"], "DIRECT-CANDIDATE")
+        self.assertEqual(cand["generated_helper"]["name"], "consread_qppid_read")
+        self.assertEqual(cand["value_expression"], "up->parentpid")
+        self.assertEqual(cand["entry_guard"]["condition"], "n <= 0")
+        self.assertEqual(cand["permission"]["perm"], "0444")
+        self.assertIn("up->parentpid", cand["context"])
+        patch = om._extraction_outputs(spec, REPO)["devcons.c.patch"]
+        self.assertEqual(
+            hashlib.sha256(patch.encode()).hexdigest(),
+            "abb253408f780ef4955fe3759da74dcf7ba3389ae5d83c3a38ecbfa6f2119ee3",
+        )
+        with e3_copy_paths(REPO, ["sys/src/9/port/devcons.c"]) as copy_td:
+            copy = Path(copy_td)
+            e3_apply_check(copy, "devcons.c.patch", patch)
+        self.assertEqual(before, devcons.read_bytes())
+
+        extracted = om.propose_extractions(
+            REPO, "pc64", ["rtc:read:Qrtc", "cons:read:Qpid"]
+        )
+        self.assertEqual(
+            [c["status"] for c in extracted["candidates"]],
+            ["ALREADY-EXTRACTED", "ALREADY-EXTRACTED"],
+        )
+        self.assertEqual(extracted["patches"], [])
+        self.assertEqual(before, devcons.read_bytes())
+
+    def test_synthetic_driver_uses_same_proposal_rule(self) -> None:
+        spec = e3_synthetic_spec()
+        cand = spec["candidates"][0]
+        self.assertEqual(cand["status"], "DIRECT-CANDIDATE")
+        self.assertEqual(cand["generated_helper"]["name"], "syndread_qsyn_read")
+        self.assertEqual(cand["value_expression"], "4242")
+        self.assertEqual(cand["size_value"], 8)
+        self.assertEqual(cand["entry_guard"]["condition"], "n <= 0")
+        patch = om._extraction_outputs(spec, Path("."))["devsynd.c.patch"]
+        self.assertIn("syndread_qsyn_read", patch)
+        self.assertIn("ulong offset = off;", patch)
+        self.assertIn("return readnum((ulong)offset, buf, n, 4242, 8);", patch)
+        self.assertNotIn("rtc", patch.lower())
+        self.assertNotIn("cons", patch.lower())
+
+    def test_fail_closed_cases(self) -> None:
+        normal = "\t\treturn readnum((ulong)offset, buf, n, 4242, 8);"
+
+        def refused(spec: dict, needle: str) -> None:
+            cand = spec["candidates"][0]
+            self.assertEqual(cand["status"], "REFUSED", cand)
+            self.assertTrue(
+                any(needle.lower() in r.lower() for r in cand["reasons"]),
+                cand["reasons"],
+            )
+
+        refused(e3_synthetic_spec(expect_sha="0" * 64), "SHA-256 changed")
+        refused(e3_synthetic_spec(normal, preprocessor="#ifdef FOO\n"), "preprocessor")
+        refused(e3_synthetic_spec("\t\treturn /* inner */ readnum((ulong)offset, buf, n, 4242, 8);"), "comments")
+        refused(e3_synthetic_spec("\t\treturn readnum((ulong)offset, buf, n, (Chan*)up->pid, 8);"), "value")
+        refused(e3_synthetic_spec(
+            "\t\treturn readnum((ulong)buf, buf, n, 4242, 8);",
+            local="ulong buf = off;",
+        ), "collides with a helper parameter")
+        refused(e3_synthetic_spec("\t\tn = readnum((ulong)offset, buf, n, 4242, 8);"), "no supported readnum result")
+        refused(e3_synthetic_spec(
+            "\t\tn = readnum((ulong)offset, buf, n, 4242, 8);\n"
+            "\t\tn = readnum((ulong)offset, buf, n, 4243, 8);\n"
+            "\t\treturn n;"
+        ), "multiple readnum")
+        refused(e3_synthetic_spec("\t\treturn readnum((ulong)offset, buf, n, BADMACRO(), 8);"), "no resolvable definition")
+        refused(e3_synthetic_spec("\t\treturn readnum((ulong)offset, buf, n, \"literal\", 8);"), "value")
+        with fixture({
+            "port/devsynd.c": e3_synthetic_source().replace(
+                "Dev syndevtab",
+                "long\nsyndread_qsyn_read(void *buf, long n, vlong off)\n{\n\treturn n;\n}\nDev syndevtab",
+            ),
+            "testarch/testconf": "dev\n\ttest\n\tsynd\n",
+        }) as td:
+            root = Path(td)
+            sha = hashlib.sha256((root / "sys/src/9/port/devsynd.c").read_text().encode()).hexdigest()
+            refused_spec = om.propose_extractions(
+                root, "testconf", ["synd:read:Qsyn"],
+                expect_sha={"sys/src/9/port/devsynd.c": sha},
+            )
+        refused(refused_spec, "collides with an existing symbol")
+        refused(e3_synthetic_spec("\t\treturn readnum((ulong)offset, buf, n, up->pid, 8);"), "not visible")
+        refused(e3_synthetic_spec(normal, prefix="sideeffect();"), "call statement")
+        refused(e3_synthetic_spec(normal, prefix="if(n < 0)\n\t\treturn n;"), "unsupported pre-dispatch")
+        refused(e3_synthetic_spec(normal, selector="synd:read:Qnope"), "not found")
+        with self.assertRaises(om.ExtractionRefusal):
+            om._e3_apply_edits("abcdef", [(1, 3, "X"), (2, 4, "Y")])
+        with e3_pre_fixture() as td:
+            with self.assertRaises(ValueError):
+                om.propose_extractions(
+                    Path(td), "testconf", ["rtc:read:Qrtc"],
+                    source_rev="deadbeef",
+                )
+        with self.assertRaises(ValueError):
+            om.propose_extractions(
+                REPO, "pc64", ["cons:read:Qppid"],
+                source_rev="deadbeef",
+            )
+
+        crlf = e3_synthetic_source(normal).replace("\n", "\r\n")
+        with fixture({
+            "port/devsynd.c": crlf,
+            "testarch/testconf": "dev\n\ttest\n\tsynd\n",
+        }) as td:
+            root = Path(td)
+            sha = hashlib.sha256((root / "sys/src/9/port/devsynd.c").read_text().encode()).hexdigest()
+            spec = om.propose_extractions(
+                root, "testconf", ["synd:read:Qsyn"],
+                expect_sha={"sys/src/9/port/devsynd.c": sha},
+            )
+        refused(spec, "CR/CRLF")
+
+    def test_ambiguous_selector_is_refused(self) -> None:
+        source = e3_synthetic_source()
+        with fixture({
+            "port/devsynd.c": source,
+            "port/devsynd2.c": source,
+            "testarch/testconf": "dev\n\ttest\n\tsynd\nmisc\n\tdevsynd2\n",
+        }) as td:
+            root = Path(td)
+            sha1 = hashlib.sha256((root / "sys/src/9/port/devsynd.c").read_text().encode()).hexdigest()
+            sha2 = hashlib.sha256((root / "sys/src/9/port/devsynd2.c").read_text().encode()).hexdigest()
+            spec = om.propose_extractions(
+                root, "testconf", ["synd:read:Qsyn"],
+                expect_sha={
+                    "sys/src/9/port/devsynd.c": sha1,
+                    "sys/src/9/port/devsynd2.c": sha2,
+                },
+            )
+        cand = spec["candidates"][0]
+        self.assertEqual(cand["status"], "REFUSED")
+        self.assertTrue(any("ambiguous" in r.lower() for r in cand["reasons"]), cand["reasons"])
 
 
 if __name__ == "__main__":

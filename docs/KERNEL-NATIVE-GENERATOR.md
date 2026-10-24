@@ -97,8 +97,8 @@ pinned in the binding; any change fails closed until reviewed.
 
 Authorization is explicit: both generated entries are **kernel-internal-only**.
 The inherited `devopen`/Dirtab policy remains the user-facing policy
-(`Qrtc` and `Qpid` are `0444` reads); the probe proves `up->pid`, not a new
-public API.  No syscall, `/dev` adapter, fake Fgrp or OID kind was added.
+(`Qrtc` is `0664` with other-read set; `Qpid` is `0444`); the probe proves
+`up->pid`, not a new public API.  No syscall, `/dev` adapter, fake Fgrp or OID kind was added.
 
 ## Opt-in build and probe
 
@@ -163,3 +163,61 @@ full legacy permission/lifecycle equivalence, or whole-kernel Chan
 independence.  `Chan`, `Qid`, `Dirtab`, `Walk`, `Dev`, namespace/9P code,
 pipe endpoints, GE/O volume discovery and all non-pilot driver paths remain.
 The generated entries are kernel-internal-only and are not a userspace ABI.
+
+## E3 source-to-source extraction proposals (opt-in)
+
+E3 extends the same analyser with a **proposal-only** mode.  It never writes
+tracked kernel sources and never activates a patch in a build.
+
+```sh
+# Pre-E2 historical input (disposable snapshot; not the worktree).
+git archive 7b4dfac4903e909dc2a00f37e9320335808029ac |
+    tar -x -C build/e3/pre-e2
+
+python3 tools/kernel_opmap.py --propose-extraction --config pc64 \
+    --source-tree build/e3/pre-e2 \
+    --source-rev 7b4dfac4903e909dc2a00f37e9320335808029ac \
+    --selectors rtc:read:Qrtc,cons:read:Qpid \
+    --out-dir build/generated/e3-pre-e2
+
+python3 tools/kernel_opmap.py --propose-extraction --config pc64 \
+    --selectors cons:read:Qppid --out-dir build/generated/e3-head
+
+# Determinism / tamper check; no writes.
+python3 tools/kernel_opmap.py --propose-extraction ... --check
+```
+
+Accepted inputs are pinned by source SHA.  Historical and current hashes are
+in `E3_PINNED_SHA`; a modified file or a different tree is refused.  Outputs
+must stay under `build/generated/` and contain one deterministic
+`<basename>.patch` per source file plus `extraction-decisions.json`.
+
+| Candidate | Source SHA-256 | Result | Patch SHA-256 |
+| --- | --- | --- | --- |
+| pre-E2 RTC `Qrtc` read | `45722e4f...f1bcb` | `DIRECT-CANDIDATE`, helper `rtcread_qrtc_read` | `7b715be6...402b524` |
+| pre-E2 cons `Qpid` read | `b6811757...1ece4` | `DIRECT-CANDIDATE`, helper `consread_qpid_read` | `ce667228...188de324` |
+| HEAD cons `Qppid` read | `068dca67...0e901896` | `DIRECT-CANDIDATE`, helper `consread_qppid_read` | `abb25340...f2119ee3` |
+| HEAD RTC `Qrtc` / cons `Qpid` | current | `ALREADY-EXTRACTED`, no patch | n/a |
+
+Each patch inserts a non-static, kernel-internal helper at file top level and
+replaces only the selected Qid case with `return <helper>(buf, n, off);`.
+RTC's shared `ulong offset` remains untouched; the helper reconstructs its own
+local.  The console helper preserves `if(n <= 0) return n;`, while the legacy
+pre-dispatch guard remains in `consread`.  Qnvram, Qppid, Qkmesg, Qdir and
+other cases are unchanged.  A synthetic renamed driver proves the same rule
+without a driver-specific C emitter.
+
+Fail-closed/refused constructs include changed or unpinned SHA, CR/CRLF input,
+comments inside the replace span, preprocessor-conditional handlers, unsupported
+casts/macros/callbacks, unresolved `up`, parameter/local collisions, fall-through
+or missing returns, multiple readnum results, pre-dispatch side effects or
+unsupported guards, overlapping spans, already-extracted branches, and
+missing/ambiguous selectors.  The helper name is checked against declared and
+called symbols.
+
+Evidence: `git apply --check` passed against disposable copies of the exact
+bases; applying there changed only the intended lines.  An isolated trial with
+the repository's Plan 9 `6c` compiled both patched pre-E2 files
+(`E3_COMPILE_RTC_`/`E3_COMPILE_CONS_` empty status; log
+`build/vm/serial-20261024-065348.log`, not committed).  This is a compile
+check, not a kernel link/boot or a runtime claim.
