@@ -22,7 +22,6 @@ dev
 	mnt
 	srv
 	shr
-	dup
 	rtc
 	tls
 	cap
