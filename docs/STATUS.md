@@ -1,7 +1,7 @@
 # Plan2001-O — current implementation and verification
 
-**Last runtime verification:** 24 October 2026, OpenCode E5 on base `dd3c4f2cc3bd462a6a6f285daccb322a52e9ef9b`; implementation `53785d754cd6239d7ac3e0ce70e5792f543a07d1` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md)). Earlier E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
-**Scope:** amd64/`pc64`, opt-in `pc64native`, and opt-in no-`#c` `pc64oconsole`, disposable QEMU images. E5 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
+**Last runtime verification:** 24 October 2026, OpenCode E6 on base `1c61dd175c0757e5eaed016c1a7305f7ccad5c91`; implementation `ad836d7` on `main` (completion report: [to_chatgpt_review.md](to_chatgpt_review.md)). E5 implementation was `53785d7` and its evidence `9c41f3b`; E4 was independently executed on base `10d9fcd...` and committed as `f60211d0...`.
+**Scope:** amd64/`pc64`, opt-in `pc64native`, opt-in no-`#c` `pc64oconsole`, and opt-in no-`#c`/no-`#S` `pc64onativedisk`; disposable QEMU images. E5/E6 results were executed by OpenCode; E4 results below were executed by Codex/Astra. Older sections retain their original agent-reported scope. E4 review: [to_astra_review.md](to_astra_review.md).
 **Historical record:** `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/STATUS.md`. The six completed `docs/O-BOOT-EXPERIMENT-*.md` reports can be restored with `git show 62564d1dea270b9f924cc4f7eebf466bf8798074:docs/O-BOOT-EXPERIMENT-D2B.md` (substitute A, B, C, D1, D2A or D2B).
 
 ## Current proven vertical slice
@@ -91,6 +91,67 @@ Limitations: this proves the O-only server profile does not register or link
 and `Qdir`/attach/walk/stat/open/close, `Qdrivers` and `Qmordor`/`Qconsctl`
 remain deliberate legacy/unsupported cases. `pprint` still uses legacy fd 2
 and `Chan`. `#b`, `#i`, `#v`, `#t`, UART and screen drivers are unchanged.
+
+## E6 native SD core and no-`#S`/no-`#c` O-only profile
+
+**APPROVE (agent-executed).** The concrete `SDev`/`SDunit`/`SDifc` storage
+interface is split into `sys/src/9/port/sdcore.c` (controller registry,
+`sdinitcontrollers`, unit lifetime, `sdunititer/ready`, absolute
+`sdblockrw`, `sdblockflush`, shared `sdrio` and SCSI emulation) and
+`sys/src/9/port/devsd.c` (legacy `#S` `Dev`/`Chan`/`Qid` adapter). The core
+is callable without a `Dev` or namespace lookup; `pc64/main.c` calls
+`sdinitcontrollers()` after `chandevreset()`, and the core's
+`QLock`/`sdinitialized` guard makes the legacy `sddevtab.reset` path a no-op
+if the direct call already ran. AHCI's `iapnp()` retains its existing
+self-registration convention; the core still calls each `pnp` once.
+
+`pc64onativedisk` / `9pc64onativedisk` is selected only by
+`ONATIVE_DISK=1`. It inherits E5's absent `cons`, omits `sd`, and excludes
+`sdloop` because that driver is backed by an inherited `Chan`/`devtab`.
+`mkdevc` now emits `sdifc[]` when controller sources are present even
+without the `sd` Dev, and `sdcore.$O` is unconditional in the `pc64` `PORT`
+list. `ONATIVE_DISK=1` is explicitly rejected together with
+`NATIVE_PROBE=1` or `OCONSOLE=1`.
+
+Source and linked proof (all PASS): `tools/sd_migration_check.py`; generated
+`pc64onativedisk.devc.c` has neither `&consdevtab` nor `&sddevtab`;
+`9pc64onativedisk` has neither symbol and no `sdloopifc`, but links
+`sdinitcontrollers`, `sdunititer`, `sdunitready`, `sdblockrw`,
+`sdblockflush`, `sdrio`, `sdvirtio10ifc`, `oblockopenpart`/`oblockrw`/
+`oblockflush`. Default `pc64`, `pc64mp`, `pc64native` and `pc64oconsole`
+retain `&sddevtab`; `pc64oconsole` still lacks `&consdevtab`.
+
+Executed gates (all PASS unless marked NOT RUN):
+
+```sh
+python3 tools/sd_migration_check.py
+python3 tools/kernel_opmap.py --write   # reviewed: source-split records only
+python3 tools/kernel_opmap.py --check
+python3 tools/test_kernel_opmap.py      # 29/29
+WHAT=kernel tools/build.sh
+NATIVE_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-o-native-generator.sh        # incl. legacy #S attach/walk/stat/read
+tools/test-o-boot.sh                    # default O boot, run() 1,2,3
+OCONSOLE=1 WHAT=kernel tools/build.sh
+OCONSOLE=1 tools/test-oboot-server.sh
+ONATIVE_DISK=1 WHAT=kernel tools/build.sh
+ONATIVE_DISK=1 tools/test-oboot-server.sh
+```
+
+The new-profile D2b run booted one disposable O disk three times
+(`run() -> 1,2,3`, OID 7 identity, no panic/fault), observed
+`sd: controllers initialized (2) native-only` exactly once per boot,
+`sdvirtio: flush PASS`, `oblocktest` in-range/read-at-end/oversized-clamped/
+write-past-end PASS, and clean wrong-PARTUUID and malformed-GPT negatives.
+The measured `volopen-enter`/`-opened`/`-started` and `n=64` windows all
+reported `namec=newchan=walk=devwalk=mount=exec=0`. Full matrix:
+[SD-MIGRATION.md](SD-MIGRATION.md); logs: `build/verification/e6/` (ignored).
+
+Limits: only QEMU VirtIO block was exercised for runtime I/O; AHCI was
+enumerated in QEMU but physical AHCI/NVMe and removability were **NOT RUN**.
+The legacy `#S` control is read-only; `#S` write/control mutation and the
+legacy shutdown path were not rerun. No userspace disk syscall or ABI was
+added, and no claim is made for whole-kernel `Chan` independence.
 
 ## E4 independently reviewed Qppid integration
 
@@ -251,6 +312,7 @@ tools/test-oboot-output.sh
 tools/test-oboot-oid.sh
 tools/test-oboot-user.sh
 tools/test-o-boot.sh
+ONATIVE_DISK=1 tools/test-oboot-server.sh
 tools/test-o-pathless.sh
 tools/test-o-exec.sh
 tools/test-o-exec-args.sh
@@ -269,6 +331,7 @@ Use **disposable** QEMU disk images only; never write to physical disks in routi
 - `docs/O-FORMAT.md`: implemented O disk format.
 - `docs/KERNEL-OPMAP.md` and `.json`: **generated**, large structural inventory from `tools/kernel_opmap.py`; do not load wholesale into agent context unless specifically required. `docs/KERNEL-OPMAP-NOTES.md` is a human-readable review.
 - `docs/KERNEL-NATIVE-GENERATOR.md`: E2 generator CLI, generic readnum rule, RTC/console probe evidence, refusals and remaining `Chan` dependencies.
+- `docs/SD-MIGRATION.md`: E6 SD core/legacy `#S` operation matrix, `pc64onativedisk` profile proof, `sdloop` exclusion and executed verification limits.
 - `docs/O-BOOT-DEPENDENCIES.md`: **historical Level A snapshot**, includes B/C NOT YET as of that earlier experiment; it does not override the newer Boot A–D2b results.
 - Detailed completed boot reports are intentionally **not present at HEAD**. Read historical versions using the pinned Git commit `62564d1dea270b9f924cc4f7eebf466bf8798074`; do not re-create them merely because old links exist in past prompts.
 - `docs/to_astra.md`: E4 assignment and acceptance criteria.

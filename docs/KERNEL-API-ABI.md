@@ -77,6 +77,7 @@ The **canonical token** below is what new code and design prose must mean. `Sour
 | T26 | `fd` / `Fgrp` | Inherited process file descriptor index/table mapping to `Chan*`. An `fd` is not the new generic `Handle`, although both can be represented numerically. | LEGACY/EXISTING: `sysfile.c`, `portdat.h` |
 | T27 | `Ohand` / `Ohtab` | Existing **O-Space-specific** reference and per-process slot table used by native `OSPACE*` calls. This is a concrete instance of handle-like behavior, **not** a universal, rights-bearing capability system. | EXISTING: `sys/src/9/port/devgefs.c` |
 | T28 | `Lock` / `QLock` / `Rendez` / `Ref` | Existing distinct kernel synchronization and lifetime primitives; none is a `Queue` merely because of the letter Q in `QLock`. Use actual types and proper interrupt/sleep context. | EXISTING: `portdat.h`, `qio.c` |
+| T29 | `SDev` / `SDunit` / `SDifc` | Concrete C storage-controller registry, live unit and controller-operation interface. `SDifc` is a controller interface (`pnp`/`enable`/`verify`/`online`/`bio`/`rio`/...), not a new file-like `Dev`. A live `SDunit*` is kernel state, not an OID, pathname, userspace `Handle` or `Capability`. Native block calls use an absolute **unit byte offset**; the legacy `#S` adapter adds partition-relative offsets and `Chan` permissions separately. `sdcore.c` owns registry/unit/block operations; `devsd.c` remains the legacy `#S` adapter. | EXISTING/IMPLEMENTED: `sys/src/9/port/sd.h`, `sdcore.c`, `devsd.c`; evidence in `docs/SD-MIGRATION.md` |
 
 ### Disambiguation requirements
 
