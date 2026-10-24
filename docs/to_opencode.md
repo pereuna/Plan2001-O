@@ -1,162 +1,150 @@
-# E6 — OpenCode: native disk subsystem; remove #S Dev from the O-only server
+# E7.1 — OpenCode: native Ethernet kernel C boundary (parallel to E6)
 
-**ACTIVE implementation task. Execute stages 1–6 in this ONE prompt.** Replace the completed E5 assignment, not `docs/KERNEL-API-ABI.md`. Build, run focused tests, commit and push independently verified checkpoints, and write the final OpenCode completion summary to `docs/to_chatgpt_review.md`. Do not treat passing source analysis as a substitute for linked QEMU runtime evidence.
+**ACTIVE TASK FOR THIS BRANCH ONLY. Implement E7.1, verify what you actually changed, commit/push verified checkpoints, and write an agent-readable completion report.** Do not implement the whole E7 networking stack, an IPv6-only runtime claim, or E6's disk migration in this task.
 
-**Baseline to verify:** `pereuna/Plan2001-O` `main` HEAD was `437f470f7170c4cc26fa622dfa72854e14924445` when this task was written (2026-10-24). E5 service split `53785d7`, E5 test report `9c41f3b`. Always check actual HEAD and working tree first. Preserve all user changes and the OpenCode JS/commit workflow.
+## Repository, branch and parallel-work rules — read first
 
-**Read in this order:** `AGENTS.md`, `docs/KERNEL-API-ABI.md`, `docs/OBJECT-MODEL.md`, `docs/STATUS.md`, `docs/CONS-MIGRATION.md`, then the actual sources `sys/src/9/port/devsd.c` (~2142 lines), `sys/src/9/port/sd.h`, `sys/src/9/port/devgefs.c`, `sys/src/9/port/sdscsi.c`, all enabled `sd*` implementations, `sys/src/9/pc64/main.c`, `sys/src/9/pc64/pc64oconsole`, `sys/src/9/pc64/mkfile`, `sys/src/9/port/mkdevlist` and the test/build scripts. Actual current C sources are authoritative on implemented behavior.
+- **Repository:** `pereuna/Plan2001-O`
+- **Required branch / push destination:** `design/ipv6-only-native-20261024`. This branch already carries the accepted IPv6-only **target decision** in `docs/GENERAL-SOFTWARE-SPECIFICATION.md`. The branch originally forked from `1c61dd175c0757e5eaed016c1a7305f7ccad5c91` and has a later specification commit `d71d9794d72ff7b91a3da7d9d553f09c64035e0b`. Verify current HEAD/merge base yourself.
+- **E6 agent is concurrently editing/pushing `main`.** NEVER check out, merge, rebase onto, commit to, or push `main` from this E7.1 run. Never overwrite or update `docs/to_opencode.md` on `main`. Do not merge this branch's draft PR #1.
+- **Use a separate physical Git worktree or clone.** Running a second OpenCode session in the same worktree as the E6 agent is NOT safe, even on different branches. Before touching code, check `git status --short`, `git branch --show-current`, `git remote -v` and `git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`. Abort if the local branch/upstream is not the required E7.1 branch or if another task's uncommitted files are present. If E6 shares the working tree, create a **separate clone** of the exact E7.1 branch, run OpenCode there, and leave E6's checkout untouched.
+- **Hooks:** the existing OpenCode JS automation may run `git add .`, commit, and `git push`. It MUST publish ONLY to `origin/design/ipv6-only-native-20261024`. If a hook uses explicit `origin main` or automatically pulls/merges `main`, do not allow the hook to run with that configuration; isolate/disable that hook in the E7.1 worktree before execution. Never force-push. Perform a final branch/upstream check before the automatic push.
+- **Merge policy:** E7.1 is a branch-local implementation. Integration with E6's eventual combined O-only kernel is **E7.2+**, after E6 is approved. Do not alter E6's acceptance results.
 
-## Goal, accepted architecture and exclusions
+**Authoritative context:** `AGENTS.md`, `docs/KERNEL-API-ABI.md` (canonical vocabulary), `docs/GENERAL-SOFTWARE-SPECIFICATION.md` (new IPv6-only target), `docs/STATUS.md` (what is actually proven), `docs/KERNEL-OPMAP-NOTES.md` (historical hints; verify source), `docs/CONS-MIGRATION.md` (E5 pattern). Read the entire current Ethernet sources before editing.
 
-**Goal:** Plan2001-O must boot its *real* O-resident MicroPython D2b server, locate the GE/O volume by GPT PARTUUID, read/commit persistent O objects, and flush to disk **without registering/linking the legacy `#S` `sddevtab`**. The new profile must also retain the E5 removal of `#c` `consdevtab`.
+## Goal and explicitly limited scope
 
-Keep the existing physical storage controllers and their proven low-level code: SATA/AHCI `sdiahci`, NVMe `sdnvme`, VirtIO block/SCSI `sdvirtio10`, shared `sdscsi` translation where required, and existing `SDev`, `SDunit`, `SDifc`, `SDreq` structures as long as their actual semantics are appropriate. `SDifc` is a justified **controller interface**, not a new file-like `Dev`. Preserve the exact native data path already present:
+**E7.1 GOAL:** extract and **actually execute** a direct, narrow, native **kernel C Ethernet lifecycle + frame data interface** beneath the existing `#l` legacy adapter. Reuse `Ether`, `Netif`, `Block`, `Queue`, controller-specific operations and registration callbacks when their semantics are correct. Do NOT replace them with a new file abstraction or artificial `NativeDev.open/read/write/close`. Keep the legacy `etherdevtab` fully functioning in existing builds.
+
+Specifically demonstrate:
+1. A native, independently callable controller discovery/initialization and lookup path, not just `etherdevtab.reset` renamed. Single initialization per controller, correctly sequenced after PCI/IRQ/memory requirements. No premature device attach in interrupt/`up == nil` contexts.
+2. Native **Ethernet frame receive and transmit** boundaries that take/produce concrete `Block` payloads, have documented ownership, valid frame length/EtherType behavior, and do **not** require `Chan`/`Qid`/`Dirtab`/`Netfile` **in the native public C API** or their executed native callback/dispatch chain. Preserve the legacy `Netfile` multiplex/bridge/filter path separately; do not silently disable it.
+3. A bounded real QEMU **VirtIO Ethernet** probe covering controller initialization and at least a genuine hardware TX/RX path if an isolated fixture can safely stimulate both directions. Separate hardware evidence from any injected `Block` unit test; do not label a fabricated ingress as NIC RX.
+4. An exact dependency map of the next boundaries (`#I` IP, UDP/TCP, `#W` WireGuard), identifying what still uses `Chan`. NO functional rewrite of these protocols in E7.1.
+
+**Out of scope:** unregistration/removal of `etherdevtab`, `ipdevtab` or `wgdevtab`; elimination of IPv4 symbols; new TCP/UDP socket or Handle ABI; IPv6 routing/NDP complete test; WireGuard cryptographic changes; changing D2b persistence or E6 SD core; physical NIC validation. At E7.1 completion the default and opt-in kernels may still link legacy IPv4, ARP and three network `Dev` tables: name this status **TRANSITIONAL**, never IPv6-only implemented.
+
+## Exact source observations to confirm, not hand-wave
+
+All observations below are from the pre-E7.1 branch; re-evaluate current C before assuming unchanged.
+
+- `sys/src/9/port/devether.c` (~950 lines) combines `etherdevtab`, `etherreset()`, `etherprobe()`, `addethercard()`, `etheriq()`, `etheroq()`, `ethermux()` and IPv4-only `netconsole()`. `etherreset` currently probes cards via `cards[].reset`, installs `Ether.oq = qopen(... Qmsg|Qkick ..., ether->transmit, ether)`, calls `netifinit` and enables legacy IPv4 `netconsole(1)`. Do not assume controller reset and IP configuration are the same event.
+- `Ether` in `sys/src/9/port/etherif.h` contains concrete hardware operations (`attach`, `transmit`, `ctl`, `shutdown`), MAC/MTU/link, `Queue *oq`, and an embedded `Netif`. Distinguish its physical controller state from a legacy `Netfile` subscription. The output `Queue` is a buffer; an Ethernet **frame** is a length-delimited `Message`; neither is a TCP `Stream`.
+- The RX driver entry `etheriq(Ether*, Block*)` calls filtering/DMAT and `ethermux`; `ethermux` currently selects and delivers to legacy `Netfile.f[].in` subscriptions. This is a **real legacy dependency**, even though `etheriq` itself takes no `Chan*`. Do not claim a fully independent native RX datapath while its only sink is `Netfile`.
+- `etheroq` and `etherwrite` send via `ethermux` and `qbwrite(ether->oq, bp)`. The `Qkick` transmit callback is installed by `etherprobe`, so a successful enqueue is not by itself a proven NIC transmit. Preserve frame ownership on rejection, copy-on-write, queue backpressure and link state; avoid unbounded spinning or use-after-free.
+- `sys/src/9/port/netif.c` (~738 lines) combines `Netfile` state/permission/multicast control with ``netifwalk/open/read/write/close` using `Chan`/`Qid`. A native consumer must not call these legacy file helpers. Keep legacy rights/modes, exclusivity, bridge, bypass, promisc, multicast and queue close behavior intact.
+- `sys/src/9/pc/ether8169.c`, `ether82563.c`, `etheri225.c`, `sys/src/9/port/ethervirtio10.c` and `etheriwl.c` register via `addethercard(...)` and invoke `etheriq` on receive. Keep their controller firmware/DMA/IRQ behavior unchanged unless a narrowly justified fix is required. Intel Wi-Fi firmware may use inherited file lookups, so **do not** claim Wi-Fi works without a filesystem in O-only. QEMU VirtIO is the only required real NIC for this stage.
+- `devether.c`'s `netconsole()` is an IPv4 UDP utility. **Classify it LEGACY-ONLY** and keep it operational in old builds; do not transfer it to native IPv6-only API, confuse it with E5's UART diagnostics, or break `print/iprint/panic`.
+- `sys/src/9/ip/devip.c` initializes `Fs` through `ipattach`; `sys/src/9/ip/ethermedium.c` opens `#l` paths via `namec`/`chandial` and uses legacy `devtab[]->bread/bwrite`. `sys/src/9/ip/devwg.c` calls `namec("/net/udp/clone",...)` and reads via `Chan`. This is E7.2+ work, **audit only**. `ip.h` has `Fs`/`Proto`/`Conv`/`Medium` and existing `Queue` data paths. Do not replace working protocol machinery or use IPv4-specific conversion in the native API.
+- Current D2b server test normally boots with `-nic none`. A successful D2b storage boot does NOT prove networking. `tools/wgtest.sh` labels itself a historical legacy CPU-server test with unavailable old root, not a native O-only WG regression.
+
+## E7.1.0 — baseline audit and proof obligations
+
+Before code edits, create `docs/ETHER-MIGRATION.md` as a **single agent-readable operation map**, with source/function/consumer/ownership/lifetime and a status per entry. Include at least:
+
+- `etherreset/etherprobe/addethercard`, registry `etherxx[]` and `cards[]`, `etherattach`, `Ether.attach/transmit/ctl/shutdown`, all active controller reset/probe callbacks, netconsole-on-reset, controller shutdown;
+- `etheriq`, `ethermux`, `etheroq`, `etherwrite/etherbwrite`, `Netif/Netfile`, `netifinit/open/close/read/write`, `qopen(Qmsg|Qkick)` and TX ownership;
+- `dmatproxy`, multicast/promisc/bypass/bridge, frame copying, NIC IRQ RX, enable/attach ordering and drop accounting;
+- the three legacy `Dev` tables (`etherdevtab`, `ipdevtab`, `wgdevtab`) and exactly where the IP-to-Ethernet and WG-to-UDP paths traverse `namec/chandial/devtab/Chan`;
+- nonlegacy or unrelated network paths (loopback medium, native `ipoput4/6` packet processing, existing `SDifc` etc.) as context only.
+
+Use a table with columns:
+`symbol | source | current_callers | semantic_owner | input/output | allocation_ownership | call_context/locking | Chan_or_Netfile_edge | E7.1_target | legacy_compatibility | evidence`.
+
+**Audit gate:** distinguish (a) concrete native frame operations, (b) legacy multiplexer policy, (c) IP-specific processing, and (d) hardware controller operations. Do not assume that a function is Chan-free just because its signature omits `Chan*`. Mark unresolved ownership/callback choices as OPEN, not "implemented."
+
+## E7.1.1 — introduce the direct Ethernet C core
+
+Separate independent hardware/controller registry/lifecycle from `etherdevtab`. A small `ethercore.c` next to `devether.c` is a reasonable outcome, but code ownership may differ if the existing implementation reveals unavoidable coupling. Prefer an **actual independent compiled core** rather than a new generic object framework, large generated wrappers or unrelated code movement.
+
+Core must own or directly implement:
+- controller registration/probe, stable in-memory `Ether*` lookup for the native kernel, and exactly-once initialization; explicit errors for absent devices, preinit calls and invalid indices;
+- controller-specific `reset/attach/transmit/shutdown` using the existing function pointer semantics;
+- MAC, MTU, link, output `Queue` and core stats in their real structures;
+- direct frame TX using `Block` with a documented transfer-of-ownership rule, actual queue/backpressure and eventual `Ether.transmit` kick, independent of a legacy `Chan` endpoint;
+- direct frame RX dispatch, clearly separating **native frame subscriber/delivery** from legacy `Netfile` demultiplexing.
+
+For the E7.1 native RX path use the smallest **explicit, fixed-purpose** mechanism suitable for one kernel networking consumer (e.g., an Ether RX callback with strictly defined registration/ownership/IRQ behavior), **not** a universal class, automatic copy for every network protocol, unbounded publisher/subscriber bus, global user-visible Handle scheme, or callback accepting a `Chan*`. Specify whether RX is IRQ context or worker context. Do not take sleeping locks or allocate unsafe memory in IRQ; copying or deferring into a `Queue` may be necessary if the actual driver invokes `etheriq` under interrupt constraints. If the existing driver path cannot safely meet a direct callback's lifetime contract, implement a bounded deferred path and document it.
+
+**Ownership invariants required:** exactly one owner of every ingress/egress `Block`; precise behavior when RX delivery is absent/full, TX length invalid, carrier is down, queue full, driver not enabled, and shutdown/unbind races. Preserve EtpType and L2 framing; ensure IPv6 EtherType 0x86DD is not silently interpreted as an IPv4 address or converted. At E7.1 a raw Ethernet frame being accepted is **not** proof that the IPv6 stack accepted the packet; likewise legacy receiving IPv4 remains transitional, not a policy violation in this development build.
+
+If full datapath extraction would require reimplementing `Netfile` bridging semantics, leave those policies in the adapter and add the minimal explicit compatibility dispatch needed to retain them. Demonstrate the **native path** not touching `Chan`/`Qid`/`Netfile`; do not claim all legacy code was removed from the resulting binary.
+
+## E7.1.2 — retain exact legacy `#l` functionality
+
+Keep `etherdevtab` registered for all existing kernel profiles in E7.1. Legacy `etherattach`, `etherwalk/stat/open/read/write/bread/bwrite/close/wstat` and `netif.c` must keep access checks, per-`Netfile` state, buffer/polling/offset semantics and closed subscription behavior. Wrap/delegate to the same new hardware/core operations where semantically equivalent, but **do not equate** a legacy `Chan` write (which carries `Netfile` identity and policy) with direct core TX from a trusted kernel caller.
+
+Controller registry and resetting must not occur twice when normal boot calls `chandevreset`. Use the actual boot constraints in `pc64/main.c`. Retain status/formatting, link notifications, `netconsole` legacy option, and power/shutdown logic. If `devether.c` is split, keep old linker source assignments coherent and preserve `netif.c` behavior in legacy; monitor same-name symbols and init races.
+
+**A legacy-compatible kernel must still link, boot and receive/transmit using its previous device mechanism.** If preserving an edge requires a specific `Netfile` compatibility callback, document it clearly; no conversion of existing controller driver's RX `Block` into raw bytes then back purely for cosmetic API shape.
+
+## E7.1.3 — focused verification with actual VirtIO NIC
+
+Use a *separate disposable* QEMU fixture with `virtio-net-pci` (or the repo's already supported VirtIO Ethernet device) and serial output; the existing D2b storage fixture disables NIC so **it is not sufficient**. Do not interact with physical NICs or users' running servers. Do not require old CPU-server `wgtest.sh` infrastructure.
+
+Verify, in the same coherent E7.1 build:
+- compile/link the actual new core and existing `etherdevtab` on amd64; preserve default kernel and E5 (E6 is running elsewhere);
+- controller discovery, MAC address, init exactly once, ring/queue setup and relevant DMA/IRQ attachment by observing *actual* NIC driver; do not call `etherdevtab.reset` from the native C entry;
+- a trusted native caller uses the direct TX frame function, with a host-observable transmitted test Ethernet frame or a driver/hardware completion counter proven to correspond to that frame, **not** merely `qbwrite` success;
+- a host-generated Ethernet frame reaches the **real VirtIO RX handler** and the direct native receive sink. A synthetic injected `Block` is useful for isolated ownership/negative tests, but it does not satisfy this hardware-RX criterion;
+- negative cases: absent/no controller, invalid frame lengths, full/down queue, and failed native RX registration or rejected/unbound sink; verify bounds and cleanup with actual assertions/markers;
+- a minimal legacy `#l` control test (e.g. existing `ether` attach/read with a QEMU card) confirms native refactor did not sever `Netfile` semantics. If an IPv4 legacy test is used, do not present that as IPv6-only evidence.
+
+A small new `tools/test-e71-ether.sh` / `tools/test_e71_ether.py` and opt-in native probe are acceptable; keep tests deterministic with serial markers and fail closed. **Do not introduce a general-purpose Python build system or tool dependency.** Existing `tools/build.sh` may need a small config/build profile addition for an opt-in test, but do not overwrite E6's simultaneous modifications in `main`. Retain a branch-local diff and explain exactly which shared files will need careful merge later. Prefer untouched `tools/test-oboot-server.sh`, `tools/build.rc`, kernel disk configs, `docs/STATUS.md` and `docs/to_chatgpt_review.md` if unrelated to E7.1; these are under E6's active ownership.
+
+Run at least an actual kernel build plus focused QEMU evidence. If host injection/packet capture cannot be made reliable or QEMU unavailable, report `PARTIAL-HOLD` and exact missing gate; do not fake a test PASS. A timeout, test code presence or log grep without a correlated RX/TX marker is not proof of data movement. Keep logs under ignored `build/verification/e71/` and name the exact commands.
+
+## E7.1.4 — IP/UDP/TCP/WireGuard boundary audit ONLY
+
+Without changing `sys/src/9/ip/*` implementation, append to `docs/ETHER-MIGRATION.md` a brief **E7.2+ dependency graph**:
 
 ```text
-GE/O OID + Space
-    -> O storage's PARTUUID/GPT-selected bounded Oblock
-    -> devgefs.c oblockrw/oblockflush
-    -> sdunititer / sdunitready / sdblockrw / sdblockflush
-    -> SDunit / SDev / SDifc.bio, SDifc.rio
-    -> AHCI / NVMe / VirtIO hardware
+NIC driver -> Ether RX -> legacy Netfile OR native frame sink (E7.1)
+IPv6 native candidate: frame sink -> IP6/ICMPv6/NDP -> TCP6/UDP6 (future)
+Current legacy: #l -> ethermedium.c namec/chandial/Chan -> ipiput4/6
+Current WG: #W -> wglisten("/net/udp/clone") -> Chan -> UDP
 ```
 
-**Old compatibility path, retained in normal kernel:** `#S → sddevtab → Chan/Qid → sdread/sdwrite → SDifc`. It may call the same native core routines where behavior is equivalent. The new O-only path must not depend on the old path for enumeration, controller probing, initialization, read, write, flush or lifecycle.
+Show concrete source edges for `ipattach/Fs` init, `etherbind`, `etherread4/6`, `Proto/Conv`, `udpinit`/`tcpinit` and `wglisten/wgreader`. Separate packet-processing reuse from file-namespace initialization. State exact later acceptance conditions:
+- native IPv6-only IP core (with working ICMPv6/NDP);
+- native UDP6/TCP6 connection management with appropriate `Stream` vs datagram `Message` semantics;
+- native WG outer/inner IPv6-only routing;
+- eventual new O-only config removing `etherdevtab`, `ipdevtab` and `wgdevtab`;
+- eventual exclusion of executable IPv4/ARP from the final kernel **without breaking legitimate shared C code**.
 
-Do **not** create a generic `NativeDevice`, `Filedev`, `ObjectDev`, object hierarchy, syscall number, new userspace Handle/Capability system, path namespace or alternative GE/O persistence model. There is NO new userspace disk ABI in E6. Keep `OID`, `Space` and `File` terminology from `KERNEL-API-ABI.md`; a live `SDunit*` is kernel state, **not** an OID, disk filepath or userspace Handle.
+These are **NOT** E7.1 coding or runtime requirements. If proposing a future userspace ABI, mark `OPEN`; do not add syscalls or conflate `OID`, kernel `Ether*` and userspace `Handle`.
 
-**Scope:** amd64 `pc64` family; opt-in QEMU O-only profile. Do not globally delete legacy `#S` support, other `Dev` devices, AHCI/NVMe/VirtIO drivers or existing legacy tests. Do not perform I/O to host physical disks; only disposable test images.
+## Acceptance gates and reporting
 
-## Stage 1 — remove disk discovery's dependency on `Dev.reset`
+**E7.1 APPROVE** requires:
+1. Actual source-backed operation/ownership map covering the above registry, datapath, Netif and three-Dev dependencies;
+2. Independent compiled/linked native Ethernet C lifecycle + RX/TX data interface, no synthetic Qid selector, no `Chan`/`Netfile` in its *executed native path*, precisely documented buffering and IRQ/ownership rules;
+3. Legacy `#l` behavior preserved in a built and relevant tested standard kernel; E5 no-`#c` profile build preserved when affected;
+4. A real VirtIO NIC probe and **observed native TX and RX** in disposable QEMU, with negative cases;
+5. No change to the new IPv6-only **target** and no false claim that runtime is already IPv6-only;
+6. All commits pushed **ONLY to the E7.1 branch**, without updating `main` or merging PR #1.
 
-Audit the boot call graph before changing it:
+If one gate is unresolved, use `PARTIAL-HOLD`, push only stable verified checkpoints and identify exact missing evidence. Do not delete tests, weaken assertions, or label a mock NIC a real NIC to obtain APPROVE.
 
-```text
-pc64/main.c init sequence
-    -> pci/trap/memory setup
-    -> chandevreset()
-        -> sddevtab.reset = sdreset()
-            -> for sdifc[i]: pnp() -> sdadddevs()
-    -> O-only kernel process / native OVOL / OSPACE operations
-```
-
-The above is the *currently expected* relationship; verify every edge in current code, including generated `devtab[]` / `sdifc[]`, controller IRQ/PCI prerequisites, `chandevinit` vs `chandevreset`, `up == nil`, scheduler availability, reset vs enable vs online, and the use of `getconf`. `sdunitready` / controller `verify` / media geometry may run lazily in process context; do not force those calls into unsafe early boot.
-
-Refactor the real probe/registration work into an explicitly named **native disk subsystem initialization function** (e.g. `sdinitcontrollers()` or an existing accurate name, not an ABI proposal). It MUST be callable without dispatching through `Dev`, `Chan` or any `#S` path. Call it at a verified correct point for the native O-only boot. Normal profiles may preserve a thin `sddevtab.reset` adapter to the same operation.
-
-**Critical:** E6 must never enumerate/probe/add the same controller twice if both the direct boot call and `sddevtab.reset` run. Choose one clear idempotence/ownership rule, guard or profile-specific dispatch. Document the exact initialization order and why PCI, IRQ, allocation and process context are valid.
-
-**Stage-1 acceptance:** a clean kernel build, documented native init owner/entry point, no duplicate enumeration; E5 core console remains intact. Do not yet remove `sddevtab`.
-
-## Stage 2 — preserve `SDev`/`SDunit`/`SDifc` as concrete C storage interfaces
-
-Make the **SD core linkable and runnable without `devsd.c`'s legacy `Dev` adapter**. This is the actual hard part: currently `sdunititer`, `sdunitready`, `sdblockrw`, `sdblockflush`, controller enumeration and `sddevtab` coexist in the same large source file. Merely removing the `sd` line from the `dev` config would drop needed native symbols and prevent boot.
-
-Refactor into explicit source ownership (preferred: `sys/src/9/port/sdcore.c` for generic controller registry/unit/lifetime/native block I/O, `devsd.c` for legacy `Chan`/`Qid`/`Dirtab`/`sddevtab` dispatch). Reuse `sd.h` and existing controller-specific files. Other minimal packaging is acceptable **only if it actually proves `sddevtab` absent from the new linked kernel**. Do not solve by a source file full of `#ifdef O_ONLY` duplications or a fake Dev table.
-
-Inspect and classify the entire `devsd.c` implementation:
-- `sdreset`, `sdadddevs`, unit registry, `sdgetdev`, `sdgetunit`, `sdunititer`, `sdunitput`, `sdunitready`, `sdblockrw`, `sdblockflush`, shared `sdrio`, error/memory/dma code, media-change and reference lifecycle.
-- Non-Dev operations referenced by controllers, `sdscsi.c` or other kernel code: `sdsetsense`, `sdfakescsi`, `sdfakescsirw`, `sdaddfile`, `sdannexctlr` and `sdconfig`-related operations. Move only the necessary implementation to a native core; when a function's real purpose is to create a `#S` virtual file (e.g. `sdaddfile`), preserve it as **legacy-only** or provide an explicitly limited no-op/unsupported policy if a controller can still call it; no silently broken linkage.
-- Explicit `SDev/SDunit` reference increments/decrements and error cleanup, including `sdunititer` returning a referenced unit. Disk enumeration names `sdE...` may be transient diagnostics but are not a durable OID or required pathname.
-- Controller-specific `SDifc.bio` / `rio` contract and SCSI emulation required for non-SCSI media; do not strip a working translation layer just because the word "SCSI" sounds legacy.
-- Raw `SDreq` state, DMA-alignment, bounce-buffer ownership, sector alignment, partial I/O, errors, flush, removable-media state, controller enable/disable and shutdown. For `sdblockrw` retain absolute **unit byte-offset** semantics (not `#S` partition-relative offsets). Retain `devgefs.c` `Oblock` GPT partition-range guard to stop writes outside the selected partition.
-
-**Design constraint:** sharing a concrete `SDunit` and `SDifc` between core and legacy adapter is expected; it is **not** a regression to the file abstraction. The core's exported functions must not accept `Chan*`, `Qid`, `Dirtab`, a pathname or an invented Qid selector. Keep controller-specific hardware context in appropriate concrete records.
-
-**Stage-2 acceptance:** source/linked evidence that all GE/O native calls resolve from the core, independently of `devsd.c`; existing normal `pc64` still compiles and the legacy file adapter remains available.
-
-## Stage 3 — retain the legacy `#S` as a compatibility adapter
-
-Retain `sddevtab` in normal `pc64` / `pc64mp` / `pc64native` and the previous `pc64oconsole`:
-- `sdattach/sdwalk/sdstat/sdopen/sdclose/sdread/sdwrite/sdwstat/sdconfig` must preserve existing external behavior where still used.
-- `#S/sdXX/data`, `ctl`, `raw`, `sdctl`, part names, permission checks, `devmask`/probed controller names, reference/lifetime and media-change rules remain legacy-only semantics and must not leak into the native C signatures.
-- Record when legacy `sdbio` and native `sdblockrw` share implementation and when they intentionally differ (partition vs whole unit, EOF vs error, permissions, version/change semantics, raw control). Do **not** blindly equate them or replace all cases with a thin wrapper without comparing conditions.
-- Preserve `sddevtab.reset` as a wrapper or agreed profile-safe lifecycle operation; ensure no second probe if `sdcore` init has already run.
-- Preserve `sdscsi` and controller behavior, including their `pnp`/`enable`/`online`/`bio`/`rio` hooks. Test at least the VirtIO controller used by D2b, and compile AHCI/NVMe without claiming hardware tests.
-- Track explicit limitations: `sdloop.c` currently uses `Chan*` and calls `devtab[c->c->type]->read/write`. It is **legacy-backed** and must not be misrepresented as native even if `SDifc` calls it.
-
-**Stage-3 acceptance:** default and E5 no-`#c` kernels still build; representative legacy `#S` storage behavior survives, and old tests still have an actual route to the same storage implementation.
-
-## Stage 4 — new opt-in profile: BOTH `#c` and `#S` absent
-
-Add a configuration based on `sys/src/9/pc64/pc64oconsole`, e.g. `pc64onativedisk` / kernel `9pc64onativedisk`, selected with explicit `ONATIVE_DISK=1` in `tools/build.sh` and `tools/test-oboot-server.sh`. Choose ONE stable spelling across config, scripts, generated outputs, logs and documentation. This profile **inherits E5's no-`cons` setting** and further removes `sd` from the `dev` section.
-
-Keep `sdiahci`, `sdnvme`, `sdvirtio10` and whatever `sdscsi`/PCI/DMA/IRQ functions their genuine C interfaces require under `misc` or equivalent direct link. Prefer leaving `sdram` unless justified otherwise. **Exclude `sdloop` from this new profile** because its backing file uses `Chan` and `devtab`; preserve it in legacy configs. Explicitly inspect how `mkdevlist`/`mkdevc` derive object list and `sdifc[]` registration; do not assume a source listed in `misc` is automatically initialized correctly.
-
-Verify all of:
-- generated `devtab[]` contains **neither** `&consdevtab` **nor** `&sddevtab`;
-- linked `9pc64onativedisk` contains **neither** `consdevtab` **nor** `sddevtab`, but does contain direct console services (E5), SD core, `sdunititer`, `sdunitready`, `sdblockrw`, `sdblockflush`, essential controller entries and GE/O native O-block calls;
-- the linked kernel does not need legacy `#S` namespace resolution at any point of the measured O boot path; `sdloop` is not linked if it still requires `Chan`;
-- runtime enumeration/discovery completes even though no `sddevtab.reset` exists;
-- **normal/default kernels do not silently switch** to the new profile and E5's `OCONSOLE=1` meaning remains unchanged.
-
-Treat mixed opt-in flags (`NATIVE_PROBE=1`, `OCONSOLE=1`, `ONATIVE_DISK=1`) deterministically: define precedence or reject unsupported combinations explicitly, rather than accidentally building/testing different kernels than requested. Keep an opt-in profile; do not globally delete `#S`.
-
-**Stage-4 acceptance:** actual generated devtab plus final linked-symbol proof and a bootable new kernel, not just an edited config.
-
-## Stage 5 — `sdloop` policy and native userspace consumer audit
-
-`sdloop` is a virtual disk backed by an inherited `Chan` to a file; it is **not** required by the existing tested O-only partition-backed D2b path. Keep it out of the new profile, without deleting it from normal kernels. In `docs/SD-MIGRATION.md` explain precisely why and how its future native replacement could use an O-resident byte source **only after** a separate reviewed lifetime/recursion/commit design; do not implement that speculative feature.
-
-Audit all reachable callers from:
-- O-only kernel bootstrap (`pc64/main.c`, O loader and `ouser.c`, `oblockopenpart`);
-- `devgefs.c` O and legacy GE paths;
-- controllers `sdiahci.c`, `sdnvme.c`, `sdvirtio10.c`, `sdscsi.c`, `sdloop.c`, `sdram.c`;
-- userspace O-volume and GE/O operations, and legacy `#S`/`/dev/sd*` users as evidence only.
-
-Distinguish **native O-only reachable**, **legacy-only reachable**, and **conditionally reachable**. Legacy `devgefs.c` still has `namec("#S")` and `namec(dev)` for inherited mount/GE volume code; those references are acceptable *only if they are not invoked or required in the new O-only path*, are not pulled into the linked kernel as an accidental `sddevtab` dependency, and are explicitly reported. Note that `devgefs.c:oblockopenpart` may **format** `"#S/%s/data"` as a human-readable device label; that alone is not a pathname traversal. Prove the actual call path rather than grepping string literals and declaring failure.
-
-No new syscall, public `Block`/`Queue`/`Handle`/`Capability` ABI or direct arbitrary raw-disk access from userspace in this stage. The GE/O O-volume syscall contract remains unchanged. Physical disk writes must stay confined to the selected **GPT O partition** and current validated kernel path.
-
-**Stage-5 acceptance:** short precise source/audit table of each native/legacy dependency and a defensible `sdloop` exclusion, with no accidental API vocabulary drift.
-
-## Stage 6 — bounded verification and release evidence
-
-Run the following gates **incrementally**; stop/repair failures rather than suppressing checks. Use disposable VM/QEMU raw images only.
-
-**A. Source and registration checks.** Add a small deterministic `tools/sd_migration_check.py` (or similarly named script, no new general C parser) that checks (i) expected native SD operation declarations and definitions, (ii) controller registry ownership and initialization, (iii) `#S` remains registered in default/E5 legacy profiles, (iv) both `#c` and `#S` missing in new profile, (v) `sdloop` absent in new profile, (vi) actual generated devtab and kernel binary when supplied as arguments. Script MUST fail closed, distinguish source proof vs linked proof, and not fake runtime verification.
-
-**B. Builds.** Compile default `WHAT=kernel tools/build.sh`; E5 opt-in `OCONSOLE=1 WHAT=kernel tools/build.sh` if the changes affect shared console/disk init; then `ONATIVE_DISK=1 WHAT=kernel tools/build.sh`. If same `build/amd64/` paths are overwritten between builds, save or sequence the relevant artifacts/logs before subsequent commands. Preserve E4 generation checks only if changed SD source affects the operation map or generator fingerprints; run focused `python3 tools/kernel_opmap.py --check` and documented regeneration when appropriate, not uncontrolled mass artifact churn. Update relevant `docs/KERNEL-OPMAP.json` only when required and reviewed.
-
-**C. Default/legacy control.** Run relevant existing QEMU storage test that exercises real `#S` behavior (e.g. `tools/test-o-boot.sh` for a normal O boot; use a focused legacy `#S` read/stat control if that script doesn't actually use `#S`). Do not claim "legacy file adapter tested" based only on native O-direct reads.
-
-**D. Real combined O-only D2b test.** `ONATIVE_DISK=1 tools/test-oboot-server.sh` must boot its real O-partition volume with actual `9pc64onativedisk`, OID_MP_EXEC and MicroPython `-N`; same disposable disk across boot 1/2/3 with `run() -> 1,2,3`, incremental commits, preserved OID 7 identity, correct checksum and no `panic`/`fault`. Retain missing-executable and failing-`run()` negatives. Confirm boot marker and actual controller probe/registration once. Log measured `namec/newchan/walk/devwalk/mount/exec` counters and do not generalize beyond the measured window. Ensure test does not accidentally boot `9pc64oconsole` or default `9pc64`.
-
-**E. Native block negatives and durability.** Under the new **no-`#c`/no-`#S` kernel**, verify the existing native PARTUUID/GPT rejection paths (wrong GUID, invalid/malformed GPT), out-of-bounds writes, oversized reads and the actual VirtIO flush/persistence path using minimal focused QEMU probe(s), adapting relevant `tools/test-o-pathless.sh` pieces only where needed. Its original legacy `/boot/oinit` path is NOT itself proof for the new profile. Distinguish tests actually executed on new profile from historical Level A evidence. No destructive controller commands, no host raw block devices. If a new negative is impractical, mark `NOT RUN` and explain exactly which acceptance criterion remains unproven; do not silently drop it.
-
-**F. Review.** Audit source and logs for duplicate enumeration, init ordering, reference leaks, unwinding/locks on errors, disk-range check, missing flush, wrong write/read offset units, uninitialized `eve`/`up` and hidden `Chan` path. Preserve E5 no-`#c`. Remove unused O-profile legacy symbols only after linked + boot proof. Full regression matrix is unnecessary unless affected sources require it.
-
-**Full E6 APPROVE** requires A–F with real new-profile QEMU boots and at least verified native disk bounds/flush and representative legacy controls. If any gate cannot be run or a serious source issue remains, report `PARTIAL-HOLD` with the exact blocker and all completed verified checkpoints; do not report a false PASS.
-
-## Machine-oriented results and reporting
-
-Produce one concise but complete **`docs/SD-MIGRATION.md`** with:
-
-1. Exact source-base/commit, active `SDifc` controllers (AHCI, NVMe, VirtIO, loop, RAM) and `SDev/SDunit` ownership; distinguish compiled, linked, probed, tested.
-2. A source-backed operation matrix (columns: `symbol | defined_in | callers | native_or_legacy | inputs_outputs | ownership | permissions | initialization | errors | changed | evidence`). Include `sdreset`/new core init, `sdadddevs`, `sdgetdev/unit`, `sdunititer/put/ready`, `sdblockrw`, `sdblockflush`, `sdrio`, `sddevtab` + callbacks, `SDifc.bio`/`rio`, `sdscsi`, `sdloop`, the GE/O `oblock*` callers.
-3. Explicit legacy-only operations/semantics for `#S` (`attach/walk/stat/open/close/ctl/raw/part/wstat/config`), with deliberate nonreplacement reasons.
-4. The exact boot initialization order and whether `chandevreset` is still used by **other** devices (it may be).
-5. The exact `ONATIVE_DISK` profile/config/devtab/linked proof; O-only direct path vs legacy call graph.
-6. Every executed verification command, **PASS/FAIL/NOT RUN**, logs/observations and scope limits. Do not claim physical AHCI/NVMe runtime test when only QEMU VirtIO was exercised.
-
-Update `docs/STATUS.md` with E6 actual scope and tests. Amend `docs/KERNEL-API-ABI.md` **only** to clarify a newly established storage contract or add a genuinely missing glossary concept (with stable ID and actual implementation evidence); never overwrite canonical meaning by synonym. Write **`docs/to_chatgpt_review.md`** as an agent-readable E6 report, not an old E5 "APPROVE" line or a pointer to a nonexistent long report. Keep detailed QEMU logs in ignored `build/verification/e6/`.
+**Deliverables:** `docs/ETHER-MIGRATION.md` (single agent-friendly map, design and evidence), new or altered C source/header only where necessary, small focused test scripts, and `docs/to_chatgpt_review_e71.md` (dedicated E7.1 report; do not overwrite E6's `docs/to_chatgpt_review.md` in `main`). When editing `docs/KERNEL-API-ABI.md` is necessary, add evidence-backed notes without changing unrelated canonical terminology or binding hypothetical C prototypes as facts. Do not update global `docs/STATUS.md` concurrently with E6; reference exact E7.1 report in the branch and reconcile STATUS only at merge review.
 
 **Final report exact headings:**
 
 ```text
-E6 VERDICT: APPROVE / PARTIAL-HOLD / REJECT
-BASE / FINAL COMMITS / BRANCH:
-STAGES 1–6: PASS / PARTIAL / NOT DONE for each
-INIT AND OWNER: actual symbols, sequence, exactly-once evidence
-SD CORE: concrete C operations and their real source files
-LEGACY #S: retained in normal profiles, registration and behavior evidence
-O-ONLY PROFILE: config, flags, absence of both consdevtab and sddevtab, linked symbols
-SDLOOP: excluded or blocked, reason with precise Chan edges
-PARTUUID AND GE/O: live native call chain, bounds, units, flush, ownership
-BUILD / QEMU: exact commands, results, logs, 3-boot O persistence and negatives
-PATHLESS METRICS: observed window and actual counters
-SAFETY / ABI: no new userspace raw disk access, no unauthorized host writes
-UNRESOLVED: exact remaining blockers and next bounded action
+E7.1 VERDICT: APPROVE / PARTIAL-HOLD / REJECT
+BRANCH / UPSTREAM / BASE / FINAL COMMIT(S):
+SOURCE MAP: exact symbols, owners, IRQ/call context and Chan/Netfile edges
+NATIVE ETHER CORE: actual functions, files, init and lookup contracts
+FRAME RX/TX: ownership, link/MTU, backpressure and Qkick evidence
+LEGACY #l: Dev registration and representative behavior tests
+VIRTIO QEMU: exact build/boot/network commands, correlated RX and TX observations, log paths
+NEGATIVES: rejected bad length, absent/down interface, RX sink/queue error, results
+IP/UDP/WG FOLLOW-UP: audited concrete source edges only, not modified behavior
+IPV6-ONLY STATUS: architecture target ACCEPTED; implementation still TRANSITIONAL
+SHARED E6 FILES / MERGE RISK: list exact paths; no E6 edits on main
+TESTS ACTUALLY RUN: PASS / FAIL / NOT RUN with source logs
+UNRESOLVED: precise blockers and next bounded action
 ```
 
-Commit verified checkpoints as `E6.1`, `E6.2`, etc. Do not force push or overwrite unrelated changes. OpenCode's existing completion hook may handle git commit/push and the review note; coordinate with it to avoid duplicate commits. **The intended result is a real, executing O-only disk stack without `#S` or `#c` in `devtab[]`, not the deletion of working storage code.**
+**Commit discipline:** reviewable E7.1 subcommits (`E7.1.0 audit`, `E7.1.1 native core`, `E7.1.2 adapter`, `E7.1.3 QEMU`, `E7.1.4 report`) without deliberately breaking the checked-out kernel. Push to the E7.1 branch only. **No PR merge, no main push, no E6 code change.**
