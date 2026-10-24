@@ -142,3 +142,41 @@ API.
   consumer of this endpoint shape.
 - Final `#I/#l/#W` removal, IPv4/ARP executable exclusion, native TCP6 and
   native IPv6-only linkage remain later gates.
+
+## 8. E7.3.1 lifecycle and ownership hardening
+
+All endpoint operations are **process-context kernel C only**; none may be
+called from an interrupt handler. Concurrent calls on a live, not yet
+destroyed endpoint are supported as follows: multiple receivers may wait at
+once (one `Udp6Wait` per receiver); sends are serialized by `sendlk`; close
+serializes against receivers/senders/aux users; stats/pending/setlimit use an
+`auxactive` count. `U6Open -> U6Closing -> U6Closed -> U6Destroyed` is the
+only state sequence.
+
+| operation | permitted_state | locks / wait context | owns_on_success | owns_on_error | close/destroy race behavior | evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| `udp6_open` | `Udp6Init` network running | `qlock(udp)` for clone/bind; `net->udplock` for final open/stop gate | new `Udp6Endpoint` + bound `Conv`; caller owns wrapper | `closeconv` recycles any created Conv; no wrapper | final `udplock` check rejects open if `ipv6native_stop` won; stop refuses while `udp6active` | `open`, `v4-open`, `dupbind`, `stop-live` |
+| `udp6_recv` | `U6Open` | `st` for state/count/waiter list; one stack `Udp6Wait` Rendez per receiver; atomic `qget`; 10 ms bounded poll | one complete payload `Block` + metadata; caller frees | no payload returned; `recvactive` always decremented | close sets `U6Closing`, wakes all waiters, waits `recvactive==0` before `closeconv`; a dequeued message is returned only if state was still Open | `RACE1` 10 rounds, `RACE2`, `CLOSEWAIT`, post-close recv |
+| `udp6_sendto` | `U6Open` | `sendlk` serializes sends; `st` for `sendactive`/counters; route check before copy | caller `payload` consumed | caller `payload` retained; private envelope ownership documented as accepted/uncertain on exception | `sendactive` blocks `closeconv`; a waiting send sees Closing/Closed; exception path releases `sendlk` and `sendactive` | `send-noroute`, `fake-exc`, `fake-unlock`, `close-send` |
+| `udp6_close` | `U6Open` or resumable `U6Closing` | `st`; `wakewaiters`; quiesce poll on `up->sleep` | `udp6active` reference released; Conv recycled via `closeconv` after quiesce | `Udp6ErrBusy` retains a recoverable `U6Closing`; no Conv recycle | one closer at a time; second close on `U6Closed` returns `Udp6ErrClosed`; second close while another closer is active returns Busy | `close-wake`, `repeat-close`, `closed-stats`, `stop-live` |
+| `udp6_destroy` | exactly `U6Closed`, zero active users | `st`; no Conv access | wrapper memory freed, caller pointer set nil; Proto/Conv remains owned by UDP | `Udp6ErrBusy` if Open/Closing or a user is active; pointer unchanged | destroy never frees a Conv/Queue; a stale alias after destroy is invalid by contract | `destroy-open`, `destroy`, 200-loop, `ALLOC-FINAL` |
+| `udp6_stats` | Open, Closing or Closed | `st`; `auxactive` for the snapshot; Conv read only in Open | copied counters/state | no side effects | destroy waits for `auxactive`; Closed stats never read a recycled Conv | `closed-stats`, `close-wake` |
+| `udp6_pending` / `udp6_setlimit` | Open | `st`; `auxactive`; `qlen`/`qsetlimit` | value / limit changed | `-1`/`Udp6ErrClosed` outside Open | aux count blocks Conv recycle/destroy | `closed-aux`, saturation |
+| `udp6_allocstats` | any | `alloclk` | snapshot of opens/closes/destroys/live/peak | none | independent of endpoint lifetime | `loop-alloc opens=200 closes=200 destroys=200 live_delta=0`, `ALLOC-FINAL live=0` |
+
+Timeout semantics: `timeout_ms=0` is a non-blocking poll; `~0UL` waits until
+data or close; other values use a wrap-safe `(NOW-start) >= timeout` check
+with a 10 ms bounded observation interval. The measured losing-receiver
+timeout maximum for a 600 ms request was 610 ms. This is a bounded kernel
+scheduling resolution, not a hard real-time guarantee.
+
+The receive path no longer uses check-then-blocking `qbread`; `qget` is the
+atomic nonblocking dequeue. `udpiput` stores one single-Block Qmsg record per
+datagram, and `udp6_recv` rejects a multi-Block record rather than silently
+merging boundaries.
+
+Memory ownership: `udp6_close` is logical shutdown; `udp6_destroy` is the
+owner-only wrapper release. `Conv` and its queues stay owned by the inherited
+UDP `Proto`; `closeconv` performs the logical recycle. A new endpoint may
+rebind the same address/port after close, reusing the Conv slot; queued old
+datagrams are discarded by `qclose`.
