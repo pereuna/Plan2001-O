@@ -249,38 +249,38 @@ etherunbind(Ipifc *ifc)
 }
 
 /*
- *  called by ipoput with a single block to write with ifc rlock'd
+ * Build a complete Ethernet frame from an IPv6/IPv4 Block, performing the
+ * same neighbor resolution as before.  Returns nil when the packet was
+ * queued awaiting resolution or a solicitation was sent.  The V4 solicitation
+ * still uses the legacy Etherrock channels; native IPv6 callers never pass V4.
  */
-static void
-etherbwrite(Ipifc *ifc, Block *bp, int version, uchar *ip, Routehint *rh)
+Block*
+ethermediumframe(Fs *f, Ipifc *ifc, Block *bp, int version, uchar *ip, Routehint *rh)
 {
 	Etherhdr *eh;
 	Arpent *a;
 	uchar mac[6];
-	Etherrock *er = ifc->arg;
 
-	/* get mac address of destination */
-	a = arpget(er->f->arp, bp, version, ifc, ip, mac, rh);
+	a = arpget(f->arp, bp, version, ifc, ip, mac, rh);
 	if(a != nil){
-		/* check for broadcast or multicast */
-		bp = multicastarp(er->f, a, mac, rh);
+		bp = multicastarp(f, a, mac, rh);
 		if(bp == nil){
 			/* don't do anything if it's been less than a second since the last */
 			if(a->utime - a->ctime < RETRANS_TIMER){
-				arprelease(er->f->arp, a);	/* unlocks arp */
-				return;
+				arprelease(f->arp, a);	/* unlocks arp */
+				return nil;
 			}
 			switch(version){
 			case V4:
-				sendarpreq(er->f, a);	/* unlocks arp */
+				sendarpreq(f, a);	/* unlocks arp */
 				break;
 			case V6:
-				ndpsendsol(er->f, a);	/* unlocks arp */
+				ndpsendsol(f, a);	/* unlocks arp */
 				break;
 			default:
-				panic("etherbwrite: version %d", version);
+				panic("ethermediumframe: version %d", version);
 			}
-			return;
+			return nil;
 		}
 	}
 
@@ -297,15 +297,38 @@ etherbwrite(Ipifc *ifc, Block *bp, int version, uchar *ip, Routehint *rh)
 	memmove(eh->s, ifc->mac, sizeof(eh->s));
 	memmove(eh->d, mac, sizeof(eh->d));
 
- 	switch(version){
+	switch(version){
 	case V4:
 		eh->t[0] = 0x08;
 		eh->t[1] = 0x00;
-		devtab[er->mchan4->type]->bwrite(er->mchan4, bp, 0);
 		break;
 	case V6:
 		eh->t[0] = 0x86;
 		eh->t[1] = 0xDD;
+		break;
+	default:
+		panic("ethermediumframe: version %d", version);
+	}
+	return bp;
+}
+
+/*
+ *  called by ipoput with a single block to write with ifc rlock'd
+ */
+static void
+etherbwrite(Ipifc *ifc, Block *bp, int version, uchar *ip, Routehint *rh)
+{
+	Etherrock *er = ifc->arg;
+
+	bp = ethermediumframe(er->f, ifc, bp, version, ip, rh);
+	if(bp == nil)
+		return;
+
+	switch(version){
+	case V4:
+		devtab[er->mchan4->type]->bwrite(er->mchan4, bp, 0);
+		break;
+	case V6:
 		devtab[er->mchan6->type]->bwrite(er->mchan6, bp, 0);
 		break;
 	default:
