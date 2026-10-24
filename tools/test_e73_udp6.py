@@ -439,11 +439,61 @@ def run_nic(args):
         no_echo(link, 1.2)
         s.wait(r"^E73UDP: TXDOWN txdown=([1-9][0-9]*)$", 10, "txdown count")
 
+        s.wait(r"^E73UDP: CHECK stop-live rc=-7$", 10, "stop-live guard")
+        s.wait(r"^E73UDP: CHECK destroy-open rc=-12$", 10, "destroy-open guard")
+
+        # Two readers, one real datagram, repeated ten times.
+        for n in range(10):
+            s.wait(r"^E73UDP: RACE1-READY n=%d$" % n, 10, "race1 ready %d" % n)
+            link.send(udp6_frame(40201 + n, 20004, ("race-%02d" % n).encode()))
+        s.wait(r"^E73UDP: CHECK race1 rounds=10 ok=10 timeout=10 max_timeout=\d+$",
+               20, "race1 result")
+
+        # Two readers, two datagrams: exactly once each.
+        s.wait(r"^E73UDP: RACE2-READY$", 10, "race2 ready")
+        link.send(udp6_frame(40202, 20005, b"race-A"))
+        link.send(udp6_frame(40203, 20005, b"race-B"))
+        s.wait(r"^E73UDP: CHECK race2 ok=2$", 10, "race2 result")
+
+        s.wait(r"^E73UDP: CLOSEWAIT-READY$", 10, "closewait ready")
+        s.wait(r"^E73UDP: CHECK close-wake rc=0$", 10, "close-wake")
+        s.wait(r"^E73UDP: CHECK close-send rc=0$", 10, "close-send")
+        m = s.wait(r"^E73UDP: CHECK close-send-results done=1 ok=(\d+) err=(\d+)$",
+                   10, "close-send results")
+        if int(m.group(2)) < 1:
+            die("close-send had no rejected send")
+        s.wait(r"^E73UDP: CHECK fake-exc rc=-14$", 10, "fake exception")
+        s.wait(r"^E73UDP: CHECK fake-unlock=1$", 10, "fake unlock")
+        s.wait(r"^E73UDP: CHECK fake-ok rc=0$", 10, "fake recovery")
+
+        s.wait(r"^E73UDP: CHECK send-noroute rc=-13$", 10, "no-route send")
+        s.wait(r"^E73UDP: SENDFAIL$", 10, "sendfail marker")
+        link.send(udp6_frame(40204, 20001, b"after-fail"))
+        if not wait_echo(link, 40204, b"after-fail", 8):
+            die("no echo after synchronous send error")
+        s.wait(r"^E73UDP: SENDFAIL-ALIVE", 8, "sendfail alive")
+
+        m = s.wait(r"^E73UDP: CHECK loop-alloc opens=200 closes=200 destroys=200 live_delta=0$",
+                   30, "loop allocation")
+        s.wait(r"^E73UDP: CHECK conv-slots ", 10, "conv slots")
+
+        s.wait(r"^E73UDP: REBIND-READY$", 10, "rebind ready")
+        link.send(udp6_frame(40205, 20001, b"rebind"))
+        if not wait_echo(link, 40205, b"rebind", 8):
+            die("no echo after same-port rebind")
+        s.wait(r"^E73UDP: CHECK rebind rx=([1-9][0-9]*) tx=([1-9][0-9]*)$", 10, "rebind result")
+
+        s.wait(r"^E73UDP: CHECK closed-stats state=2 bound=0 pending=0$", 10, "closed stats")
+        s.wait(r"^E73UDP: CHECK closed-aux pending=-1 setlimit=-7$", 10, "closed aux")
+        s.wait(r"^E73UDP: CHECK destroy rc=0 nil=1$", 10, "destroy")
         s.wait(r"^E73UDP: CLOSE rc=0$", 15, "close")
         s.wait(r"^E73UDP: ECHO-EXIT exited=1$", 10, "echo exit")
         s.wait(r"^E73UDP: CHECK repeat-close rc=-7$", 10, "repeat close")
         s.wait(r"^E73UDP: CHECK post-close-recv rc=-7$", 10, "post-close recv")
         s.wait(r"^E73UDP: CHECK post-close-send rc=-7$", 10, "post-close send")
+        s.wait(r"^E73UDP: CHAN-HARDEN .* clean=1$", 10, "chan hardening")
+        s.wait(r"^E73UDP: ALLOC-FINAL opens=\d+ closes=\d+ destroys=\d+ live=0 peak=\d+$",
+               10, "alloc final")
         s.wait(r"^E73UDP: STOP rc=0$", 15, "ipv6 stop")
         s.wait(r"^E73UDP: CHECK repeat-stop rc=-9$", 10, "repeat stop")
         s.wait(r"^E73UDP: CHECK restart-after-stop rc=-7$", 10, "restart after stop")
