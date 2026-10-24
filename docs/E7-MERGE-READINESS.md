@@ -12,11 +12,11 @@ deferred; SEALED mode is not implemented.
 | Item | Value |
 | --- | --- |
 | Branch | `design/ipv6-only-native-20261024` |
-| E7 head | `8c69db9` (`E7.7: native-only IPv6 profile without executable IPv4/ARP`) |
-| `origin/design/...` before this report | `770f4ac`; E7.4–E7.7 commits are local until the final push |
+| E7 head | `8c69db9` (`E7.7` code); the E7.8 docs commit adds this report |
+| `origin/design/...` | E7.4–E7.8 were pushed to this branch; no other branch was updated |
 | Merge base with `origin/main` | `1c61dd175c0757e5eaed016c1a7305f7ccad5c91` |
 | `origin/main` observed | `a1fbf12` (OpenCode completion after E9.3) |
-| Merge-tree probe | `git merge-tree --write-tree HEAD origin/main` -> tree `b51d7c9...`, exit 1, five content conflicts |
+| Merge-tree probe | `git merge-tree --write-tree HEAD origin/main` at the E7.8 docs head: exit 1, five content conflicts |
 | E7 commits from base | E7.1/E7.2/E7.3/E7.3.1, E7.4 (`c2ee2c0`, `f64bcce`), E7.6 (`d391fa6`), E7.7 (`8c69db9`) |
 
 `origin/main` contains E6 (native SD core, `pc64onativedisk`), E8 dev pruning
