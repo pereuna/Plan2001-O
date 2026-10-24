@@ -30,6 +30,13 @@ static int coreinited;
 static int initcalls;
 static int probecalls;
 
+/*
+ * Optional legacy #l adapter hooks (devether.c).  A native-only profile
+ * leaves them nil and does not link that adapter.
+ */
+void (*etherlegacyrxhook)(Ether*, Block*);
+void (*ethernetifinithook)(Netif*, char*, int, int);
+
 typedef struct Ethercore Ethercore;
 struct Ethercore {
 	Ether		*ether;
@@ -187,7 +194,18 @@ Nope:
 	} else {
 		qsetlimit(ether->oq, q);
 	}
-	netifinit(ether, ether->name, Ntypes, 8*MB);
+	/*
+	 * A native-only profile has no Netfile fanout.  Keep the MAC/counter
+	 * fields in the embedded Netif but do not allocate the legacy f[]
+	 * array or call netif*.c.
+	 */
+	if(ethernetifinithook != nil)
+		ethernetifinithook(ether, ether->name, Ntypes, 8*MB);
+	else {
+		ether->nfile = 0;
+		ether->f = nil;
+		ether->limit = 0;
+	}
 	ether->alen = Eaddrlen;
 	memmove(ether->addr, ether->ea, Eaddrlen);
 	memset(ether->bcast, 0xFF, Eaddrlen);
@@ -580,7 +598,72 @@ etheriq(Ether* ether, Block* bp)
 			iunlock(&cs->rxlock);
 		}
 	}
-	etherlegacyrx(ether, bp);
+	if(etherlegacyrxhook != nil)
+		etherlegacyrxhook(ether, bp);
+	else
+		freeb(bp);
+}
+
+static void
+etherdrop(void*, Block *b)
+{
+	freeb(b);
+}
+
+void
+ethersetspeed(Ether *ether, int mbps)
+{
+	if(ether->mbps == mbps)
+		return;
+	ether->mbps = mbps;
+	if(mbps <= 0 || ether->f == nil || ether->oq == nil || ether->bypass)
+		return;
+	qsetlimit(ether->oq, ethercore_oqsize(ether));
+}
+
+void
+ethersetlink(Ether *ether, int new)
+{
+	int old = ether->link;
+
+	new = !!new;
+	if(old == new)
+		return;
+	ether->link = new;
+	if(ether->f == nil || ether->bypass)
+		return;
+	memset(ether->mactab, 0, sizeof(ether->mactab));
+	qsetbypass(ether->oq, ether->link? nil: etherdrop);
+
+	if(up == nil || !islo())
+		return;	/* should not print from interrupt */
+
+	if(ether->link)
+		print("#l%d: %s: link up: %dMbps\n",
+			ether->ctlrno, ether->type, ether->mbps);
+	else if(old > 0)
+		print("#l%d: %s: link down\n",
+			ether->ctlrno, ether->type);
+}
+
+#define POLY 0xedb88320
+
+/* really slow 32 bit crc for ethers */
+ulong
+ethercrc(uchar *p, int len)
+{
+	int i, j;
+	ulong crc, b;
+
+	crc = 0xffffffff;
+	for(i = 0; i < len; i++){
+		b = *p++;
+		for(j = 0; j < 8; j++){
+			crc = (crc>>1) ^ (((crc^b) & 1) ? POLY : 0);
+			b >>= 1;
+		}
+	}
+	return crc;
 }
 
 void

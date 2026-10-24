@@ -198,14 +198,28 @@ e74ipprobe_proc(void *arg)
 	USED(arg);
 	print("E74IP: PROBE begin\n");
 	fails = 0;
+	ipfmtinstall();	/* native-only profile has no #I/#l Dev reset */
 
 	p1 = ethercore_probecalls();
 	n = ethercore_init();
 	p2 = ethercore_probecalls();
-	print("E74IP: INIT rc=%d inits=%d probes=%d idempotent=%d\n",
-		n, ethercore_initcalls(), p2, p1 == p2);
+	print("E74IP: INIT rc=%d inits=%d probes=%d\n",
+		n, ethercore_initcalls(), p2 - p1);
+	if(ethercore_initcalls() > 1 && p1 != p2){
+		print("E74IP: FAIL init reprobed controllers\n");
+		fails++;
+	}
+	/*
+	 * A legacy #l profile initializes the core at boot; the native-only
+	 * profile does not.  Verify the idempotency property explicitly.
+	 */
+	p1 = ethercore_probecalls();
+	n = ethercore_init();
+	p2 = ethercore_probecalls();
+	print("E74IP: INIT-IDEMP rc=%d probes=%d idempotent=%d\n",
+		n, p2 - p1, p1 == p2);
 	if(p1 != p2){
-		print("E74IP: FAIL init reprobed\n");
+		print("E74IP: FAIL repeat init reprobed\n");
 		fails++;
 	}
 	if(n <= 0){

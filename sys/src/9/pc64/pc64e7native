@@ -1,0 +1,102 @@
+# pc64e7native - E7.6 NORMAL IPv6 without legacy #l/#I/#W registration.
+#
+# Same boot/disk/console devices as pc64, but the dev section has no
+# ether/ip/wg entries: devether.c, netif.c, devip.c and devwg.c are not
+# linked.  nativev6/nativeudp6/nativeinh6/ethernative/ipcore plus e74nhprobe
+# provide the NORMAL IPv6 path and the E7.4/E7.3 test seams.
+#
+# This is a test-only native profile; ordinary pc64/e71/e72/e73 are unchanged.
+# pc64 - amd64 pc terminal with local disk
+dev
+	root
+	cons
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ethersink
+	ethervirtio10	pci virtio10pc
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	e74nhprobe
+	nativev6
+	nativeudp6
+	nativeinh6
+	ethernative
+	ipcore
+	ip
+	ipv6
+	ipaux
+	iproute
+	netlog
+	nullmedium
+	arp
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# No bootfs.paq/paqfs/bootrc.  The normal O-only boot requires no filesystem
+# root; legacy plan9.ini root= mounting remains optional (port/devgefs.c).
+# /boot/oinit is the small inherited bootstrap harness: it opens the O
+# volume and the init Space and executes the MicroPython executable stored
+# in O at OID_MP_EXEC.  /boot/kbdfs is the embedded console helper.  There
+# is no embedded /boot/mp and no pathname-based MicroPython exec on this
+# path (docs/O-FORMAT.md 7).  /boot/ohandle and /boot/oexec remain embedded
+# regression harnesses, not the loader or a normal startup program.
+# This bootdir embedding is NOT the proposed native O executable loader.

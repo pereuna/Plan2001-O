@@ -800,4 +800,6 @@ extern Chan*	chandial(char*, char*, char*, Chan**);
  */
 extern void	(*multicastreportfn)(Fs*, Ipifc*, uchar*, uchar*, int);
 extern Block* ethermediumframe(Fs*, Ipifc*, Block*, int, uchar*, Routehint*);
-extern void ipfsinit(Fs*, int);
+extern Block* ethermediumframe6(Fs*, Ipifc*, Block*, uchar*, Routehint*);
+extern void	ipfsinit(Fs*, int);
+extern void	ipfmtinstall(void);

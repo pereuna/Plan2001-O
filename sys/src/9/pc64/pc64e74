@@ -27,7 +27,7 @@ dev
 	fs
 
 	ether		netif
-	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno ipcore
 	wg
 
 	draw		screen vga vgax vgasoft
@@ -60,6 +60,7 @@ misc
 	pci		pcipc
 	e74nhprobe
 	nativev6
+	ethernative
 	nativeudp6
 	nativeinh6
 	archgeneric	devkbd i8259 i8253

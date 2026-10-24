@@ -111,6 +111,14 @@ extern void ethercore_shutdown(void);
 /* implemented by the retained legacy #l adapter (devether.c) */
 extern void etherlegacyrx(Ether*, Block*);
 
+/*
+ * Optional legacy-adapter hooks.  A profile without devether.o leaves both
+ * nil: the native core then frees the original RX frame and performs the
+ * minimal Netif initialization itself.
+ */
+extern void (*etherlegacyrxhook)(Ether*, Block*);
+extern void (*ethernetifinithook)(Netif*, char*, int, int);
+
 #define NEXT(x, l)	(((x)+1)%(l))
 #define PREV(x, l)	(((x) == 0) ? (l)-1: (x)-1)
 #define	HOWMANY(x, y)	(((x)+((y)-1))/(y))

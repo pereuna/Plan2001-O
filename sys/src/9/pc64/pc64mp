@@ -24,7 +24,7 @@ dev
 	fs
 
 	ether		netif
-	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno ipcore
 	wg
 
 	draw		screen vga vgax vgasoft

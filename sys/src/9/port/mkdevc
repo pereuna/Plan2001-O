@@ -39,7 +39,6 @@ collect && section == "link"{
 	link[nlink++] = $1;
 }
 collect && section == "misc"{
-	sub(/^[ \t]*/, "");
 	misc[nmisc++] = $1;
 	if($1 ~ "^arch.*")
 		arch[narch++] = $1;

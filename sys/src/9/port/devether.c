@@ -388,42 +388,6 @@ etherbwrite(Chan* chan, Block* bp, ulong)
 	return n;
 }
 
-void
-ethersetspeed(Ether *ether, int mbps)
-{
-	if(ether->mbps == mbps)
-		return;
-	ether->mbps = mbps;
-	if(mbps <= 0 || ether->f == nil || ether->oq == nil || ether->bypass)
-		return;
-	qsetlimit(ether->oq, ethercore_oqsize(ether));
-}
-
-void
-ethersetlink(Ether *ether, int new)
-{
-	int old = ether->link;
-
-	new = !!new;
-	if(old == new)
-		return;
-	ether->link = new;
-	if(ether->f == nil || ether->bypass)
-		return;
-	memset(ether->mactab, 0, sizeof(ether->mactab));
-	qsetbypass(ether->oq, ether->link? nil: drop);
-
-	if(up == nil || !islo())
-		return;	/* should not print from interrupt */
-
-	if(ether->link)
-		print("#l%d: %s: link up: %dMbps\n",
-			ether->ctlrno, ether->type, ether->mbps);
-	else if(old > 0)
-		print("#l%d: %s: link down\n",
-			ether->ctlrno, ether->type);
-}
-
 static void netconsole(int);
 
 static void
@@ -431,9 +395,11 @@ etherreset(void)
 {
 	/*
 	 * Controller probing/reset belongs to the native core.  This legacy
-	 * Dev reset hook only installs formatting and the optional IPv4
-	 * netconsole, which is deliberately not part of the native core.
+	 * Dev reset hook installs the optional adapter hooks, formatting and
+	 * the optional IPv4 netconsole, none of which is in the native core.
 	 */
+	etherlegacyrxhook = etherlegacyrx;
+	ethernetifinithook = netifinit;
 	fmtinstall('E', eipfmt);
 	ethercore_init();
 	netconsole(1);
@@ -446,26 +412,6 @@ ethershutdown(void)
 	ethercore_shutdown();
 }
 
-
-#define POLY 0xedb88320
-
-/* really slow 32 bit crc for ethers */
-ulong
-ethercrc(uchar *p, int len)
-{
-	int i, j;
-	ulong crc, b;
-
-	crc = 0xffffffff;
-	for(i = 0; i < len; i++){
-		b = *p++;
-		for(j = 0; j < 8; j++){
-			crc = (crc>>1) ^ (((crc^b) & 1) ? POLY : 0);
-			b >>= 1;
-		}
-	}
-	return crc;
-}
 
 Dev etherdevtab = {
 	'l',

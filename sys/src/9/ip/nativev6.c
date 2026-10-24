@@ -80,7 +80,7 @@ nativebwrite(Ipifc *ifc, Block *bp, int version, uchar *ip, Routehint *rh)
 		ni->txdown++;
 		return;
 	}
-	frame = ethermediumframe(ni->f, ifc, bp, version, ip, rh);
+	frame = ethermediumframe6(ni->f, ifc, bp, ip, rh);
 	if(frame == nil){
 		ni->txheld++;
 		return;
