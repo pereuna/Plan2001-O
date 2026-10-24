@@ -401,3 +401,9 @@ e72ipv6probe_start(void)
 {
 	return 0;
 }
+
+int
+e73udpprobe_start(void)
+{
+	return 0;
+}
