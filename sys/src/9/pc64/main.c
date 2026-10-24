@@ -23,6 +23,7 @@ extern int onativeprobe_start(void);
 extern int e71etherprobe_start(void);
 extern int e72ipv6probe_start(void);
 extern int e73udpprobe_start(void);
+extern int e74ipprobe_start(void);
 
 extern void (*i8237alloc)(void);
 extern void bootscreeninit(void);
@@ -293,6 +294,8 @@ main(void)
 		print("E72IPV6: HANDOFF opt-in native IPv6 probe\n");
 	}else if(e73udpprobe_start()){
 		print("E73UDP: HANDOFF opt-in native UDP6 probe\n");
+	}else if(e74ipprobe_start()){
+		print("E74IP: HANDOFF opt-in experimental IPv6 Next Header probe\n");
 	}else if(oboot_user){
 		print("OBOOT-B: HANDOFF user o_user_bootstrap\n");
 		o_user_bootstrap();

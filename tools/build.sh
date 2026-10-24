@@ -26,8 +26,9 @@ oconsole=${OCONSOLE:-0}
 ether_probe=${ETHER_PROBE:-0}
 ipv6_probe=${IPV6_PROBE:-0}
 udp6_probe=${UDP6_PROBE:-0}
-if [ "$((native_probe + oconsole + ether_probe + ipv6_probe + udp6_probe))" -gt 1 ]; then
-	echo "build.sh: NATIVE_PROBE, OCONSOLE, ETHER_PROBE, IPV6_PROBE and UDP6_PROBE are separate opt-in builds" >&2
+e74_probe=${E74_PROBE:-0}
+if [ "$((native_probe + oconsole + ether_probe + ipv6_probe + udp6_probe + e74_probe))" -gt 1 ]; then
+	echo "build.sh: NATIVE_PROBE, OCONSOLE, ETHER_PROBE, IPV6_PROBE, UDP6_PROBE and E74_PROBE are separate opt-in builds" >&2
 	exit 2
 fi
 if [ "$native_probe" = 1 ]; then
@@ -63,6 +64,12 @@ elif [ "$udp6_probe" = 1 ]; then
 	kernel=9pc64e73
 	testkconf=
 	testkernel=
+elif [ "$e74_probe" = 1 ]; then
+	# E7.4 opt-in: experimental IPv6 Next Header 253 consumer + VirtIO fixture.
+	kconf=pc64e74
+	kernel=9pc64e74
+	testkconf=
+	testkernel=
 fi
 out=$tbuild; b=$root/build
 mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$out"/*.devc.c "$b"/in.img "$b"/out.img
@@ -79,6 +86,8 @@ elif [ "$ipv6_probe" = 1 ]; then
 	printf "kconf=pc64e72\nkernel=9pc64e72\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 elif [ "$udp6_probe" = 1 ]; then
 	printf "kconf=pc64e73\nkernel=9pc64e73\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+elif [ "$e74_probe" = 1 ]; then
+	printf "kconf=pc64e74\nkernel=9pc64e74\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"

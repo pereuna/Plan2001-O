@@ -327,3 +327,9 @@ e73udpprobe_start(void)
 {
 	return 0;
 }
+
+int
+e74ipprobe_start(void)
+{
+	return 0;
+}
