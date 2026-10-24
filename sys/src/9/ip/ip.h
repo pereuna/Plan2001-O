@@ -799,3 +799,5 @@ extern Chan*	chandial(char*, char*, char*, Chan**);
  *  global to all of the stack
  */
 extern void	(*multicastreportfn)(Fs*, Ipifc*, uchar*, uchar*, int);
+extern Block* ethermediumframe(Fs*, Ipifc*, Block*, int, uchar*, Routehint*);
+extern void ipfsinit(Fs*, int);

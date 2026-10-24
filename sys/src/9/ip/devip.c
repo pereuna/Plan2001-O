@@ -295,6 +295,26 @@ newipaux(char *owner, char *tag)
 
 #define ATTACHER(c) (((IPaux*)((c)->aux))->owner)
 
+/*
+ * Direct Fs/IPv6 initialization shared by the legacy #I attach and the
+ * native IPv6 entrypoint.  No Chan/Qid/devattach is involved in this
+ * function; callers in process context may run it after the scheduler has
+ * started.  The caller owns the zeroed Fs and must call it exactly once.
+ */
+void
+ipfsinit(Fs *f, int dev)
+{
+	extern void (*ipprotoinit[])(Fs*);
+	int i;
+
+	ip_init(f);
+	arpinit(f);
+	netloginit(f);
+	for(i = 0; ipprotoinit[i]; i++)
+		ipprotoinit[i](f);
+	f->dev = dev;
+}
+
 static Chan*
 ipattach(char* spec)
 {
@@ -308,17 +328,10 @@ ipattach(char* spec)
 
 	qlock(&lk);
 	if(ipfs[dev] == nil){
-		extern void (*ipprotoinit[])(Fs*);
 		Fs *f;
-		int i;
 
 		f = smalloc(sizeof(Fs));
-		ip_init(f);
-		arpinit(f);
-		netloginit(f);
-		for(i = 0; ipprotoinit[i]; i++)
-			ipprotoinit[i](f);
-		f->dev = dev;
+		ipfsinit(f, dev);
 		coherence();
 		ipfs[dev] = f;
 	}
