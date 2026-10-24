@@ -1,10 +1,6 @@
-E7.3 toteutettu, verifioitu ja pushattu branchille `design/ipv6-only-native-20261024`.
+E5 VERDICT: **APPROVE**. Commits on `main`: `53785d7` (implementation), `9c41f3b` (evidence/report). Working tree clean.
 
-- **Verdict:** APPROVE
-- **Commitit:** `c3edcc5` (map), `3c1f88b` (lifecycle/hardening), `936ca55` (UDP6 API), `a55c5b5` (VirtIO/UDP6 fixture), `9503802` (report)
-- **Oikea VirtIO UDP6:** hostin datagrammit kahdesta lähdeportista pituuksilla `0/1/17/1452`; guest palautti ne oikeille IP/portti-yhdistelmille muuttumattomalla payloadilla ja validilla UDP6-checksumilla.
-- **Guest evidence:** `POSITIVE rx=6 tx=6 bytes=1486`, `COUNTERS in=34 out=8 noports=1 inerrors=5`, `CHAN-NATIVE ... clean=1`.
-- **Negatiivit:** väärä/zero-checksum, väärät UDP-pituudet, truncation, IPv4-frame, unbound-port (ICMPv6 Port Unreachable), duplicate bind, IPv4-mapped bind, queue saturation (`DropFull=14`), link down, close/repeat-close/post-close, stop/repeat-stop/restart-after-stop.
-- **Regressiot:** E7.2, E7.1, default `9pc64`/`9pc64mp` ja E5 `9pc64oconsole` kaikki PASS.
-- **Raportit:** `docs/UDP6-NATIVE-MIGRATION.md`, `docs/to_chatgpt_review_e73.md`; logit `build/verification/e73/`.
-- `main`iin, PR #1:een, E6/E8/E9-työhön tai aiempiin E7-raportteihin ei koskettu. Status pysyy **TRANSITIONAL**-tilassa.
+- 23 Qids: **19 native, 2 legacy-only, 2 intentionally-unsupported, 0 unclassified** (`docs/CONS-MIGRATION.md`).
+- `pc64oconsole` builds and boots with **no `consdevtab` registration/link**, while `print/iprint/panic/putstrn/readnum/readstr/todinit/randominit` remain linked.
+- PASS: normal `pc64`/`pc64mp` build, `pc64native` E4/E5 probe, legacy `9pc64` O boot, no-`#c` D2b three-disk-persistence boot with zero measured path counters.
+- Full report: `docs/to_chatgpt_review.md`; logs under `build/verification/e5/`.
