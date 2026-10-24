@@ -475,6 +475,49 @@ def run_nic(args):
         s.wait(r"^E74IP: REARM-OK ", 10, "rearm result")
 
         s.wait(r"^E74IP: UNREG-FINAL rc=0$", 10, "unreg final")
+
+        # E7.4.3: admitted callback held past the unregister timeout; Busy
+        # must latch DRAINING, reject re-registration, drain, retry and rear.
+        s.wait(r"^E743IP: A-READY$", 10, "e743 A ready")
+        a_payload = b"E743-A-ORIGINAL"
+        c_payload = b"E743-C-STALE"
+        link.send(ip253(a_payload))
+        s.wait(r"^E743IP: A-ADMITTED active=[1-9][0-9]* registered=1$", 10,
+               "e743 A admitted")
+        m = s.wait(r"^E743IP: BUSY rc=(-?\d+) registered=(\d+) draining=(\d+) active=(\d+)$",
+                   15, "e743 busy")
+        if int(m.group(1)) != -3 or int(m.group(2)) != 0 or int(m.group(3)) != 1:
+            die("E743 Busy did not latch DRAINING: %s" % m.group(0))
+        m = s.wait(r"^E743IP: CONCUR-OWNER rc=(-?\d+) done=(\d+)$", 10,
+                   "e743 concurrent unregister")
+        if int(m.group(1)) != -3 or int(m.group(2)) != 1:
+            die("E743 concurrent unregister was not Busy: %s" % m.group(0))
+        m = s.wait(r"^E743IP: REG-B rc=(-?\d+)$", 10, "e743 reg B")
+        if int(m.group(1)) != -3:
+            die("E743 re-register while draining was not Busy (old bug)")
+        if count_ip253(link, a_payload, 0.3) != 0:
+            die("E743 original A payload produced a 253 reply")
+        s.wait(r"^E743IP: C-READY$", 10, "e743 C ready")
+        link.send(ip253(c_payload))
+        s.wait(r"^E743IP: A-DONE callsA=1 callsB=0 active=0$", 15,
+               "e743 A drained without B")
+        if count_ip253(link, c_payload, 0.3) != 0:
+            die("E743 stale C payload produced a 253 reply")
+        s.wait(r"^E743IP: A-SEND rc=-4$", 10, "e743 callback send rejected")
+        s.wait(r"^E743IP: C-DRAINED delivered=[2-9][0-9]*$", 10,
+               "e743 stale packet drained")
+        s.wait(r"^E743IP: RETRY rc=0$", 10, "e743 unregister retry")
+        s.wait(r"^E743IP: NOTREG rc=-4$", 10, "e743 completed unregister")
+        for j in range(5):
+            s.wait(r"^E743IP: CYCLE %d READY$" % j, 10, "e743 cycle ready %d" % j)
+            d = ("E743-D-%d" % j).encode()
+            link.send(ip253(d))
+            s.wait(r"^E743IP: CYCLE %d GOT callsB=1 len=%d$" % (j, len(d)), 10,
+                   "e743 fresh B payload %d" % j)
+            s.wait(r"^E743IP: CYCLE %d UNREG rc=0$" % j, 10,
+                   "e743 cycle unreg %d" % j)
+        s.wait(r"^E743IP: DONE callsA=1 callsB=1$", 10, "e743 done")
+
         s.wait(r"^E74IP: TXDOWN-READY$", 10, "txdown ready")
         link.send(ip253(b"e74-down"))
         s.wait(r"^E74IP: TXDOWN txdown=[1-9][0-9]*$", 10, "txdown count")

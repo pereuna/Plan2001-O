@@ -30,6 +30,12 @@
  * E7.3, and not freeing the Proto closes the lookup/callback race with the
  * IPv6 worker.  It is one record, not a per-packet leak.
  */
+enum {
+	NipUnreg = 0,
+	NipRegistered,
+	NipDraining,
+};
+
 struct NativeIp6 {
 	Ipv6Native	*net;
 	Proto		*proto;
@@ -37,8 +43,8 @@ struct NativeIp6 {
 	void		*arg;
 	Lock		lk;
 	Rendez		r;
-	int		registered;
-	int		unregistering;
+	int		state;
+	int		drainwait;
 	int		protolinked;
 	int		delayms;
 	int		active;
@@ -76,11 +82,18 @@ nativeip6_rcv(Proto *p, Ipifc *ifc, Block *bp)
 {
 	NativeIp6 *c;
 	NativeIp6Msg m;
+	NativeIp6Rx rx;
+	void *arg;
 	Ip6hdr *h;
 	int delay, len, rc;
 
 	c = p->priv;
 	if(c == nil || bp == nil){
+		freeblist(bp);
+		return;
+	}
+	if(ifc != c->net->ifc){
+		/* The raw endpoint is bound to the native medium only. */
 		freeblist(bp);
 		return;
 	}
@@ -99,11 +112,18 @@ nativeip6_rcv(Proto *p, Ipifc *ifc, Block *bp)
 		goto bad;
 
 	ilock(&c->lk);
-	if(!c->registered || c->rx == nil){
+	if(c->state != NipRegistered || c->rx == nil){
 		iunlock(&c->lk);
 		freeb(bp);
 		return;
 	}
+	/*
+	 * Capture the admission's callback pair while incrementing active.
+	 * Later unregister/re-register may change c->rx/c->arg; this call
+	 * must use the pair that admitted it.
+	 */
+	rx = c->rx;
+	arg = c->arg;
 	c->active++;
 	c->rxframes++;
 	c->rxbytes += len;
@@ -122,7 +142,15 @@ nativeip6_rcv(Proto *p, Ipifc *ifc, Block *bp)
 	bp->rp += IP6HDR;
 	m.bp = bp;
 
-	rc = c->rx(c->arg, &m);
+	if(waserror()){
+		ilock(&c->lk);
+		c->active--;
+		iunlock(&c->lk);
+		wakeup(&c->r);
+		nexterror();
+	}
+	rc = rx(arg, &m);
+	poperror();
 
 	/* m.bp is consumed by the callback; do not touch bp here. */
 	ilock(&c->lk);
@@ -159,7 +187,7 @@ nativeip6_register(Ipv6Native *net, NativeIp6Rx rx, void *arg)
 	}
 	if(c != nil){
 		ilock(&c->lk);
-		if(c->registered || c->unregistering){
+		if(c->state != NipUnreg){
 			iunlock(&c->lk);
 			qunlock(&natlk);
 			return NativeIp6ErrBusy;
@@ -215,7 +243,8 @@ nativeip6_register(Ipv6Native *net, NativeIp6Rx rx, void *arg)
 	ilock(&c->lk);
 	c->rx = rx;
 	c->arg = arg;
-	c->registered = 1;
+	c->state = NipRegistered;
+	c->drainwait = 0;
 	iunlock(&c->lk);
 	natip = c;
 	qunlock(&natlk);
@@ -237,24 +266,31 @@ nativeip6_unregister(Ipv6Native *net)
 		return NativeIp6ErrNotReg;
 	}
 	ilock(&c->lk);
-	if(!c->registered || c->unregistering){
+	if(c->state == NipUnreg){
 		iunlock(&c->lk);
 		qunlock(&natlk);
 		return NativeIp6ErrNotReg;
 	}
-	c->registered = 0;
-	c->unregistering = 1;
-	if(net->f != nil && net->f->t2p[NativeIp6Proto] == c->proto)
-		net->f->t2p[NativeIp6Proto] = nil;
+	if(c->state == NipDraining){
+		if(c->drainwait){
+			iunlock(&c->lk);
+			qunlock(&natlk);
+			return NativeIp6ErrBusy;	/* another caller owns teardown */
+		}
+		c->drainwait = 1;
+	}else{
+		c->state = NipDraining;
+		c->drainwait = 1;
+		if(net->f != nil && net->f->t2p[NativeIp6Proto] == c->proto)
+			net->f->t2p[NativeIp6Proto] = nil;
+	}
 	iunlock(&c->lk);
 	qunlock(&natlk);
 
 	/*
-	 * Wait for a callback that already passed the registered check.  The
-	 * Proto record is never freed, so an in-flight lookup pointer cannot
-	 * become a use-after-free.  natlk is not held here: an in-flight
-	 * callback may still call nativeip6_send/get stats and must be able
-	 * to finish (send rejects with NotReg once registered is clear).
+	 * Wait for admitted callbacks.  natlk is not held: an in-flight
+	 * callback may call nativeip6_send/stats and must be able to finish.
+	 * On timeout DRAINING stays latched; a later call is the finalizer.
 	 */
 	for(i = 0; i < 500; i++){
 		if(activezero(c))
@@ -263,9 +299,57 @@ nativeip6_unregister(Ipv6Native *net)
 	}
 	ilock(&c->lk);
 	active = c->active;
-	c->unregistering = 0;
 	iunlock(&c->lk);
-	return active == 0 ? NativeIp6Ok : NativeIp6ErrBusy;
+	if(active != 0){
+		ilock(&c->lk);
+		c->drainwait = 0;	/* still NipDraining */
+		iunlock(&c->lk);
+		return NativeIp6ErrBusy;
+	}
+
+	/*
+	 * Quiesce ipiput6 on the native medium before declaring the old
+	 * demux lookup drained.  active==0 alone does not cover a dispatch
+	 * that obtained the retained Proto just before t2p was unlinked.
+	 * No admitted callback remains, so a writer cannot deadlock with a
+	 * callback's nativeip6_send here; the endpoint is bound to this ifc.
+	 *
+	 * This proves demux lookups already inside ipiput6 are drained.  A
+	 * frame still waiting in net->rxq has not been admitted to the old
+	 * registration: t2p is nil, so it is dropped if demuxed before rearm,
+	 * and after rearm it is new input.  No queue-wide drain is claimed;
+	 * the E7.4.3 fixture explicitly drains its stale frame before retry.
+	 */
+	if(net->ifc != nil)
+		wlock(net->ifc);
+
+	qlock(&natlk);
+	c = natip;
+	if(c == nil || c->net != net){
+		if(net->ifc != nil)
+			wunlock(net->ifc);
+		qunlock(&natlk);
+		return NativeIp6ErrNotReg;
+	}
+	ilock(&c->lk);
+	if(c->state != NipDraining || !c->drainwait){
+		iunlock(&c->lk);
+		if(net->ifc != nil)
+			wunlock(net->ifc);
+		qunlock(&natlk);
+		return NativeIp6ErrBusy;
+	}
+	c->state = NipUnreg;
+	c->drainwait = 0;
+	c->rx = nil;
+	c->arg = nil;
+	iunlock(&c->lk);
+	if(net->f != nil && net->f->t2p[NativeIp6Proto] == c->proto)
+		net->f->t2p[NativeIp6Proto] = nil;
+	qunlock(&natlk);
+	if(net->ifc != nil)
+		wunlock(net->ifc);
+	return NativeIp6Ok;
 }
 
 /*
@@ -298,10 +382,17 @@ nativeip6_send(Ipv6Native *net, uchar *dst, uchar nexthdr, Block *payload, int t
 
 	qlock(&natlk);
 	c = natip;
-	if(c == nil || c->net != net || !c->registered){
+	if(c == nil || c->net != net){
 		qunlock(&natlk);
 		return NativeIp6ErrNotReg;
 	}
+	ilock(&c->lk);
+	if(c->state != NipRegistered){
+		iunlock(&c->lk);
+		qunlock(&natlk);
+		return NativeIp6ErrNotReg;
+	}
+	iunlock(&c->lk);
 	len = BLEN(payload);
 	max = net->ifc->maxtu - net->ifc->m->hsize - IP6HDR;
 	if(max < 0 || len > max){
@@ -354,7 +445,12 @@ nativeip6_registered(Ipv6Native *net)
 
 	qlock(&natlk);
 	c = natip;
-	r = c != nil && c->net == net && c->registered;
+	if(c != nil && c->net == net){
+		ilock(&c->lk);
+		r = c->state == NipRegistered;
+		iunlock(&c->lk);
+	}else
+		r = 0;
 	qunlock(&natlk);
 	return r;
 }
@@ -386,7 +482,8 @@ nativeip6_stats(Ipv6Native *net, NativeIp6Stats *st)
 	c = natip;
 	if(c != nil && c->net == net){
 		ilock(&c->lk);
-		st->registered = c->registered;
+		st->registered = c->state == NipRegistered;
+		st->draining = c->state == NipDraining;
 		st->active = c->active;
 		st->rxframes = c->rxframes;
 		st->rxbytes = c->rxbytes;

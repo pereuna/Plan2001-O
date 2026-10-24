@@ -33,6 +33,11 @@ enum {
  * and bp is a single Block.  The callback owns bp on entry and must consume
  * it (nativeip6_send on success) or free it; the return value only reports a
  * semantic rejection for the counters.
+ *
+ * The admitted callback runs with the rx/arg pair captured at admission.
+ * The caller may free arg only after nativeip6_unregister() returns
+ * NativeIp6Ok; after NativeIp6ErrBusy the endpoint is still DRAINING and
+ * the old arg may still be used by admitted callbacks.
  */
 struct NativeIp6Msg {
 	uchar	src[IPaddrlen];
@@ -43,8 +48,9 @@ struct NativeIp6Msg {
 };
 
 struct NativeIp6Stats {
-	int	registered;
-	int	active;
+	int	registered;	/* true only in REGISTERED */
+	int	draining;	/* true in DRAINING; Busy leaves this latched */
+	int	active;		/* admitted callbacks not yet returned */
 	uvlong	rxframes;
 	uvlong	rxbytes;
 	uvlong	rxreject;
@@ -54,6 +60,14 @@ struct NativeIp6Stats {
 	uvlong	txbytes;
 };
 
+/*
+ * Lifecycle: UNREGISTERED -> REGISTERED -> DRAINING -> UNREGISTERED.
+ * register returns Busy while REGISTERED or DRAINING.  unregister returns
+ * Busy while another caller owns teardown or callbacks are still active;
+ * a later unregister retries finalization.  Only a completed unregister
+ * (Ok) permits re-registration and old-arg release.  NotReg means the
+ * unregistration is already complete.
+ */
 extern int	nativeip6_register(Ipv6Native*, NativeIp6Rx, void*);
 extern int	nativeip6_unregister(Ipv6Native*);
 extern int	nativeip6_send(Ipv6Native*, uchar*, uchar, Block*, int);

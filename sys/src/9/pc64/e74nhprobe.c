@@ -41,6 +41,86 @@ static int echo_stop;
 static Rendez echo_done;
 static uvlong csnap[6];
 
+/*
+ * E7.4.3 deterministic unregister/re-register race regression.
+ * The 8 s pre-callback delay is the existing test-only admission window;
+ * the probe checks active>=1 before unregistering, so the ordering is
+ * established by the barrier, not by a sleep-only guess.
+ */
+enum {
+	E743DelayMs	= 8000,
+	E743Max		= 64,
+};
+
+typedef struct E743Ctx E743Ctx;
+struct E743Ctx {
+	int	id;
+	int	calls;
+	int	len;
+	int	sendrc;
+	uchar	data[E743Max];
+};
+
+static E743Ctx e743a;
+static E743Ctx e743b;
+
+typedef struct E743Unreg E743Unreg;
+struct E743Unreg {
+	Rendez	r;
+	int	done;
+	int	rc;
+};
+
+static E743Unreg e743u;
+
+static int
+e743udone(void *a)
+{
+	USED(a);
+	return e743u.done;
+}
+
+static void
+e743uproc(void *arg)
+{
+	USED(arg);
+	e743u.rc = nativeip6_unregister(net);
+	e743u.done = 1;
+	wakeup(&e743u.r);
+}
+
+static char *e743A = "E743-A-ORIGINAL";
+static char *e743C = "E743-C-STALE";
+
+static int
+e743cb(void *arg, NativeIp6Msg *m)
+{
+	E743Ctx *x = arg;
+
+	x->calls++;
+	x->len = BLEN(m->bp);
+	if(x->len > E743Max)
+		x->len = E743Max;
+	memmove(x->data, m->bp->rp, x->len);
+	if(x->id == 1){
+		/* Callback -> nativeip6_send while teardown is draining. */
+		Block *tb;
+
+		x->sendrc = NativeIp6ErrNoMem;
+		tb = allocb(BLEN(m->bp));
+		if(tb != nil){
+			memmove(tb->rp, m->bp->rp, BLEN(m->bp));
+			tb->wp += BLEN(m->bp);
+			x->sendrc = nativeip6_send(net, m->src, NativeIp6Proto,
+				tb, 64);
+			if(x->sendrc != NativeIp6Ok)
+				freeb(tb);
+		}
+	}
+	freeb(m->bp);
+	return 0;
+}
+
 static void
 snapcounters(uvlong *v)
 {
@@ -472,6 +552,150 @@ e74ipprobe_proc(void *arg)
 	print("E74IP: UNREG-FINAL rc=%d\n", rc);
 	if(rc != NativeIp6Ok)
 		fail("unreg-final", rc, NativeIp6Ok);
+
+	/*
+	 * E7.4.3: hold an admitted callback beyond the unregister timeout,
+	 * require Busy to latch DRAINING, reject re-register, drain the old
+	 * callback, retry to completion, then rearm and verify only fresh
+	 * packets reach the new callback.
+	 */
+	{
+		NativeIp6Stats nst;
+		Ipv6NativeStats vst;
+		E743Ctx *a = &e743a, *b = &e743b;
+		uvlong rd0;
+		int i, j, rca, rcb, oldbug;
+		char expect[32];
+
+		memset(a, 0, sizeof(*a));
+		memset(b, 0, sizeof(*b));
+		a->id = 1;
+		a->sendrc = 999;
+		b->id = 2;
+		nativeip6_setdelay(net, E743DelayMs);
+		rca = nativeip6_register(net, e743cb, a);
+		print("E743IP: A-REG rc=%d\n", rca);
+		if(rca != NativeIp6Ok)
+			fail("e743-a-register", rca, NativeIp6Ok);
+		print("E743IP: A-READY\n");
+		for(i = 0; i < 1000; i++){
+			nativeip6_stats(net, &nst);
+			if(nst.active >= 1)
+				break;
+			tsleep(&up->sleep, return0, nil, 10);
+		}
+		print("E743IP: A-ADMITTED active=%d registered=%d\n",
+			nst.active, nst.registered);
+		if(nst.active < 1)
+			fail("e743-a-admitted", nst.active, 1);
+
+		/* Two concurrent unregister callers: exactly one owner waits. */
+		memset(&e743u, 0, sizeof(e743u));
+		kproc("*e743unreg*", e743uproc, nil);
+		tsleep(&up->sleep, return0, nil, 50);
+		rc = nativeip6_unregister(net);
+		nativeip6_stats(net, &nst);
+		print("E743IP: BUSY rc=%d registered=%d draining=%d active=%d\n",
+			rc, nst.registered, nst.draining, nst.active);
+		if(rc != NativeIp6ErrBusy || nst.registered != 0 || nst.draining != 1)
+			fail("e743-busy", rc, NativeIp6ErrBusy);
+		for(i = 0; i < 700 && !e743u.done; i++)
+			tsleep(&e743u.r, e743udone, nil, 10);
+		print("E743IP: CONCUR-OWNER rc=%d done=%d\n", e743u.rc,
+			e743u.done);
+		if(!e743u.done || e743u.rc != NativeIp6ErrBusy)
+			fail("e743-concurrent-unreg", e743u.rc, NativeIp6ErrBusy);
+
+		nativeip6_setdelay(net, 0);
+		rcb = nativeip6_register(net, e743cb, b);
+		print("E743IP: REG-B rc=%d\n", rcb);
+		oldbug = rcb == NativeIp6Ok;
+		if(rcb != NativeIp6ErrBusy)
+			fail("e743-reg-draining", rcb, NativeIp6ErrBusy);
+
+		if(oldbug){
+			print("E743IP: OLD-BUG-REGISTER\n");
+			for(i = 0; i < 1500; i++){
+				nativeip6_stats(net, &nst);
+				if(nst.active == 0)
+					break;
+				tsleep(&up->sleep, return0, nil, 10);
+			}
+			print("E743IP: A-DONE callsA=%d callsB=%d active=%d\n",
+				a->calls, b->calls, nst.active);
+			rc = nativeip6_unregister(net);
+			print("E743IP: OLD-UNREG rc=%d\n", rc);
+			rc = nativeip6_unregister(net);
+			print("E743IP: OLD-NOTREG rc=%d\n", rc);
+			print("E743IP: DONE callsA=%d callsB=%d\n",
+				a->calls, b->calls);
+		}else{
+			ipv6native_stats(net, &vst);
+			rd0 = vst.rxdelivered;
+			print("E743IP: C-READY\n");
+			for(i = 0; i < 1500; i++){
+				nativeip6_stats(net, &nst);
+				if(nst.active == 0)
+					break;
+				tsleep(&up->sleep, return0, nil, 10);
+			}
+			print("E743IP: A-DONE callsA=%d callsB=%d active=%d\n",
+				a->calls, b->calls, nst.active);
+			if(a->calls != 1 || b->calls != 0 || nst.active != 0)
+				fail("e743-a-drain", a->calls, 1);
+			print("E743IP: A-SEND rc=%d\n", a->sendrc);
+			if(a->sendrc != NativeIp6ErrNotReg)
+				fail("e743-a-send", a->sendrc, NativeIp6ErrNotReg);
+			for(i = 0; i < 1000; i++){
+				ipv6native_stats(net, &vst);
+				if(vst.rxdelivered >= rd0 + 2)
+					break;
+				tsleep(&up->sleep, return0, nil, 10);
+			}
+			print("E743IP: C-DRAINED delivered=%llud\n",
+				vst.rxdelivered - rd0);
+			if(vst.rxdelivered < rd0 + 2)
+				fail("e743-c-drained", (int)(vst.rxdelivered - rd0), 2);
+
+			rc = nativeip6_unregister(net);
+			print("E743IP: RETRY rc=%d\n", rc);
+			if(rc != NativeIp6Ok)
+				fail("e743-retry", rc, NativeIp6Ok);
+			rc = nativeip6_unregister(net);
+			print("E743IP: NOTREG rc=%d\n", rc);
+			if(rc != NativeIp6ErrNotReg)
+				fail("e743-notreg", rc, NativeIp6ErrNotReg);
+
+			for(j = 0; j < 5; j++){
+				memset(b, 0, sizeof(*b));
+				b->id = 100 + j;
+				snprint(expect, sizeof expect, "E743-D-%d", j);
+				rc = nativeip6_register(net, e743cb, b);
+				print("E743IP: CYCLE %d REG rc=%d\n", j, rc);
+				if(rc != NativeIp6Ok){
+					fail("e743-cycle-register", rc, NativeIp6Ok);
+					break;
+				}
+				print("E743IP: CYCLE %d READY\n", j);
+				for(i = 0; i < 1000; i++){
+					if(b->calls >= 1)
+						break;
+					tsleep(&up->sleep, return0, nil, 10);
+				}
+				print("E743IP: CYCLE %d GOT callsB=%d len=%d\n",
+					j, b->calls, b->len);
+				if(b->calls != 1 || b->len != strlen(expect)
+				|| memcmp(b->data, expect, b->len) != 0)
+					fail("e743-cycle-payload", b->calls, 1);
+				rc = nativeip6_unregister(net);
+				print("E743IP: CYCLE %d UNREG rc=%d\n", j, rc);
+				if(rc != NativeIp6Ok)
+					fail("e743-cycle-unreg", rc, NativeIp6Ok);
+			}
+			print("E743IP: DONE callsA=%d callsB=%d\n",
+				a->calls, b->calls);
+		}
+	}
 
 	/* Link-down must drop an attempted 253 frame, not panic. */
 	oldlink = e->link;
