@@ -297,3 +297,9 @@ onativeprobe_start(void)
 	kproc("*onativeprobe*", onativeprobe_proc, nil);
 	return 1;
 }
+
+int
+e71etherprobe_start(void)
+{
+	return 0;
+}

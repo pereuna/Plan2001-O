@@ -1,0 +1,98 @@
+# pc64e71 - opt-in E7.1 native Ethernet probe (VirtIO test).
+#
+# Same devices and legacy #l/ip/wg tables as pc64.  The only addition is
+# e71etherprobe, which runs a kernel process after the scheduler starts and
+# exercises the native Ether core directly.  No bootdir/root is needed:
+# main.c hands off to the probe when plan9.ini says e71ether=1.
+#
+# This is a TRANSITIONAL profile: it still links IPv4, ARP, #l, #I and #W.
+# pc64 - amd64 pc terminal with local disk
+dev
+	root
+	cons
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	etheri225	pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	e71etherprobe
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# No bootfs.paq/paqfs/bootrc.  The normal O-only boot requires no filesystem
+# root; legacy plan9.ini root= mounting remains optional (port/devgefs.c).
+# /boot/oinit is the small inherited bootstrap harness: it opens the O
+# volume and the init Space and executes the MicroPython executable stored
+# in O at OID_MP_EXEC.  /boot/kbdfs is the embedded console helper.  There
+# is no embedded /boot/mp and no pathname-based MicroPython exec on this
+# path (docs/O-FORMAT.md 7).  /boot/ohandle and /boot/oexec remain embedded
+# regression harnesses, not the loader or a normal startup program.
+# This bootdir embedding is NOT the proposed native O executable loader.

@@ -23,8 +23,9 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 native_probe=${NATIVE_PROBE:-0}
 oconsole=${OCONSOLE:-0}
-if [ "$native_probe" = 1 ] && [ "$oconsole" = 1 ]; then
-	echo "build.sh: NATIVE_PROBE=1 and OCONSOLE=1 are separate opt-in builds" >&2
+ether_probe=${ETHER_PROBE:-0}
+if [ "$((native_probe + oconsole + ether_probe))" -gt 1 ]; then
+	echo "build.sh: NATIVE_PROBE, OCONSOLE and ETHER_PROBE are separate opt-in builds" >&2
 	exit 2
 fi
 if [ "$native_probe" = 1 ]; then
@@ -42,6 +43,12 @@ elif [ "$oconsole" = 1 ]; then
 	kernel=9pc64oconsole
 	testkconf=
 	testkernel=
+elif [ "$ether_probe" = 1 ]; then
+	# E7.1 opt-in: same legacy devices plus the native Ethernet probe.
+	kconf=pc64e71
+	kernel=9pc64e71
+	testkconf=
+	testkernel=
 fi
 out=$tbuild; b=$root/build
 mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$out"/*.devc.c "$b"/in.img "$b"/out.img
@@ -52,6 +59,8 @@ if [ "$native_probe" = 1 ]; then
 	printf "kconf=pc64native\nkernel=9pc64native\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 elif [ "$oconsole" = 1 ]; then
 	printf "kconf=pc64oconsole\nkernel=9pc64oconsole\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+elif [ "$ether_probe" = 1 ]; then
+	printf "kconf=pc64e71\nkernel=9pc64e71\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"
