@@ -20,6 +20,12 @@ extraction and executes it through the same E2 renderer.
 All three use the same renderer/extractor.  No per-driver C body, `if driver ==`
 branch or duplicate `render_rtc_source`/`render_cons_source` exists.
 
+E5 moves the non-Dev console/time/random/proc/sysinfo services out of
+`devcons.c` but leaves the E4 `consqpidread` and `consread_qppid_read` helper
+text unchanged.  The devcons source pin is deliberately updated to
+`7978565a...c7128375`; `--generate-native --check`, the 29 focused generator
+tests and the real `pc64native` probe pass with the repinned source.
+
 ## E2 source identity (historical)
 
 - E2 base revision: `7b4dfac4903e909dc2a00f37e9320335808029ac`.
@@ -28,8 +34,12 @@ branch or duplicate `render_rtc_source`/`render_cons_source` exists.
 - `sys/src/9/port/devcons.c`: SHA-256
   `068dca67758d90a60baed6d9250241c46ee23974b8f09ce45b06e7140e901896`.
 
-The current RTC pin is unchanged; E4 deliberately replaces the devcons pin
-with `5491d5a76253e25073434fa3913ec87216ffe76dc37465051a9f6c28d2dabf61`.
+The current RTC pin is unchanged; E4 replaces the devcons pin with
+`5491d5a...dabf61`, and E5 re-pins the reviewed adapter split at
+`7978565a44ab0ca4dc130276aeae09219567fe615094ee3c440666e9c7128375`.
+The Qpid/Qppid helper text and source shape are unchanged; only the
+surrounding core functions moved to `port/cons.c`, `port/procobs.c` and
+`port/sysinfo.c`.
 A source edit fails closed until reviewed and deliberately repinned.
 
 ## CLI and outputs

@@ -22,6 +22,11 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
 native_probe=${NATIVE_PROBE:-0}
+oconsole=${OCONSOLE:-0}
+if [ "$native_probe" = 1 ] && [ "$oconsole" = 1 ]; then
+	echo "build.sh: NATIVE_PROBE=1 and OCONSOLE=1 are separate opt-in builds" >&2
+	exit 2
+fi
 if [ "$native_probe" = 1 ]; then
 	# E2 opt-in: regenerate before staging, then build only the probe config.
 	python3 "$here/kernel_opmap.py" --generate-native --config pc64 \
@@ -30,14 +35,23 @@ if [ "$native_probe" = 1 ]; then
 	kernel=9pc64native
 	testkconf=
 	testkernel=
+elif [ "$oconsole" = 1 ]; then
+	# E5 opt-in: no "cons" line in the config's dev section, so the
+	# generated devtab has no consdevtab registration.
+	kconf=pc64oconsole
+	kernel=9pc64oconsole
+	testkconf=
+	testkernel=
 fi
 out=$tbuild; b=$root/build
-mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$b"/in.img "$b"/out.img
+mkdir -p "$out"; rm -rf "$out/$kernel" ${testkernel:+"$out/$testkernel"} "$out/$loader" "$out/hjfs" "$out/kbdfs" "$out/ktest" "$out/root" "$out"/*.log "$out"/*.rootc.c "$out"/*.devc.c "$b"/in.img "$b"/out.img
 
 cp "$here/targets/$TARGET" "$b/target"
 printf 'what=%s\npasses=%s\n' "${WHAT:-all}" "${PASSES:-1}" >> "$b/target"
 if [ "$native_probe" = 1 ]; then
 	printf "kconf=pc64native\nkernel=9pc64native\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
+elif [ "$oconsole" = 1 ]; then
+	printf "kconf=pc64oconsole\nkernel=9pc64oconsole\ntestkconf=''\ntestkernel=''\n" >> "$b/target"
 fi
 # the repo's Plan 9 tree
 "$here/overlay" "$b/overlay"

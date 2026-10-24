@@ -1,5 +1,5 @@
 CONF=pc64
-CONFLIST=pc64 pc64mp pc64native
+CONFLIST=pc64 pc64mp pc64native pc64oconsole
 
 objtype=amd64
 </$objtype/mkfile
@@ -19,6 +19,7 @@ PORT=\
 	auth.$O\
 	cache.$O\
 	chan.$O\
+	cons.$O\
 	dev.$O\
 	edf.$O\
 	fault.$O\
@@ -30,6 +31,7 @@ PORT=\
 	portclock.$O\
 	print.$O\
 	proc.$O\
+	procobs.$O\
 	qio.$O\
 	qlock.$O\
 	random.$O\
@@ -38,6 +40,7 @@ PORT=\
 	segment.$O\
 	syscallfmt.$O\
 	sysfile.$O\
+	sysinfo.$O\
 	sysproc.$O\
 	taslock.$O\
 	tod.$O\

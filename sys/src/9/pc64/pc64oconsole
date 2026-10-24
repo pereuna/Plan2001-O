@@ -1,0 +1,93 @@
+# pc64oconsole - opt-in E5 O-only console profile.
+#
+# This is the normal pc64 configuration without the legacy #c Dev
+# registration ("cons" is deliberately absent from the dev section).  The
+# console/log/time/random/proc/sysinfo core is linked from port objects
+# (cons.c, procobs.c, sysinfo.c) and print/iprint/panic still work.  The
+# pathless O D2b server, UART/screen output and the other devices are
+# unchanged; #b, #i, #v and #t are not part of this migration.
+dev
+	root
+	swap
+	arch
+	pnp		pci
+	env
+	pipe
+	proc
+	mnt
+	srv
+	shr
+	dup
+	rtc
+	tls
+	cap
+	kprof
+	fs
+
+	ether		netif
+	ip		arp chandial ip ipv6 ipaux iproute netlog nullmedium pktmedium inferno
+	wg
+
+	draw		screen vga vgax vgasoft
+	mouse		mouse
+	vga		pci
+
+	sd
+
+	uart
+	usb
+	kbd
+	
+	segment
+	gefs
+
+link
+	cputemp		pci
+	ether8169	pci ethermii
+	ether82563	pci ethermii
+	etheri225	pci ethermii
+	etheriwl	pci wifi
+	ethersink
+	ethervirtio10	pci virtio10pc
+	ethermedium
+	loopbackmedium
+	usbehci		pci usbehcipc
+	usbxhcipci	pci usbxhci
+
+misc
+	pci		pcipc
+	onativeprobe_stub
+	archgeneric	devkbd i8259 i8253
+	archacpi	mp apic squidboy ec hpet
+	mtrr
+	bootinfo
+	bootarch
+	bootfb
+
+	sdiahci		pci sdscsi led
+	sdvirtio10	pci sdscsi virtio10pc
+	sdnvme		pci
+	sdloop
+	sdram
+
+	uarti8250
+	uartpci		pci
+
+	vgasoft		=cur swcursor
+
+ip
+	tcp
+	udp
+	ipifc
+	icmp
+	icmp6
+
+port
+	int cpuserver = 0;
+
+# Same pathless O boot assets as pc64; no filesystem root is required.
+bootdir
+	/$objtype/bin/aux/kbdfs	kbdfs
+	/$objtype/bin/oinit	oinit
+	/$objtype/bin/ohandle	ohandle
+	/$objtype/bin/oexec	oexec

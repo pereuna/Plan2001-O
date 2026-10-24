@@ -15,7 +15,7 @@ python3 tools/kernel_opmap.py --check
 ```
 
 - Source tree: `sys/src/9`
-- Source fingerprint (SHA-256): `3fe196b84e63da346e5783fad13478a6c10ef3ba8f62f5cbbb32b6939a58f2d6`
+- Source fingerprint (SHA-256): `9b72d8898149f57e6bc3f9b43a6ad77b982d78e14e2017bd7783a5954bd127ab`
 - Source revision is recorded in `docs/STATUS.md`; the generated files intentionally depend on the source fingerprint, not on the commit that happens to contain these artifacts.
 - Schema: `plan2001.kernel-opmap/v1`; generator: `tools/kernel_opmap.py` v1
 
@@ -49,9 +49,9 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 
 | Measure | Count |
 | --- | ---: |
-| `scanned_files` | 232 |
-| `c_files` | 172 |
-| `parsed_c_files` | 172 |
+| `scanned_files` | 236 |
+| `c_files` | 175 |
+| `parsed_c_files` | 175 |
 | `parse_failures` | 0 |
 | `files_with_registrations` | 49 |
 | `registrations` | 69 |
@@ -62,18 +62,18 @@ The analyser is a lightweight lexical/structural scanner for the Plan 9 C dialec
 | `mapped_controller_primitives` | 82 |
 | `partial_mappings` | 868 |
 | `unresolved_operations` | 63 |
-| `unique_chains` | 615 |
+| `unique_chains` | 616 |
 | `native_entry_points` | 61 |
 | `unresolved_build_objects` | 4 |
 | `unsupported_declarations` | 0 |
 
-Files by kind: `assembly` 7, `build-tool` 11, `c` 172, `config` 5, `header` 37.
+Files by kind: `assembly` 7, `build-tool` 11, `c` 175, `config` 6, `header` 37.
 
 Operations by kind: `control-command` 81, `file-operation` 669, `interface-operation` 205, `manual-control-command` 21.
 
 Operations by status: `partial` 868, `resolved` 45, `unresolved` 63.
 
-Unique chains by status: `partial` 508, `resolved` 44, `unresolved` 63.
+Unique chains by status: `partial` 509, `resolved` 44, `unresolved` 63.
 
 ## Build inclusion
 
@@ -81,9 +81,10 @@ Inclusion is derived from each configuration file using the `mkdevlist` rules an
 
 | Configuration | Kind | Arch | Status | Active C files | Unresolved objects | Shadowed objects |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| `pc64` | normal-amd64 | pc64 | supported | 152 | 0 | 1 |
-| `pc64mp` | test-only | pc64 | supported | 152 | 0 | 1 |
-| `pc64native` | other | pc64 | supported | 152 | 1 | 1 |
+| `pc64` | normal-amd64 | pc64 | supported | 155 | 0 | 2 |
+| `pc64mp` | test-only | pc64 | supported | 155 | 0 | 2 |
+| `pc64native` | other | pc64 | supported | 155 | 1 | 2 |
+| `pc64oconsole` | other | pc64 | supported | 154 | 0 | 2 |
 | `qemu` | other | arm64 | planned | 93 | 2 | 0 |
 | `riscv64` | other | riscv64 | future | 0 | 1 | 0 |
 
@@ -103,8 +104,13 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | Configuration | Object stem | Chosen | Shadowed |
 | --- | --- | --- | --- |
 | `pc64` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
 | `pc64mp` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64mp` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
 | `pc64native` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64native` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
+| `pc64oconsole` | `cache` | `sys/src/9/port/cache.c` | sys/src/9/gefs/cache.c |
+| `pc64oconsole` | `cons` | `sys/src/9/port/cons.c` | sys/src/9/gefs/cons.c |
 
 ## Registrations
 
@@ -112,73 +118,73 @@ The normal amd64 configuration is `pc64`.  `pc64mp` is a test-only configuration
 | --- | --- | --- | --- | --- | --- | ---: |
 | `reg:Dev:sys/src/9/arm64/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/arm64/devrtc.c:87 | qemu | 15 |
 | `reg:PhysUart:sys/src/9/arm64/uartqemu.c#qemuphysuart` | PhysUart | qemu |  | sys/src/9/arm64/uartqemu.c:318 | qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp, pc64native | 15 |
-| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp, pc64native | 11 |
-| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp, pc64native | 12 |
-| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:279 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp, pc64native | 15 |
-| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp, pc64native | 3 |
-| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp, pc64native | 12 |
-| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native | 16 |
-| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native | 1 |
-| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native | 4 |
-| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:817 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, qemu | 1 |
-| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1986 | pc64, pc64mp, pc64native, qemu | 17 |
-| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native | 15 |
-| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, qemu | 16 |
-| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, qemu | 15 |
-| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native | 3 |
-| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, pc64native, qemu | 2 |
-| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, pc64native, qemu | 2 |
-| `reg:SDifc:sys/src/9/port/sdloop.c#sdloopifc` | SDifc | loop |  | sys/src/9/port/sdloop.c:380 | pc64, pc64mp, pc64native | 11 |
-| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp, pc64native | 8 |
-| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp, pc64native | 6 |
-| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:725 | pc64, pc64mp, pc64native, qemu | 7 |
-| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp, pc64native | 12 |
-| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, pc64native, qemu | 16 |
+| `reg:Dev:sys/src/9/ip/devip.c#ipdevtab` | Dev | ip | 'I' | sys/src/9/ip/devip.c:1304 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/ip/devwg.c#wgdevtab` | Dev | wg | 'W' | sys/src/9/ip/devwg.c:1911 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:PCArch:sys/src/9/pc/archacpi.c#archacpi` | PCArch | archacpi |  | sys/src/9/pc/archacpi.c:800 | pc64, pc64mp, pc64native, pc64oconsole | 11 |
+| `reg:PCArch:sys/src/9/pc/archgeneric.c#archgeneric` | PCArch | archgeneric |  | sys/src/9/pc/archgeneric.c:78 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
+| `reg:Dev:sys/src/9/pc/devarch.c#archdevtab` | Dev | arch | 'P' | sys/src/9/pc/devarch.c:283 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab` | Dev | kbd | 'b' | sys/src/9/pc/devkbd.c:487 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/pc/devrtc.c#rtcdevtab` | Dev | rtc | 'r' | sys/src/9/pc/devrtc.c:279 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/pc/devvga.c#vgadevtab` | Dev | vga | 'v' | sys/src/9/pc/devvga.c:412 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Ether:sys/src/9/pc/ether8169.c#rtl8169` | Ether | rtl8169 |  | sys/src/9/pc/ether8169.c:1282 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82563` | Ether | i82563 |  | sys/src/9/pc/ether82563.c:2478 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82566` | Ether | i82566 |  | sys/src/9/pc/ether82563.c:2479 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82574` | Ether | i82574 |  | sys/src/9/pc/ether82563.c:2480 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82576` | Ether | i82576 |  | sys/src/9/pc/ether82563.c:2481 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82567` | Ether | i82567 |  | sys/src/9/pc/ether82563.c:2482 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82573` | Ether | i82573 |  | sys/src/9/pc/ether82563.c:2483 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82571` | Ether | i82571 |  | sys/src/9/pc/ether82563.c:2485 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82572` | Ether | i82572 |  | sys/src/9/pc/ether82563.c:2486 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82575` | Ether | i82575 |  | sys/src/9/pc/ether82563.c:2487 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82577` | Ether | i82577 |  | sys/src/9/pc/ether82563.c:2488 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82578` | Ether | i82578 |  | sys/src/9/pc/ether82563.c:2489 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82579` | Ether | i82579 |  | sys/src/9/pc/ether82563.c:2490 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82580` | Ether | i82580 |  | sys/src/9/pc/ether82563.c:2491 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i82583` | Ether | i82583 |  | sys/src/9/pc/ether82563.c:2492 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i210` | Ether | i210 |  | sys/src/9/pc/ether82563.c:2493 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i217` | Ether | i217 |  | sys/src/9/pc/ether82563.c:2494 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i218` | Ether | i218 |  | sys/src/9/pc/ether82563.c:2495 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i219` | Ether | i219 |  | sys/src/9/pc/ether82563.c:2496 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#i350` | Ether | i350 |  | sys/src/9/pc/ether82563.c:2497 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/ether82563.c#igbepcie` | Ether | igbepcie |  | sys/src/9/pc/ether82563.c:2498 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/pc/etheri225.c#i225` | Ether | i225 |  | sys/src/9/pc/etheri225.c:1428 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:SDifc:sys/src/9/pc/sdiahci.c#sdiahciifc` | SDifc | ahci |  | sys/src/9/pc/sdiahci.c:2524 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
+| `reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart` | PhysUart | i8250 |  | sys/src/9/pc/uarti8250.c:660 | pc64, pc64mp, pc64native, pc64oconsole | 16 |
+| `reg:PhysUart:sys/src/9/pc/uartpci.c#pciphysuart` | PhysUart | UartPCI |  | sys/src/9/pc/uartpci.c:231 | pc64, pc64mp, pc64native, pc64oconsole | 1 |
+| `reg:VGAcur:sys/src/9/pc/vgasoft.c#vgasoftcur` | VGAcur | soft |  | sys/src/9/pc/vgasoft.c:43 | pc64, pc64mp, pc64native, pc64oconsole | 4 |
+| `reg:Dev:sys/src/9/port/devcap.c#capdevtab` | Dev | cap | '¤' | sys/src/9/port/devcap.c:263 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devcons.c#consdevtab` | Dev | cons | 'c' | sys/src/9/port/devcons.c:484 | pc64, pc64mp, pc64native, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devdraw.c#drawdevtab` | Dev | draw | 'i' | sys/src/9/port/devdraw.c:2106 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devdup.c#dupdevtab` | Dev | dup | 'd' | sys/src/9/port/devdup.c:125 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devenv.c#envdevtab` | Dev | env | 'e' | sys/src/9/port/devenv.c:377 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devether.c#etherdevtab` | Dev | ether | 'l' | sys/src/9/port/devether.c:604 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:PhysUart:sys/src/9/port/devether.c#netconsphys` | PhysUart | netconsphys |  | sys/src/9/port/devether.c:663 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 1 |
+| `reg:Dev:sys/src/9/port/devfs.c#fsdevtab` | Dev | fs | 'k' | sys/src/9/port/devfs.c:1357 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devgefs.c#gefsdevtab` | Dev | gefs | 'G' | sys/src/9/port/devgefs.c:1135 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devkprof.c#kprofdevtab` | Dev | kprof | 'K' | sys/src/9/port/devkprof.c:171 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devmnt.c#mntdevtab` | Dev | mnt | 'M' | sys/src/9/port/devmnt.c:1504 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devmouse.c#mousedevtab` | Dev | mouse | 'm' | sys/src/9/port/devmouse.c:503 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devpipe.c#pipedevtab` | Dev | pipe | '\|' | sys/src/9/port/devpipe.c:392 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devpnp.c#pnpdevtab` | Dev | pnp | '$' | sys/src/9/port/devpnp.c:676 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devproc.c#procdevtab` | Dev | proc | 'p' | sys/src/9/port/devproc.c:1290 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devroot.c#rootdevtab` | Dev | root | '/' | sys/src/9/port/devroot.c:245 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsd.c#sddevtab` | Dev | sd | 'S' | sys/src/9/port/devsd.c:1986 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 17 |
+| `reg:Dev:sys/src/9/port/devsegment.c#segmentdevtab` | Dev | segment | 'g' | sys/src/9/port/devsegment.c:542 | pc64, pc64mp, pc64native, pc64oconsole | 15 |
+| `reg:Dev:sys/src/9/port/devshr.c#shrdevtab` | Dev | shr | 'σ' | sys/src/9/port/devshr.c:792 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devsrv.c#srvdevtab` | Dev | srv | 's' | sys/src/9/port/devsrv.c:650 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devswap.c#swapdevtab` | Dev | swap | '¶' | sys/src/9/port/devswap.c:632 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devtls.c#tlsdevtab` | Dev | tls | 'a' | sys/src/9/port/devtls.c:1845 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Dev:sys/src/9/port/devuart.c#uartdevtab` | Dev | uart | 't' | sys/src/9/port/devuart.c:642 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 16 |
+| `reg:Dev:sys/src/9/port/devusb.c#usbdevtab` | Dev | usb | 'u' | sys/src/9/port/devusb.c:1686 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 15 |
+| `reg:Ether:sys/src/9/port/etheriwl.c#iwl` | Ether | iwl |  | sys/src/9/port/etheriwl.c:4591 | pc64, pc64mp, pc64native, pc64oconsole | 3 |
+| `reg:Ether:sys/src/9/port/ethersink.c#sink` | Ether | sink |  | sys/src/9/port/ethersink.c:70 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 2 |
+| `reg:Ether:sys/src/9/port/ethervirtio10.c#virtio10` | Ether | virtio10 |  | sys/src/9/port/ethervirtio10.c:715 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 2 |
+| `reg:SDifc:sys/src/9/port/sdloop.c#sdloopifc` | SDifc | loop |  | sys/src/9/port/sdloop.c:380 | pc64, pc64mp, pc64native, pc64oconsole | 11 |
+| `reg:SDifc:sys/src/9/port/sdnvme.c#sdnvmeifc` | SDifc | nvme |  | sys/src/9/port/sdnvme.c:803 | pc64, pc64mp, pc64native, pc64oconsole | 8 |
+| `reg:SDifc:sys/src/9/port/sdram.c#sdramifc` | SDifc | ram |  | sys/src/9/port/sdram.c:250 | pc64, pc64mp, pc64native, pc64oconsole | 6 |
+| `reg:SDifc:sys/src/9/port/sdvirtio10.c#sdvirtio10ifc` | SDifc | virtio10 |  | sys/src/9/port/sdvirtio10.c:725 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 7 |
+| `reg:Hciimpl:sys/src/9/port/usbehci.c#ehcilinkage` | Hciimpl | ehcilinkage |  | sys/src/9/port/usbehci.c:3263 | pc64, pc64mp, pc64native, pc64oconsole | 12 |
+| `reg:Hciimpl:sys/src/9/port/usbxhci.c#xhcilinkage` | Hciimpl | xhcilinkage |  | sys/src/9/port/usbxhci.c:1912 | pc64, pc64mp, pc64native, pc64oconsole, qemu | 16 |
 
 ## Per-subsystem summary
 
@@ -213,58 +219,58 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 
 | Operation | Entry | Handler | Terminal | Status | Behavior | Build | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cons:cmd chdev` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:49 |
-| `cons:cmd panic` | ct->index | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:38 |
-| `cons:cmd rdb` | ct->index | `conswrite` | external-unknown consdebug | partial | E | N | sys/src/9/port/devcons.c:39 |
-| `cons:cmd reboot` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:37 |
-| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:817 |
-| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:817 |
-| `cons:close Qkprint (kprint)` | (ulong) c->qid.path | `consclose` | service-only | partial | - | N | sys/src/9/port/devcons.c:456 |
-| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
-| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:open Qkprint (kprint)` | (ulong) c->qid.path | `consopen` | service-only | partial | E | N | sys/src/9/port/devcons.c:431 |
-| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:555 |
-| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:570 |
-| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:508 |
-| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:511 |
-| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:505 |
-| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:624 |
-| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:561 |
-| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:558 |
-| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:527 |
-| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:543 |
-| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:646 |
-| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | EA | N | sys/src/9/port/devcons.c:567 |
-| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:649 |
-| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:546 |
-| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:549 |
-| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:621 |
-| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:616 |
-| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:573 |
-| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | EA | N | sys/src/9/port/devcons.c:552 |
-| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:564 |
-| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | EA | N | sys/src/9/port/devcons.c:642 |
-| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
-| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:817 |
-| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:700 |
-| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:717 |
-| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:676 |
-| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:692 |
-| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:721 |
-| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:708 |
-| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:705 |
-| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:807 |
-| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:714 |
-| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:754 |
-| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:795 |
-| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:781 |
-| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:695 |
-| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:711 |
-| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:817 |
+| `cons:cmd chdev` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:44 |
+| `cons:cmd panic` | ct->index | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:33 |
+| `cons:cmd rdb` | ct->index | `conswrite` | external-unknown consdebug | partial | E | N | sys/src/9/port/devcons.c:34 |
+| `cons:cmd reboot` | ct->index | `conswrite` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:32 |
+| `cons:attach` | direct Dev callback | `consattach` | service-only | partial | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:bread` | direct Dev callback | `devbread` | interface read (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:484 |
+| `cons:bwrite` | direct Dev callback | `devbwrite` | interface write (29 candidates) | partial | E | N | sys/src/9/port/devcons.c:484 |
+| `cons:close Qkprint (kprint)` | (ulong) c->qid.path | `consclose` | service-only | partial | - | N | sys/src/9/port/devcons.c:151 |
+| `cons:create` | direct Dev callback | `devcreate` | service-only | partial | E | N | sys/src/9/port/devcons.c:484 |
+| `cons:init` | direct Dev callback | `consinit` | ambiguous-symbol fastticks | unresolved | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:open Qkprint (kprint)` | (ulong) c->qid.path | `consopen` | service-only | partial | E | N | sys/src/9/port/devcons.c:130 |
+| `cons:read Qbintime (bintime)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:236 |
+| `cons:read Qconfig (config)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:254 |
+| `cons:read Qcons (cons)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:202 |
+| `cons:read Qcputime (cputime)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:205 |
+| `cons:read Qdir (.)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:199 |
+| `cons:read Qdrivers (drivers)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:303 |
+| `cons:read Qhostdomain (hostdomain)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:242 |
+| `cons:read Qhostowner (hostowner)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:239 |
+| `cons:read Qkmesg (kmesg)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:221 |
+| `cons:read Qkprint (kprint)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:224 |
+| `cons:read Qmordor (mordor)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:324 |
+| `cons:read Qnull (null)` | (ulong) c->qid.path | `consread` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:251 |
+| `cons:read Qosversion (osversion)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:327 |
+| `cons:read Qpid (pid)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:227 |
+| `cons:read Qppid (ppid)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:230 |
+| `cons:read Qrandom (random)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:300 |
+| `cons:read Qsysname (sysname)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:294 |
+| `cons:read Qsysstat (sysstat)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:257 |
+| `cons:read Qtime (time)` | (ulong) c->qid.path | `consread` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:233 |
+| `cons:read Quser (user)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:245 |
+| `cons:read Qzero (zero)` | (ulong) c->qid.path | `consread` | service-only | partial | E | N | sys/src/9/port/devcons.c:321 |
+| `cons:remove` | direct Dev callback | `devremove` | service-only | partial | E | N | sys/src/9/port/devcons.c:484 |
+| `cons:reset` | direct Dev callback | `devreset` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:shutdown` | direct Dev callback | `devshutdown` | no-primitive | partial | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:stat` | direct Dev callback | `consstat` | service-only | partial | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:walk` | direct Dev callback | `conswalk` | service-only | partial | - | N | sys/src/9/port/devcons.c:484 |
+| `cons:write Qbintime (bintime)` | (ulong) c->qid.path | `conswrite` | ambiguous-symbol fastticks | unresolved | E | N | sys/src/9/port/devcons.c:377 |
+| `cons:write Qconfig (config)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:394 |
+| `cons:write Qcons (cons)` | (ulong) c->qid.path | `conswrite` | interface putc (3 candidates) | partial | E | N | sys/src/9/port/devcons.c:353 |
+| `cons:write Qconsctl (consctl)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:369 |
+| `cons:write Qdrivers (drivers)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:398 |
+| `cons:write Qhostdomain (hostdomain)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:385 |
+| `cons:write Qhostowner (hostowner)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:382 |
+| `cons:write Qmordor (mordor)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:474 |
+| `cons:write Qnull (null)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:391 |
+| `cons:write Qreboot (reboot)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:431 |
+| `cons:write Qsysname (sysname)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:462 |
+| `cons:write Qsysstat (sysstat)` | (ulong) c->qid.path | `conswrite` | no-primitive | partial | E | N | sys/src/9/port/devcons.c:458 |
+| `cons:write Qtime (time)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:372 |
+| `cons:write Quser (user)` | (ulong) c->qid.path | `conswrite` | service-only | partial | E | N | sys/src/9/port/devcons.c:388 |
+| `cons:wstat` | direct Dev callback | `devwstat` | service-only | partial | E | N | sys/src/9/port/devcons.c:484 |
 
 #### `i8250`
 
@@ -1549,7 +1555,7 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `rtcdir` | sys/src/9/pc/devrtc.c:48 | . -> Qdir, nvram -> Qnvram, rtc -> Qrtc | resolved |
 | `vgadir` | sys/src/9/pc/devvga.c:24 | . -> Qdir, vgactl -> Qvgactl | resolved |
 | `capdir` | sys/src/9/port/devcap.c:44 | . -> Qdir, capuse -> Quse, caphash -> Qhash | resolved |
-| `consdir` | sys/src/9/port/devcons.c:345 | . -> Qdir, bintime -> Qbintime, cons -> Qcons, consctl -> Qconsctl, cputime -> Qcputime, drivers -> Qdrivers, hostdomain -> Qhostdomain, hostowner -> Qhostowner, kmesg -> Qkmesg, kprint -> Qkprint, null -> Qnull, osversion -> Qosversion, pid -> Qpid, ppid -> Qppid, random -> Qrandom, reboot -> Qreboot, sysname -> Qsysname, sysstat -> Qsysstat, time -> Qtime, user -> Quser, zero -> Qzero, config -> Qconfig, mordor -> Qmordor | resolved |
+| `consdir` | sys/src/9/port/devcons.c:78 | . -> Qdir, bintime -> Qbintime, cons -> Qcons, consctl -> Qconsctl, cputime -> Qcputime, drivers -> Qdrivers, hostdomain -> Qhostdomain, hostowner -> Qhostowner, kmesg -> Qkmesg, kprint -> Qkprint, null -> Qnull, osversion -> Qosversion, pid -> Qpid, ppid -> Qppid, random -> Qrandom, reboot -> Qreboot, sysname -> Qsysname, sysstat -> Qsysstat, time -> Qtime, user -> Quser, zero -> Qzero, config -> Qconfig, mordor -> Qmordor | resolved |
 | `kproftab` | sys/src/9/port/devkprof.c:25 | . -> Kprofdirqid, kpdata -> Kprofdataqid, kpctl -> Kprofctlqid | resolved |
 | `mousedir` | sys/src/9/port/devmouse.c:87 | . -> Qdir, cursor -> Qcursor, mouse -> Qmouse, mousein -> Qmousein, mousectl -> Qmousectl | resolved |
 | `pipedir` | sys/src/9/port/devpipe.c:32 | . -> Qdir, data -> Qdata0, data1 -> Qdata1 | resolved |
@@ -1570,8 +1576,8 @@ Build legend: `N` active in the normal amd64 configuration, `O` active only in a
 | `vgactlmsg` | sys/src/9/pc/devvga.c:44 | CMactualsize: actualsize/2, CMdrawinit: drawinit/1, CMhwaccel: hwaccel/2, CMhwblank: hwblank/2, CMhwgc: hwgc/2, CMlinear: linear/0, CMpalettedepth: palettedepth/2, CMsize: size/3, CMtype: type/2, CMsoftscreen: softscreen/2, CMpcidev: pcidev/2, CMtilt: tilt/2 |
 | `i82563ctlmsg` | sys/src/9/pc/ether82563.c:1985 | CMrdtr: rdtr/2, CMradv: radv/2, CMpause: pause/1, CMan: an/1, CMrecover: recover/1 |
 | `mousectlmsg` | sys/src/9/pc/mouse.c:65 | CMaccelerated: accelerated/0, CMhwaccel: hwaccel/2, CMintellimouse: intellimouse/1, CMlinear: linear/1, CMps2: ps2/1, CMps2intellimouse: ps2intellimouse/1, CMres: res/0, CMreset: reset/1, CMserial: serial/0, CMtouchpad: touchpad/2, CMsynaptic: synaptic/1 |
-| `rebootmsg` | sys/src/9/port/devcons.c:35 | CMreboot: reboot/0, CMpanic: panic/0, CMrdb: rdb/0 |
-| `drivermsg` | sys/src/9/port/devcons.c:47 | CMchdev: chdev/0 |
+| `rebootmsg` | sys/src/9/port/devcons.c:30 | CMreboot: reboot/0, CMpanic: panic/0, CMrdb: rdb/0 |
+| `drivermsg` | sys/src/9/port/devcons.c:42 | CMchdev: chdev/0 |
 | `configs` | sys/src/9/port/devfs.c:135 | Fmirror: mirror/0, Fcat: cat/0, Finter: inter/0, Fpart: part/0, Fclear: clear/1, Fdel: del/2, Fdisk: disk/0, Fcrypt: crypt/0 |
 | `mousectlmsg` | sys/src/9/port/devmouse.c:62 | CMbuttonmap: buttonmap/0, CMscrollswap: scrollswap/0, CMswap: swap/1, CMblank: blank/1, CMblanktime: blanktime/2, CMtwitch: twitch/1, CMwildcard: */0 |
 | `proccmd` | sys/src/9/port/devproc.c:115 | CMclose: close/2, CMclosefiles: closefiles/1, CMfixedpri: fixedpri/2, CMhang: hang/1, CMnohang: nohang/1, CMnoswap: noswap/1, CMkill: kill/1, CMpri: pri/2, CMprivate: private/1, CMprofile: profile/1, CMstart: start/1, CMstartstop: startstop/1, CMstartsyscall: startsyscall/1, CMstop: stop/1, CMwaitstop: waitstop/1, CMwired: wired/2, CMtrace: trace/0, CMinterrupt: interrupt/1, CMnointerrupt: nointerrupt/1, CMperiod: period/2, CMdeadline: deadline/2, CMcost: cost/2, CMsporadic: sporadic/1, CMdeadlinenotes: deadlinenotes/1, CMadmit: admit/1, CMextra: extra/1, CMexpel: expel/1, CMevent: event/1 |
@@ -1716,19 +1722,21 @@ These are selected source paths, not proofs of complete behaviour.  Each edge be
 
 - Status: **partial**
 - Qcons writes go through the console ring and either screenputs or the PhysUart putc callback.
-- Terminal: `interface putc (3 candidates)`
+- focused call putstrn0 not found in the selected path
+- focused call uartputs not found in the selected path
+- Terminal: `interface read (29 candidates)`
 
 | Step | Function | Source |
 | ---: | --- | --- |
-| 1 | `conswrite` | sys/src/9/port/devcons.c:660 |
-| 2 | `putstrn0` | sys/src/9/port/devcons.c:111 |
-| 3 | `uartputs` | sys/src/9/port/devuart.c:845 |
+| 1 | `conswrite` | sys/src/9/port/devcons.c:339 |
+| 2 | `rebootcmd` | sys/src/9/port/rebootcmd.c:25 |
+| 3 | `readn` | sys/src/9/port/rebootcmd.c:9 |
 
 | Edge | From | To | Evidence |
 | ---: | --- | --- | --- |
-| 1 | `conswrite` | `func:sys/src/9/port/devcons.c#putstrn0` | sys/src/9/port/devcons.c:686 |
-| 2 | `putstrn0` | `func:sys/src/9/port/devuart.c#uartputs` | sys/src/9/port/devcons.c:145 |
-| 3 | `uartputs` | `indirect:putc` | sys/src/9/port/devuart.c:856 |
+| 1 | `conswrite` | `func:sys/src/9/port/rebootcmd.c#rebootcmd` | sys/src/9/port/devcons.c:443 |
+| 2 | `rebootcmd` | `func:sys/src/9/port/rebootcmd.c#readn` | sys/src/9/port/rebootcmd.c:55 |
+| 3 | `readn` | `indirect:read` | sys/src/9/port/rebootcmd.c:16 |
 
 ### Ethernet data write path
 
@@ -1892,6 +1900,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/pc64/pc64` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/pc64mp` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/pc64native` | config | kernel build configuration | n/a | n/a | ok | 0 |
+| `sys/src/9/pc64/pc64oconsole` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/pc64/rebootcode.s` | assembly | assembly support | A | A | ok | 0 |
 | `sys/src/9/pc64/squidboy.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/pc64/trap.c` | c | kernel support source | A | A | ok | 0 |
@@ -1904,6 +1913,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/port/bootinfo.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/cache.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/chan.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/port/cons.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/dev.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/devcap.c` | c | kernel driver/interface source | A | A | ok | 1 |
 | `sys/src/9/port/devcons.c` | c | kernel driver/interface source | A | A | ok | 1 |
@@ -1967,6 +1977,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/port/portmkfile` | config | kernel build configuration | n/a | n/a | ok | 0 |
 | `sys/src/9/port/print.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/proc.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/port/procobs.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/qio.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/qlock.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/random.c` | c | kernel support source | A | A | ok | 0 |
@@ -1982,6 +1993,7 @@ Status legend: `A` active object, `S` header/support file in that configuration'
 | `sys/src/9/port/swcursor.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/syscallfmt.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/sysfile.c` | c | kernel support source | A | A | ok | 0 |
+| `sys/src/9/port/sysinfo.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/sysproc.c` | c | kernel support source | A | A | ok | 0 |
 | `sys/src/9/port/systab.h` | header | kernel header | S | S | ok | 0 |
 | `sys/src/9/port/taslock.c` | c | kernel support source | A | A | ok | 0 |
@@ -2023,12 +2035,12 @@ The machine-readable list is `unresolved_work.operations` in the JSON.  Reasons 
 | Reason | Count | Example operations | Terminal evidence |
 | --- | ---: | --- | --- |
 | ambiguous-global-symbol | 41 | `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:init`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qbintime`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qtime`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qbintime`, ... (37 more) | ambiguous-symbol:fastticks, ambiguous-symbol:intrdisable, ambiguous-symbol:intrenable, ambiguous-symbol:kprocchild, ambiguous-symbol:notefpsave, ambiguous-symbol:setkernur, ambiguous-symbol:setregisters, ambiguous-symbol:setupwatchpts, ambiguous-symbol:timerset, ambiguous-symbol:virtiomapregs, ambiguous-symbol:vout16, ambiguous-symbol:vout8 |
-| chain reached only kernel services/generic Dev helpers | 428 | `cmd:cmdtab:sys/src/9/port/devcons.c#rebootmsg:CMpanic:panic`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:attach`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:close:Qkprint`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:create`, ... (424 more) | service-only:None |
+| chain reached only kernel services/generic Dev helpers | 427 | `cmd:cmdtab:sys/src/9/port/devcons.c#rebootmsg:CMpanic:panic`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:attach`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:close:Qkprint`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:create`, ... (423 more) | service-only:None |
 | command dispatched by the function outside a directly matched switch case; branch-specific scope is not established | 5 | `cmd:cmdtab:sys/src/9/port/devcons.c#drivermsg:CMchdev:chdev`, `cmd:cmdtab:sys/src/9/port/devfs.c#configs:Fcat:cat`, `cmd:cmdtab:sys/src/9/port/devfs.c#configs:Fdel:del`, `cmd:cmdtab:sys/src/9/port/devfs.c#configs:Finter:inter`, ... (1 more) | interface:read, interface:stat |
 | external call without a recognised device/service classification | 40 | `cmd:cmdtab:sys/src/9/port/devcons.c#rebootmsg:CMrdb:rdb`, `op:reg:Dev:sys/src/9/port/devdraw.c#drawdevtab:attach`, `op:reg:Dev:sys/src/9/port/devdraw.c#drawdevtab:open:Qctl`, `op:reg:Dev:sys/src/9/port/devdraw.c#drawdevtab:read:Qctl`, ... (36 more) | external-unknown:Pt, external-unknown:Rect, external-unknown:addpt, external-unknown:allocmemimaged, external-unknown:amlinit, external-unknown:badrect, external-unknown:blake2s_256, external-unknown:byteaddr, external-unknown:chantostr, external-unknown:consdebug, external-unknown:getcr4, external-unknown:ipmove, external-unknown:isv4, external-unknown:onswap, external-unknown:parseether, external-unknown:parseip, external-unknown:pflag, external-unknown:poolmsize, external-unknown:rectclip, external-unknown:setfissig, external-unknown:sigtofis, external-unknown:tsmemcmp, external-unknown:txmodefis |
 | external controller/register primitive; semantics not established by this scanner | 82 | `iface:reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart:bits`, `iface:reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart:disable`, `iface:reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart:dobreak`, `iface:reg:PhysUart:sys/src/9/pc/uarti8250.c#i8250physuart:dtr`, ... (78 more) | controller:csr32r, controller:csr32w, controller:csr8r, controller:csr8w, controller:vgao |
 | indirect call with no known candidates | 22 | `cmd:cmdtab:sys/src/9/pc/devvga.c#vgactlmsg:CMlinear:linear`, `op:reg:Dev:sys/src/9/port/devether.c#etherdevtab:close`, `op:reg:Dev:sys/src/9/port/devether.c#etherdevtab:read`, `op:reg:Dev:sys/src/9/ip/devip.c#ipdevtab:read:Qlocal`, ... (18 more) | indirect-unresolved:dmaaddr, indirect-unresolved:dmaalloc, indirect-unresolved:dmafree, indirect-unresolved:f, indirect-unresolved:fmatch, indirect-unresolved:ifstat, indirect-unresolved:linear, indirect-unresolved:local, indirect-unresolved:promiscuous, indirect-unresolved:pt, indirect-unresolved:remote, indirect-unresolved:state, indirect-unresolved:stats |
-| indirect callback edge retained; concrete target not statically resolved | 149 | `cmd:cmdtab:sys/src/9/port/devcons.c#rebootmsg:CMreboot:reboot`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bread`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bwrite`, `op:reg:Dev:sys/src/9/pc/devkbd.c#kbddevtab:bwrite`, ... (145 more) | interface:attach, interface:bio, interface:bread, interface:bwrite, interface:clear, interface:close, interface:create, interface:ctl, interface:debug, interface:devclose, interface:disable, interface:dobreak, interface:enable, interface:epopen, interface:epstop, interface:init, interface:move, interface:open, interface:pnp, interface:power, interface:probe, interface:rctl, interface:read, interface:reset, interface:rio, interface:rtopctl, interface:shutdown, interface:stat, interface:status, interface:transmit, interface:walk, interface:wctl, interface:write, interface:wtopctl |
+| indirect callback edge retained; concrete target not statically resolved | 150 | `cmd:cmdtab:sys/src/9/port/devcons.c#rebootmsg:CMreboot:reboot`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bread`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:bwrite`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qcons`, ... (146 more) | interface:attach, interface:bio, interface:bread, interface:bwrite, interface:clear, interface:close, interface:create, interface:ctl, interface:debug, interface:devclose, interface:disable, interface:dobreak, interface:enable, interface:epopen, interface:epstop, interface:init, interface:move, interface:open, interface:pnp, interface:power, interface:probe, interface:putc, interface:rctl, interface:read, interface:reset, interface:rio, interface:rtopctl, interface:shutdown, interface:stat, interface:status, interface:transmit, interface:walk, interface:wctl, interface:write, interface:wtopctl |
 | no device or service primitive identified within the bounded chain | 164 | `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:read:Qnull`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:reset`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:shutdown`, `op:reg:Dev:sys/src/9/port/devcons.c#consdevtab:write:Qnull`, ... (160 more) | no-primitive:None |
 
 ## User-space kbdfs boundary

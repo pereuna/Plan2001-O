@@ -45,6 +45,7 @@ typedef struct Schedq	Schedq;
 typedef struct Segment	Segment;
 typedef struct Segio	Segio;
 typedef struct Sema	Sema;
+typedef struct Sysstat	Sysstat;
 typedef struct Timer	Timer;
 typedef struct Timers	Timers;
 typedef struct Tos	Tos;
@@ -832,6 +833,7 @@ extern	char*	statename[];
 extern	Image*	swapimage;
 extern	Image*	fscache;
 extern	char*	sysname;
+extern	vlong	fasthz;
 extern	uint	qiomaxatomic;
 extern	char*	sysctab[];
 
@@ -977,6 +979,24 @@ extern	Uart*	consuart;
 /*
  *  performance timers, all units in perfticks
  */
+/*
+ * Typed multi-CPU monitoring snapshot for sysstatget().  The legacy #c
+ * adapter formats these values; this is not a userspace ABI.
+ */
+struct Sysstat
+{
+	int	id;
+	int	cs;
+	int	intr;
+	int	syscall;
+	int	pfault;
+	int	tlbfault;
+	int	tlbpurge;
+	int	load;
+	ulong	idle;		/* percent of performance period in idle */
+	ulong	inintr;		/* percent of performance period in interrupt */
+};
+
 struct Perf
 {
 	ulong	intrts;		/* time of last interrupt */

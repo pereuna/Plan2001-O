@@ -128,6 +128,8 @@ ouserproc(void *arg)
 	Oenter oe;
 
 	USED(arg);
+	/* No chandevinit() on this path: start the Dev-independent services. */
+	consinit();
 	if(waserror())
 		panic("%s: bootstrap: %s",
 			oboot_server ? "OBOOT-D2B" :

@@ -75,6 +75,7 @@ onativeprobe_proc(void *arg)
 	USED(arg);
 
 	/* chandevinit() has not run on this opt-in path; do the one RTC init. */
+	consinit();
 	rtcinit();
 	print("ONATIVEPROBE: INIT rtcinit=done chandevinit=not-run\n");
 
@@ -145,7 +146,139 @@ onativeprobe_proc(void *arg)
 	probeaccept("rtc", NATIVE_RTC_QRTC + 100, tmp, 8, 0, 0);
 	probeaccept("cons", NATIVE_CONS_QPID + 100, tmp, 8, 0, 0);
 
+	/*
+	 * E5 native-service probes.  These call the same kernel C operations
+	 * that the legacy #c adapter delegates to; they do not create a Chan,
+	 * namespace or userspace ABI, and they do not execute panic/reboot.
+	 */
+	{
+		char log[192], kb[384], zb[8], r1[32], r2[32];
+		char *saveuser, *sv;
+		vlong now;
+		uvlong ct[6];
+		Sysstat st;
+		long off, lret;
+		int pid, ppid, nct, a1, a2, a3, have, i;
+		int logmark, kprintmark, denied, zok;
+
+		/* console output and kernel log ring snapshot */
+		print("ONATIVEPROBE: E5-LOG-MARK alpha\n");
+		off = kmesg.n > 160 ? kmesg.n - 160 : 0;
+		memset(log, 0, sizeof log);
+		lret = kmesgreadat(log, sizeof log - 1, off);
+		if(lret < 0)
+			lret = 0;
+		log[lret] = 0;
+		logmark = strstr(log, "E5-LOG-MARK alpha") != nil;
+		print("ONATIVEPROBE: E5 CONSOLE logret=%ld logmark=%d\n", lret, logmark);
+
+		/* time and entropy are initialized by consinit() in this kernel process */
+		now = todget(nil, nil);
+		randomread(r1, sizeof r1);
+		randomread(r2, sizeof r2);
+		print("ONATIVEPROBE: E5 TIME now=%lld plausible=%d random_diff=%d\n",
+			now, now > 1000000000LL, memcmp(r1, r2, sizeof r1) != 0);
+
+		/* typed process observations */
+		pid = procpid();
+		ppid = procppid();
+		memset(ct, 0, sizeof ct);
+		nct = proccputimes(ct, 6);
+		sv = procusername();
+		print("ONATIVEPROBE: E5 PROC pid=%d up_pid=%lud match=%d ppid=%d up_ppid=%lud match=%d ct=%d user_match=%d\n",
+			pid, up->pid, pid == (int)up->pid,
+			ppid, up->parentpid, ppid == (int)up->parentpid,
+			nct, sv != nil && up->user != nil && strcmp(sv, up->user) == 0);
+
+		/* read-only configuration getters and safe sysname set/get */
+		print("ONATIVEPROBE: E5 CONFIG config=%d osversion=%d sysname_set=%d\n",
+			configget() != nil, osversionget() != nil && strcmp(osversionget(), "2000") == 0,
+			(sysnameset("e5probe"), sysnameget() != nil && strcmp(sysnameget(), "e5probe") == 0));
+
+		/* privileged clock gate: an unprivileged process context is denied */
+		saveuser = up->user;
+		up->user = "e5-unprivileged";
+		denied = !timecontrolallowed();
+		up->user = saveuser;
+		print("ONATIVEPROBE: E5 DENIED time_control=%d\n", denied);
+
+		/* exclusive console reader and close/reopen semantics */
+		a1 = kprintacquire();
+		a2 = kprintacquire();
+		print("ONATIVEPROBE: E5-KPRINT-MARK beta\n");
+		memset(kb, 0, sizeof kb);
+		lret = kprintread(kb, sizeof kb - 1);
+		if(lret < 0)
+			lret = 0;
+		kb[lret] = 0;
+		kprintmark = strstr(kb, "E5-KPRINT-MARK beta") != nil;
+		kprintrelease();
+		a3 = kprintacquire();
+		kprintrelease();
+		print("ONATIVEPROBE: E5 KPRINT acquire=%d busy=%d read=%ld mark=%d reopen=%d\n",
+			a1, a2, lret, kprintmark, a3);
+
+		/* typed monitoring and synthetic semantics */
+		have = sysstatget(0, &st);
+		memset(zb, 1, sizeof zb);
+		lret = zerofill(zb, sizeof zb);
+		zok = lret == sizeof zb;
+		for(i = 0; i < sizeof zb; i++)
+			if(zb[i] != 0)
+				zok = 0;
+		print("ONATIVEPROBE: E5 MONITOR sysstat=%d id=%d nulldiscard=%ld zero=%d\n",
+			have, have ? st.id : -1, nulldiscard(zb, sizeof zb), zok);
+	}
+
 	probecounters("END");
+
+	/*
+	 * Legacy-adapter control, after the pathless measured window above.
+	 * This exercises the real consdevtab walk/read/write callbacks and
+	 * the shared cputime formatting plus the privileged Qtime refusal.
+	 * It intentionally uses a legacy Chan; the native paths above do not.
+	 */
+	{
+		Dev *d;
+		Chan *c, *nc;
+		Walkqid *wq;
+		char *name, *saveuser;
+		char lbuf[128];
+		long lr;
+		int fmtok, denied;
+
+		d = devtab[devno('c')];
+		c = d->attach("");
+		name = "cputime";
+		wq = d->walk(c, nil, &name, 1);
+		nc = wq->clone;
+		lr = d->read(nc, lbuf, sizeof lbuf, 0);
+		fmtok = lr == 6*NUMSIZE;
+		cclose(nc);
+		free(wq);
+		cclose(c);
+
+		denied = 0;
+		c = d->attach("");
+		name = "time";
+		wq = d->walk(c, nil, &name, 1);
+		nc = wq->clone;
+		saveuser = up->user;
+		up->user = "e5-unprivileged";
+		if(waserror())
+			denied = 1;
+		else {
+			d->write(nc, "0", 1, 0);
+			poperror();
+		}
+		up->user = saveuser;
+		cclose(nc);
+		free(wq);
+		cclose(c);
+		print("ONATIVEPROBE: E5 LEGACY cputime=%ld fmt=%d time_denied=%d\n",
+			lr, fmtok, denied);
+	}
+
 	print("ONATIVEPROBE: DONE\n");
 	for(;;)
 		tsleep(&prober, return0, nil, 60000);

@@ -87,6 +87,8 @@ fn kernel {
 	md5sum /sys/src/9/$kdir/$kernel
 	cp /sys/src/9/$kdir/$kernel $out/$kernel
 	cp /sys/src/9/$kdir/$kconf.rootc.c $out/$kconf.rootc.c
+	# generated Dev* devtab registration source (profile evidence)
+	cp /sys/src/9/$kdir/$kconf.c $out/$kconf.devc.c
 }
 
 fn loader {

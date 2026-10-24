@@ -6,6 +6,12 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd); root=$(dirname "$here")
 . "$here/target.sh"
+oconsole=${OCONSOLE:-0}
+if [ "$oconsole" = 1 ]; then
+	kernel=9pc64oconsole
+fi
+inicfg='oboot=server;obootvol=PARTUUID=@PARTUUID@'
+[ "$oconsole" = 1 ] && inicfg="$inicfg;oconsinit=1"
 b=$tbuild
 vm=$b/obootd2bvm
 oimg=$b/obootd2b-o.img
@@ -56,7 +62,7 @@ grep -q "^seed: mpexec $mpsize 4f45584543000003 $mpsha unchanged$" "$vm/mkovol.l
 grep -q "^seed: object mp oid=0x4f45584543000003 len=$mpsize$" "$vm/mkovol.log" ||
 	fail "OID_MP_EXEC absent from the O seed"
 NOROOTFS=1 CONSOLE=0 ROOTIMG="$oimg" KERNEL="$kernel" \
-	INI='oboot=server;obootvol=PARTUUID=@PARTUUID@' "$here/gefsdisk" "$disk" > "$vm/gefsdisk.log" 2>&1 ||
+	INI="$inicfg" "$here/gefsdisk" "$disk" > "$vm/gefsdisk.log" 2>&1 ||
 	{ cat "$vm/gefsdisk.log" >&2; fail "gefsdisk failed"; }
 puuid=$(cat "$disk.partuuid")
 grep -q "^obootvol=PARTUUID=$puuid$" "$disk.ini" || fail "plan9.ini: obootvol not substituted"
@@ -95,6 +101,10 @@ for n in 1 2 3; do
 	done
 	grep -q 'panic\|fault\|suicide' "$log" && fail "boot$n: panic/fault"
 	grep -q '^OBOOT-A:\|^OBOOT-B:\|^OBOOT-C:\|^OBOOT-D1:' "$log" && fail "boot$n: foreign marker"
+	if [ "$oconsole" = 1 ]; then
+		grep -q '^cons: init tod=1 random=1$' "$log" ||
+			fail "boot$n: cons core tod/random init marker missing"
+	fi
 done
 
 # Boot 1 fresh, boot 2/3 restored from the same image/disk.
@@ -130,7 +140,7 @@ rm -f "$failimg" "$faildisk" "$faildisk.ini" "$faildisk.partuuid"
 MPEXEC="$mp" "$here/mkovol" "$failimg" 192 "$failsrc" > "$vm/mkovol-fail.log" 2>&1 ||
 	{ cat "$vm/mkovol-fail.log" >&2; fail "mkovol fail failed"; }
 NOROOTFS=1 CONSOLE=0 ROOTIMG="$failimg" KERNEL="$kernel" \
-	INI='oboot=server;obootvol=PARTUUID=@PARTUUID@' "$here/gefsdisk" "$faildisk" > "$vm/gefsdisk-fail.log" 2>&1 ||
+	INI="$inicfg" "$here/gefsdisk" "$faildisk" > "$vm/gefsdisk-fail.log" 2>&1 ||
 	{ cat "$vm/gefsdisk-fail.log" >&2; fail "gefsdisk fail failed"; }
 bootcase fail "$faildisk" 'init: failed, no commit'
 flog=$vm/bootfail.log
@@ -145,7 +155,7 @@ NOMPEXEC=1 "$here/mkovol" "$missingo" 192 "$here/odemo.py" > "$vm/mkovol-missing
 	{ cat "$vm/mkovol-missing.log" >&2; fail "mkovol missing failed"; }
 grep -q '^seed: mpexec \|^seed: object mp ' "$vm/mkovol-missing.log" && fail "missing image has OID_MP_EXEC"
 NOROOTFS=1 CONSOLE=0 ROOTIMG="$missingo" KERNEL="$kernel" \
-	INI='oboot=server;obootvol=PARTUUID=@PARTUUID@' "$here/gefsdisk" "$missing" > "$vm/gefsdisk-missing.log" 2>&1 ||
+	INI="$inicfg" "$here/gefsdisk" "$missing" > "$vm/gefsdisk-missing.log" 2>&1 ||
 	{ cat "$vm/gefsdisk-missing.log" >&2; fail "gefsdisk missing failed"; }
 bootcase missing "$missing" 'OBOOT-D2B: SYSCALL-ENTRY .*nr=6 arg0=0xbaf '
 mlog=$vm/bootmissing.log
@@ -159,7 +169,7 @@ grep -q 'init: done\|COMMIT' "$mlog" && fail "missing: claimed commit/done"
 grep -q 'text=micropython' "$mlog" && fail "missing: MicroPython ran"
 grep -q 'panic\|fault\|suicide' "$mlog" && fail "missing: panic/fault"
 
-[ "$fails" = 0 ] && echo "PASS: D2b native O server, three same-disk boots and negative" || {
+[ "$fails" = 0 ] && echo "PASS: D2b native O server${oconsole:+, no-#c console profile}, three same-disk boots and negative" || {
 	echo "FAIL: $fails"
 	exit 1
 }

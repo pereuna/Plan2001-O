@@ -120,6 +120,26 @@ grep -q '^ONATIVEPROBE: rtc selector=101 caught=1 err=native rtc: unsupported se
 grep -q '^ONATIVEPROBE: cons selector=112 caught=1 err=native cons: unsupported selector$' "$log" ||
 	fail "console unsupported-selector refusal missing"
 
+# E5 native service probes: console/log, time/random, Proc, config,
+# privilege denial, kprint exclusivity and close/reopen, monitoring and
+# synthetic semantics.
+grep -q '^ONATIVEPROBE: E5 CONSOLE logret=[0-9][0-9]* logmark=1$' "$log" ||
+	fail "E5 console log-ring snapshot mismatch"
+grep -q '^ONATIVEPROBE: E5 TIME now=[0-9][0-9]* plausible=1 random_diff=1$' "$log" ||
+	fail "E5 time/random initialization or read mismatch"
+grep -q '^ONATIVEPROBE: E5 PROC pid=[0-9][0-9]* up_pid=[0-9][0-9]* match=1 ppid=[0-9][0-9]* up_ppid=[0-9][0-9]* match=1 ct=6 user_match=1$' "$log" ||
+	fail "E5 typed process observation mismatch"
+grep -q '^ONATIVEPROBE: E5 CONFIG config=1 osversion=1 sysname_set=1$' "$log" ||
+	fail "E5 configuration getter/setter mismatch"
+grep -q '^ONATIVEPROBE: E5 DENIED time_control=1$' "$log" ||
+	fail "E5 privileged time control was not denied"
+grep -q '^ONATIVEPROBE: E5 KPRINT acquire=0 busy=-1 read=[0-9][0-9]* mark=1 reopen=0$' "$log" ||
+	fail "E5 kprint exclusivity/read/close-reopen mismatch"
+grep -q '^ONATIVEPROBE: E5 MONITOR sysstat=1 id=0 nulldiscard=8 zero=1$' "$log" ||
+	fail "E5 monitoring/synthetic semantics mismatch"
+grep -q '^ONATIVEPROBE: E5 LEGACY cputime=72 fmt=1 time_denied=1$' "$log" ||
+	fail "E5 legacy #c adapter formatting/permission mismatch"
+
 grep -q '^ONATIVEPROBE: DONE$' "$log" || fail "probe DONE marker missing"
 grep -q 'panic\|fault\|suicide' "$log" && fail "panic/fault observed"
 grep -q '^OBOOT-' "$log" && fail "foreign legacy boot marker observed"
@@ -127,12 +147,14 @@ grep -q '^ONATIVEPROBE: HANDOFF opt-in native read probe$' "$log" ||
 	fail "native probe handoff marker missing"
 
 # Link evidence: the generated symbols and shared helpers are in the kernel.
-for sym in native_rtc_qrtc_read native_cons_qpid_read native_cons_qppid_read rtcqread consqpidread consread_qppid_read; do
+for sym in native_rtc_qrtc_read native_cons_qpid_read native_cons_qppid_read rtcqread consqpidread consread_qppid_read \
+	consinit consputstr kmesgreadat kprintacquire kprintread kprintrelease procpid procppid proccputimes \
+	procusername sysstatget sysstatreset timecontrolallowed configget sysnameget sysnameset nulldiscard zerofill; do
 	grep -a -q "$sym" "$b/$nkernel" || fail "kernel lacks linked symbol $sym"
 done
 
 if [ "$fails" = 0 ]; then
-	echo "PASS: E4 native RTC Qrtc and console Qpid/Qppid probe (linked and executed)"
+	echo "PASS: E4 native reads and E5 native service probe (linked and executed)"
 	echo "serial: $serial"
 else
 	echo "FAIL: $fails"
