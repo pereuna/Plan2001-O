@@ -221,3 +221,39 @@ the repository's Plan 9 `6c` compiled both patched pre-E2 files
 (`E3_COMPILE_RTC_`/`E3_COMPILE_CONS_` empty status; log
 `build/vm/serial-20261024-065348.log`, not committed).  This is a compile
 check, not a kernel link/boot or a runtime claim.
+
+## E3a pre-dispatch safety repair
+
+E3a closes a false-positive in E3's proposal prefix validation.  Before the
+fix, a synthetic handler containing `offset += 1;` before the Qid switch was
+accepted as `DIRECT-CANDIDATE` (patch SHA
+`65e9c84f85738f60f9c3b96a6126a4236fdf490f0e107dcb6adb8060dcbd8b40`) even
+though the generated helper reconstructed only the earlier
+`ulong offset = off;` and lost the mutation.
+
+The repair uses one token-aware classifier,
+`_e3_classify_prefix()`, plus a shared policy check,
+`_e3_validate_prefix_policy()`; `_e3_parse_branch()` no longer resolves locals
+and validates the prefix through separate interpretations.  A proposal is
+accepted only for:
+
+- side-effect-free declarations without initializers;
+- one unambiguous scalar offset initializer `= off` (or a reviewed cast);
+- the exact `n <= 0`/`n == 0`-style guard and the existing directory guard;
+- no later write or mutation of branch state.
+
+Refused pre-switch constructs include every compound assignment
+(`+= -= *= /= %= <<= >>= &= |= ^=`), plain writes to `offset`, `n`, `off`,
+`buf`, `up`, `c` or their members/arrays/dereferences, `++`/`--`, pre-switch
+`return` outside an approved guard, calls, initializer calls, chained or
+conditional initializers, unrelated local initializers, duplicate or
+function-pointer declarations, source-local macro aliases, inner
+`#define`/`#undef`, statement expressions, unknown statements, and
+preprocessor-conditional code inside the handler.
+
+Evidence: `python3 tools/test_kernel_opmap.py` 27/27 PASS; the `offset += 1`
+case now reports `REFUSED` with `pre-dispatch compound assignment/mutation is
+not supported` and no patch.  The three positive E3 patch hashes are unchanged
+and still pass disposable `git apply --check`.  No tracked kernel source was
+modified.  This is still lexical/structural analysis, not full dataflow or
+semantic equivalence.

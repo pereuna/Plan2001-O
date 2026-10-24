@@ -958,9 +958,11 @@ def e3_synthetic_source(
     prefix: str = "",
     preprocessor: str = "",
     local: str = "ulong offset = off;",
+    guard: str = "if(n <= 0)\n\t\treturn n;",
 ) -> str:
     body = SYNTH_SRC % branch
     body = body.replace("\tulong offset = off;\n", f"\t{local}\n")
+    body = body.replace("\tif(n <= 0)\n\t\treturn n;", "\t" + guard if guard else "")
     if prefix:
         body = body.replace("\n\tswitch((ulong)c->qid.path){", f"\n\t{prefix}\n\tswitch((ulong)c->qid.path){{")
     return preprocessor + body
@@ -976,9 +978,10 @@ def e3_synthetic_spec(
     expect_sha: str | None = None,
     extra_files: dict[str, str] | None = None,
     extra_config: str = "",
+    guard: str = "if(n <= 0)\n\t\treturn n;",
 ) -> dict:
     path = "sys/src/9/port/devsynd.c"
-    src = e3_synthetic_source(branch, prefix, preprocessor, local)
+    src = e3_synthetic_source(branch, prefix, preprocessor, local, guard)
     extra = {
         "port/devsynd.c": src,
         "testarch/testconf": "dev\n\ttest\n\tsynd\n" + extra_config,
@@ -1118,25 +1121,81 @@ class ExtractionProposalTests(unittest.TestCase):
         self.assertNotIn("rtc", patch.lower())
         self.assertNotIn("cons", patch.lower())
 
+    def test_pre_dispatch_mutations_and_unknowns_are_refused(self) -> None:
+        normal = "\t\treturn readnum((ulong)offset, buf, n, 4242, 8);"
+
+        def assert_refused(prefix: str, needle: str) -> None:
+            spec = e3_synthetic_spec(normal, prefix=prefix)
+            cand = spec["candidates"][0]
+            self.assertEqual(cand["status"], "REFUSED", (prefix, cand))
+            self.assertIsNone(cand.get("patch"), prefix)
+            self.assertEqual(spec["patches"], [], prefix)
+            self.assertTrue(
+                any(needle.lower() in r.lower() for r in cand["reasons"]),
+                (prefix, cand["reasons"]),
+            )
+
+        for op in ("+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^="):
+            assert_refused(f"offset {op} 1;", "compound assignment")
+        cases = {
+            "offset = off + 1;": "assignment to 'offset'",
+            "offset = 4;": "assignment to 'offset'",
+            "n = n / 2;": "assignment to 'n'",
+            "n += 1;": "compound assignment",
+            "off += 1;": "compound assignment",
+            "buf = (void*)0;": "assignment to 'buf'",
+            "*buf = 0;": "assignment to 'buf'",
+            "c->offset = 0;": "write through",
+            "up->pid = 1;": "write through",
+            "buf[0] = 0;": "assignment to 'buf'",
+            "return n;": "control flow 'return'",
+            "sideeffect();": "call statement",
+            "ulong x = sideeffect();": "initializer with a call",
+            "ulong x = y = 1;": "chained",
+            "ulong *p = &offset;": "pointer-typed pre-dispatch initializer",
+            "ulong *p;\n\tp = &offset;": "assignment to 'p'",
+            "ulong x = 0;": "not proven harmless",
+            "foo;": "unrecognized",
+            "if(n < 0)\n\t\treturn n;": "unsupported pre-dispatch",
+            "if(foo())\n\t\treturn n;": "unsupported pre-dispatch",
+            "#ifdef INNER\n\tint x;\n#endif": "preprocessor-conditional",
+            "#define X 1": "inner macro definition",
+            "ulong offset = off;\n\tulong offset;": "duplicated",
+        }
+        for prefix, needle in cases.items():
+            with self.subTest(prefix=prefix):
+                assert_refused(prefix, needle)
+
+        # Innocuous comparisons inside an approved guard remain supported.
+        spec = e3_synthetic_spec(normal, guard="if(n == 0)\n\t\treturn n;")
+        cand = spec["candidates"][0]
+        self.assertEqual(cand["status"], "DIRECT-CANDIDATE", cand)
+        self.assertEqual(cand["entry_guard"]["condition"], "n == 0")
+        self.assertIsNotNone(cand.get("patch"))
+
     def test_fail_closed_cases(self) -> None:
         normal = "\t\treturn readnum((ulong)offset, buf, n, 4242, 8);"
 
         def refused(spec: dict, needle: str) -> None:
             cand = spec["candidates"][0]
             self.assertEqual(cand["status"], "REFUSED", cand)
+            self.assertIsNone(cand.get("patch"), cand)
+            self.assertEqual(spec.get("patches"), [], cand)
             self.assertTrue(
                 any(needle.lower() in r.lower() for r in cand["reasons"]),
                 cand["reasons"],
             )
 
         refused(e3_synthetic_spec(expect_sha="0" * 64), "SHA-256 changed")
+        refused(e3_synthetic_spec(normal, preprocessor="#define off 0\n"), "macro alias")
+        refused(e3_synthetic_spec(normal, local="void (*fn)(void);"), "function-pointer")
         refused(e3_synthetic_spec(normal, preprocessor="#ifdef FOO\n"), "preprocessor")
         refused(e3_synthetic_spec("\t\treturn /* inner */ readnum((ulong)offset, buf, n, 4242, 8);"), "comments")
         refused(e3_synthetic_spec("\t\treturn readnum((ulong)offset, buf, n, (Chan*)up->pid, 8);"), "value")
         refused(e3_synthetic_spec(
             "\t\treturn readnum((ulong)buf, buf, n, 4242, 8);",
             local="ulong buf = off;",
-        ), "collides with a helper parameter")
+        ), "assignment to 'buf'")
         refused(e3_synthetic_spec("\t\tn = readnum((ulong)offset, buf, n, 4242, 8);"), "no supported readnum result")
         refused(e3_synthetic_spec(
             "\t\tn = readnum((ulong)offset, buf, n, 4242, 8);\n"

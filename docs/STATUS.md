@@ -110,6 +110,11 @@ Proposals remain unapplied and are not approved native bindings.  The helper is
 kernel-internal-only; runtime/Chan-free claims require a separate reviewed
 apply, link and boot step.
 
+E3a safety repair: pre-switch mutations such as `offset += 1;`, plain writes,
+pointer/member/array writes, calls and unknown statements are now `REFUSED`
+with no patch.  The three positive E3 patches remain byte-identical.  Tests are
+27/27 PASS; no tracked kernel source was modified.
+
 ## Boundaries and limitations
 
 - **Pathless measured execution is not whole-kernel Chan independence.** The full kernel retains many 9Front `Chan`, `Qid`, `Dirtab`, `Walk`, `Dev`, namespace and 9P implementations. Their *mere presence* is not a runtime path-use claim; their removal is not demonstrated. Read `docs/KERNEL-OPMAP-NOTES.md` and `docs/CHAN-DEPENDENCIES-INDEX.md` for analysis scope.

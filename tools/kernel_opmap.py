@@ -5174,33 +5174,6 @@ def _e3_has_call(tokens: Sequence[Token]) -> bool:
     return False
 
 
-def _e3_parse_locals(handler: Function, switch_start: int) -> dict[str, list[dict[str, Any]]]:
-    locals_: dict[str, list[dict[str, Any]]] = {}
-    for stmt in _e3_prefix_statements(handler, switch_start):
-        if not stmt or stmt[0].value == "if":
-            continue
-        eq = _e3_top_level_eq(stmt)
-        if eq is None or eq < 1:
-            continue
-        lhs = stmt[:eq]
-        rhs = stmt[eq + 1:-1]
-        name = None
-        for t in reversed(lhs):
-            if t.kind == "id":
-                name = t.value
-                break
-        if name is None:
-            continue
-        type_toks = lhs[:lhs.index([t for t in lhs if t.kind == "id" and t.value == name][-1])]
-        locals_.setdefault(name, []).append({
-            "name": name,
-            "type": join_tokens(type_toks),
-            "init": join_tokens(rhs),
-            "line": stmt[0].line,
-        })
-    return locals_
-
-
 def _e3_directory_guard(stmt: Sequence[Token]) -> dict[str, Any] | None:
     if not stmt or stmt[0].value != "if":
         return None
@@ -5223,14 +5196,73 @@ def _e3_directory_guard(stmt: Sequence[Token]) -> dict[str, Any] | None:
     return {"condition": cond, "text": join_tokens(stmt)}
 
 
-def _e3_validate_prefix(
-    handler: Function,
-    switch_start: int,
-    offset_local: dict[str, Any] | None,
-) -> dict[str, Any]:
+E3_TYPE_STARTERS = NATIVE_CAST_TYPES | {
+    "auto", "const", "extern", "register", "static", "volatile",
+    "struct", "union", "enum", "typedef", "signed", "unsigned", "void",
+    "Mach", "Proc", "Chan", "Dirtab", "Cmdtab", "Rune", "Lock", "QLock",
+    "Queue", "Block", "Cmdbuf", "Ureg", "Page", "Segment", "Pgrp", "Egrp",
+    "Fgrp", "Rgrp", "Image", "Mnt", "Mntrpc", "Path", "Walkqid", "ISAConf",
+    "SDunit", "SDifc", "Dev", "Ether", "Netif", "Wifi", "PhysUart", "VGAdev",
+    "VGAcur", "PCArch", "ADifc", "Dir", "Qid",
+}
+E3_COMPOUND_ASSIGN = {
+    "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "|=", "^=",
+}
+
+
+def _e3_type_starter(tok: Token) -> bool:
+    if tok.kind != "id":
+        return False
+    if tok.value in E3_TYPE_STARTERS:
+        return True
+    return tok.value[:1].isupper()
+
+
+def _e3_rhs_has_unsafe(tokens: Sequence[Token]) -> bool:
+    vals = [t.value for t in tokens]
+    if "?" in vals or "=" in vals or "{" in vals or "}" in vals:
+        return True
+    if any(v in E3_COMPOUND_ASSIGN for v in vals):
+        return True
+    return False
+
+
+def _e3_declarator_names(tokens: Sequence[Token]) -> list[str]:
+    names: list[str] = []
+    text = [t.value for t in tokens]
+    for i in range(len(text) - 1):
+        if text[i] == "(" and text[i + 1] == "*":
+            raise ExtractionRefusal(
+                "function-pointer pre-dispatch declaration is not supported"
+            )
+    for part in split_top_level(tokens, ","):
+        name = None
+        for t in reversed(part):
+            if t.kind == "id":
+                name = t.value
+                break
+        if name is None:
+            raise ExtractionRefusal("pre-dispatch declaration without a name")
+        names.append(name)
+    return names
+
+
+def _e3_classify_prefix(handler: Function, switch_start: int) -> dict[str, Any]:
+    """One conservative classifier shared by local resolution and validation."""
     stmts = _e3_prefix_statements(handler, switch_start)
     guard = None
     directory = None
+    locals_: dict[str, list[dict[str, Any]]] = {}
+    initializers: list[dict[str, Any]] = []
+    declarations: list[str] = []
+
+    def declare(name: str) -> None:
+        if name in declarations:
+            raise ExtractionRefusal(
+                f"pre-dispatch declaration {name!r} is duplicated"
+            )
+        declarations.append(name)
+
     for stmt in stmts:
         if not stmt:
             continue
@@ -5251,30 +5283,109 @@ def _e3_validate_prefix(
             raise ExtractionRefusal(
                 "unsupported pre-dispatch condition; refusing side-effect or unproven guard"
             )
-        if first in ("goto", "switch", "for", "while", "do", "break", "continue", "else"):
+        if first in ("goto", "switch", "for", "while", "do", "break", "continue",
+                     "else", "return"):
             raise ExtractionRefusal(f"unsupported pre-dispatch control flow {first!r}")
-        if "++" in [t.value for t in stmt] or "--" in [t.value for t in stmt]:
+        values = [t.value for t in stmt]
+        if "++" in values or "--" in values:
             raise ExtractionRefusal("pre-dispatch increment/decrement is not supported")
+        if any(v in E3_COMPOUND_ASSIGN for v in values):
+            raise ExtractionRefusal(
+                "pre-dispatch compound assignment/mutation is not supported"
+            )
+        if "?" in values or "{" in values or "}" in values:
+            raise ExtractionRefusal(
+                "pre-dispatch conditional, statement expression or block is not supported"
+            )
+        if any(stmt[i].value == "(" and stmt[i + 1].value == "*"
+               for i in range(len(stmt) - 1)):
+            raise ExtractionRefusal(
+                "function-pointer pre-dispatch declaration is not supported"
+            )
         eq = _e3_top_level_eq(stmt)
         if eq is None:
             if _e3_has_call(stmt):
                 raise ExtractionRefusal("pre-dispatch call statement is not supported")
+            if not _e3_type_starter(stmt[0]):
+                raise ExtractionRefusal(
+                    "unrecognized pre-dispatch statement; refusing unproven side effect"
+                )
+            for name in _e3_declarator_names(stmt[:-1]):
+                declare(name)
             continue
         lhs = stmt[:eq]
         rhs = stmt[eq + 1:-1]
-        target = None
-        for t in reversed(lhs):
-            if t.kind == "id":
-                target = t.value
-                break
-        if target in ("c", "up"):
-            raise ExtractionRefusal(f"pre-dispatch assignment to {target!r} is not supported")
+        if _e3_rhs_has_unsafe(rhs):
+            raise ExtractionRefusal(
+                "pre-dispatch initializer/assignment has chained, conditional or compound effects"
+            )
         if _e3_has_call(rhs):
             raise ExtractionRefusal("pre-dispatch initializer with a call is not supported")
-        if target == (offset_local or {}).get("name"):
-            if not _expr_is_off(rhs, None):
-                raise ExtractionRefusal("branch offset local is not initialised from off")
-    return {"guard": guard, "directory_guard": directory}
+        target = None
+        target_idx = None
+        for i in range(len(lhs) - 1, -1, -1):
+            if lhs[i].kind == "id":
+                target = lhs[i].value
+                target_idx = i
+                break
+        if target is None or target_idx is None:
+            raise ExtractionRefusal("pre-dispatch assignment without a target")
+        if target in ("c", "up", "n", "off", "buf"):
+            raise ExtractionRefusal(f"pre-dispatch assignment to {target!r} is not supported")
+        # A plain assignment has only the target on the left; the E3 rule only
+        # accepts declarations, never a later write to any local.
+        if len(lhs) == target_idx + 1 and target_idx == 0:
+            raise ExtractionRefusal(
+                f"pre-dispatch assignment to {target!r} is not supported"
+            )
+        if not _e3_type_starter(lhs[0]):
+            raise ExtractionRefusal(
+                "pre-dispatch write through pointer/member/array is not supported"
+            )
+        if len(split_top_level(lhs, ",")) != 1:
+            raise ExtractionRefusal(
+                "multi-declarator pre-dispatch initializer is not supported"
+            )
+        type_toks = lhs[:target_idx]
+        type_text = join_tokens(type_toks)
+        if "*" in [t.value for t in type_toks]:
+            raise ExtractionRefusal(
+                "pointer-typed pre-dispatch initializer is not supported"
+            )
+        declare(target)
+        rec = {
+            "name": target,
+            "type": type_text,
+            "init": join_tokens(rhs),
+            "line": stmt[0].line,
+        }
+        initializers.append(rec)
+        locals_.setdefault(target, []).append(rec)
+    return {
+        "guard": guard,
+        "directory_guard": directory,
+        "locals": locals_,
+        "initializers": initializers,
+    }
+
+
+def _e3_validate_prefix_policy(
+    classification: dict[str, Any],
+    offset_local: dict[str, Any] | None,
+) -> None:
+    """Reject initializers unrelated to the selected branch's offset local."""
+    allowed = (offset_local or {}).get("name")
+    for init in classification["initializers"]:
+        if allowed is None or init["name"] != allowed:
+            raise ExtractionRefusal(
+                f"pre-dispatch initializer for {init['name']!r} is not proven harmless"
+            )
+    if allowed is not None:
+        entries = classification["locals"].get(allowed, [])
+        if len(entries) != 1:
+            raise ExtractionRefusal(
+                f"branch offset local {allowed!r} has multiple or missing initializers"
+            )
 
 
 def _e3_chan_free_function(
@@ -5459,7 +5570,8 @@ def _e3_parse_branch(
     switch: Switch,
     global_enums: dict[str, int],
 ) -> dict[str, Any]:
-    locals_ = _e3_parse_locals(handler, switch.start)
+    classification = _e3_classify_prefix(handler, switch.start)
+    locals_ = classification["locals"]
     stmts = _split_statements(branch_tokens)
     guard = None
     offset_local = None
@@ -5528,6 +5640,7 @@ def _e3_parse_branch(
     if len(readnum_args) != 5:
         raise ExtractionRefusal("readnum call does not have five arguments")
     offset_text, offset_local = _e3_offset_local(readnum_args[0], locals_)
+    _e3_validate_prefix_policy(classification, offset_local)
     if not _expr_is_name(readnum_args[1], "buf"):
         raise ExtractionRefusal("readnum buffer is not buf")
     if not _expr_is_name(readnum_args[2], "n"):
@@ -5536,10 +5649,9 @@ def _e3_parse_branch(
         readnum_args[3], analyzer, source_path, handler.line
     )
     size_text, size_value = _e3_validate_size(readnum_args[4], global_enums)
-    prefix = _e3_validate_prefix(handler, switch.start, offset_local)
     guards = []
-    if prefix["guard"] is not None:
-        guards.append(prefix["guard"])
+    if classification["guard"] is not None:
+        guards.append(classification["guard"])
     if guard is not None:
         guards.append(guard)
     return {
@@ -5551,8 +5663,8 @@ def _e3_parse_branch(
         "size_value": size_value,
         "return_shape": return_shape,
         "guard": guard,
-        "entry_guard": prefix["guard"],
-        "directory_guard": prefix["directory_guard"],
+        "entry_guard": classification["guard"],
+        "directory_guard": classification["directory_guard"],
         "guards": guards,
         "statement_texts": statement_texts,
         "value_deps": value_deps,
@@ -5696,6 +5808,11 @@ def _e3_candidate(
             raise ExtractionRefusal(f"source file {path!r} is not in the analysed tree")
         if "\r" in sf.text:
             raise ExtractionRefusal("CR/CRLF line endings are not supported")
+        for macro in ("off", "n", "buf", "up", "readnum"):
+            if re.search(r"^\s*#\s*define\s+" + macro + r"\b", sf.masked, re.M):
+                raise ExtractionRefusal(
+                    f"source-local macro alias {macro!r} changes extraction semantics"
+                )
         expected = expect_sha.get(path)
         if expected is not None:
             if sf.sha256 != expected:
@@ -5714,6 +5831,17 @@ def _e3_candidate(
             raise ExtractionRefusal("handler definition was not found")
         if handler.conditions:
             raise ExtractionRefusal("selected handler is inside preprocessor conditions")
+        hstart = sf.tokens[handler.source_start].offset
+        hend = _e3_token_end(sf.tokens[handler.source_end - 1])
+        if re.search(r"^\s*#\s*(define|undef)\b", sf.text[hstart:hend], re.M):
+            raise ExtractionRefusal(
+                "selected handler contains an inner macro definition/undefinition"
+            )
+        for line in range(handler.line, handler.end_line + 1):
+            if 0 <= line < len(sf.conditions) and sf.conditions[line]:
+                raise ExtractionRefusal(
+                    "selected handler contains preprocessor-conditional code"
+                )
         case, switch = _find_case(handler, qid)
         branch_tokens = handler.body[case.start:case.end]
         branch_text = _e3_span_text(sf.text, branch_tokens)
