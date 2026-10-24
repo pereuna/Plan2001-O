@@ -26,7 +26,6 @@ dev
 	pipe
 	proc
 	mnt
-	srv
 	shr
 	rtc
 	ether		netif
