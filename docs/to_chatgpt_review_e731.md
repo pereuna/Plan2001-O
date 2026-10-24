@@ -7,7 +7,7 @@ BRANCH/BASE/COMMITS:
 - branch: `design/ipv6-only-native-20261024`
 - upstream: `origin/design/ipv6-only-native-20261024`
 - E7.3.1 work started at `aa5bd0e` (after restoring the shared general review file in `781a654`).
-- commits: `9b59a66` (E7.3.1a audit/contract), `1285a52` (E7.3.1b-d receive, close/destroy, send hardening), `58e01cb` (E7.3.1e regression fixtures), plus this report commit.
+- commits: `9b59a66` (E7.3.1a audit/contract), `1285a52` (E7.3.1b-d receive, close/destroy, send hardening), `58e01cb` (E7.3.1e regression fixtures), `310fdad` (Announced-state send guard), plus this report commit.
 - `main`, PR #1, E6/E8/E9 and the mistaken `design/e72-native-ipv6-20261024` branch were not touched.
 
 REPRODUCED BEFORE / FIXED AFTER:
@@ -28,9 +28,9 @@ STATE & LOCK PROTOCOL:
 
 RECEIVE TIMEOUT EVIDENCE:
 - `RACE1` was repeated 10 times on one endpoint. Both receivers were confirmed inside `udp6_recv` (`recvactive>=2`) before the host sent one real VirtIO UDP6 datagram. Every round produced exactly one success and one timeout:
-  `CHECK race1 rounds=10 ok=10 timeout=10 max_timeout=600`.
+  `CHECK race1 rounds=10 ok=10 timeout=10 max_timeout=610` (observed 600-610 ms across runs).
 - `RACE2`: two receivers inside `udp6_recv`, two distinct real datagrams, both delivered once: `CHECK race2 ok=2`.
-- Timeout is enforced with a wrap-safe `(NOW-start) >= timeout_ms` check and a 10 ms bounded observation interval. `timeout_ms=0` is a poll; `~0UL` waits until data/close. The measured 600 ms losing-receiver maximum was 600 ms; this is scheduling resolution, not a hard real-time guarantee.
+- Timeout is enforced with a wrap-safe `(NOW-start) >= timeout_ms` check and a 10 ms bounded observation interval. `timeout_ms=0` is a poll; `~0UL` waits until data/close. The measured 600 ms losing-receiver maximum was 600-610 ms across runs; this is scheduling resolution, not a hard real-time guarantee.
 - `CLOSEWAIT`: a blocked receiver was woken by close; `CHECK close-wake rc=0`, receiver status `Udp6ErrClosed`.
 
 CONV CLOSE/REOPEN EVIDENCE:
@@ -84,7 +84,7 @@ python3 tools/cons_migration_check.py \
   --devc build/amd64/pc64oconsole.devc.c        # PASS
 ```
 Observed hardening markers:
-`RACE1 rounds=10 ok=10 timeout=10 max_timeout=600`,
+`RACE1 rounds=10 ok=10 timeout=10 max_timeout=610`,
 `RACE2 ok=2`, `close-wake rc=0`, `close-send err>0`,
 `fake-exc=-14`, `fake-unlock=1`, `fake-ok=0`,
 `send-noroute=-13`, `loop-alloc 200/200/200 live_delta=0`,
