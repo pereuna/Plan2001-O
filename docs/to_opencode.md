@@ -1,127 +1,162 @@
-# E5 — OpenCode: decompose ALL #c functionality into native kernel C APIs; prove a #c-free O-only profile
+# E6 — OpenCode: native disk subsystem; remove #S Dev from the O-only server
 
-**ACTIVE TASK for OpenCode / DeepSeek.** Execute this assignment, not merely a design review. Source-controlled output is the implementation, focused tests, an honest audit and a single completion report. Read this file directly after `git pull --ff-only`; the previous Codex/Astra E4 assignment is historical, not an active competing instruction.
+**ACTIVE implementation task. Execute stages 1–6 in this ONE prompt.** Replace the completed E5 assignment, not `docs/KERNEL-API-ABI.md`. Build, run focused tests, commit and push independently verified checkpoints, and write the final OpenCode completion summary to `docs/to_chatgpt_review.md`. Do not treat passing source analysis as a substitute for linked QEMU runtime evidence.
 
-**Architectural authority:** `docs/KERNEL-API-ABI.md` (canonical concepts T01–T28), then `AGENTS.md`, `docs/OBJECT-MODEL.md`, `docs/STATUS.md`, `docs/KERNEL-NATIVE-GENERATOR.md`, `docs/to_astra_review.md`. Actual C source defines currently implemented behavior. E4 implementation baseline: `f60211d0cd61886c839401262dff4a17abadd8a6`; E5 assignment base `6f97b492c81798252247dfa3d4b9fea8ce913372`. Verify actual HEAD first.
+**Baseline to verify:** `pereuna/Plan2001-O` `main` HEAD was `437f470f7170c4cc26fa622dfa72854e14924445` when this task was written (2026-10-24). E5 service split `53785d7`, E5 test report `9c41f3b`. Always check actual HEAD and working tree first. Preserve all user changes and the OpenCode JS/commit workflow.
 
-## Desired final state / precise definition of "whole #c migration"
+**Read in this order:** `AGENTS.md`, `docs/KERNEL-API-ABI.md`, `docs/OBJECT-MODEL.md`, `docs/STATUS.md`, `docs/CONS-MIGRATION.md`, then the actual sources `sys/src/9/port/devsd.c` (~2142 lines), `sys/src/9/port/sd.h`, `sys/src/9/port/devgefs.c`, `sys/src/9/port/sdscsi.c`, all enabled `sd*` implementations, `sys/src/9/pc64/main.c`, `sys/src/9/pc64/pc64oconsole`, `sys/src/9/pc64/mkfile`, `sys/src/9/port/mkdevlist` and the test/build scripts. Actual current C sources are authoritative on implemented behavior.
 
-The inherited `#c` / `consdevtab` is NOT a hardware driver. It mixes independent kernel services. The objective is **complete functional decomposition**, rather than a new `NativeDev`, generic `native_cons_read(Qid)` facade or a renamed filesystem.
+## Goal, accepted architecture and exclusions
 
-1. Every meaningful `#c` operation, initialization dependency and exported core function has a **documented, concrete, independently callable kernel C operation**, or is explicitly classified **legacy-only / unsupported** with a justified user-visible replacement policy. NO operational side effect may be silently dropped.
-2. Real work/ownership lives in the appropriate kernel service/driver: Console output and log, Proc observations, Time, Random, system configuration, system control, statistics, and optional compatibility facilities. Retain `Queue`, `Block`, `Proc`, `Lock`, `QLock`, `Rendez`, etc. under their actual meanings. Do NOT create generic `Device`, `Resource`, `Object`, `Channel`, new handle class or artificial `read/write/close` vtable.
-3. The legacy `#c` `Dev` implementation can remain as a **thin, behavior-preserving adapter** in legacy configurations while it delegates to the same native operations. Legacy `Chan/Qid/Dirtab` may exist in that isolated adapter; they must not leak into the native operation signatures or dynamic native call chains.
-4. Deliver an **opt-in O-only amd64 kernel profile** that does not register `consdevtab` at all (no `#c` `Dev` registration), but retains essential `print/iprint/panic`, UART/screen output, time/random initialization, process/service behavior needed by O boot, and the proven D2b pathless server. **This is the primary removal proof.** Existing standard `pc64` and E4 `pc64native` must remain compatible and bootable. Do not globally delete `#c` before its users/boot dependencies are resolved.
-5. Native **kernel C API** now; userspace **ABI** only when its complete rights/lifetime/layout contract is explicitly specified and reviewed. Reuse the already-implemented restricted `IOWRITE`/O syscall paths when appropriate. Do **not** invent 23 syscalls, a universal handle table or a new public ABI as a shortcut; operations without a native userspace consumer may remain kernel-only, but must not be misrepresented as userspace replacements.
-6. Provide an auditable per-entry migration manifest and bounded QEMU evidence. A kernel building with `consdevtab` merely dormant is NOT the same as an O-only configuration without `#c` registration.
+**Goal:** Plan2001-O must boot its *real* O-resident MicroPython D2b server, locate the GE/O volume by GPT PARTUUID, read/commit persistent O objects, and flush to disk **without registering/linking the legacy `#S` `sddevtab`**. The new profile must also retain the E5 removal of `#c` `consdevtab`.
 
-**This assignment is deliberately ambitious.** Complete as many stages as can be proved, committing each verified checkpoint. If an architectural/ABI decision or safety blocker cannot be resolved, report an exact **HOLD** at that gate and retain the working partial implementation. NEVER claim complete migration when only E4's three readnum operations exist.
-
-## 0. Inventory first — all source-backed edges, not only E4 reads
-
-Read the *whole current* `sys/src/9/port/devcons.c` (~1026 lines) including `print/putstrn/iprint/panic/pprint`, `consinit`, `consdevtab`, time encoding helpers, `consread`, `conswrite`, `consopen/close`, `Qdir`, all `Dirtab` modes and fall-through/defaults. Cross-reference `portdat.h`, `portfns.h`, `qio.c`, `tod.c`, `random.c`, `port/print.c`, `sysfile.c`, `sysproc.c`, build machinery and actual low-level user callers. Use `tools/kernel_opmap.py` / existing `docs/KERNEL-OPMAP.json` for structural hints; scan source for global symbols and cross-file callers too. Do not introduce a second huge general-purpose parser.
-
-There are **23 Qid enumerators**, including `Qdir`, but the table is not equivalent to 23 usable data functions. Create `docs/CONS-MIGRATION.md`: one agent-readable table **with EVERY enumerator** plus `consinit`/reset/shutdown and `print`, `iprint`, `panic`, `putstrn`, `pprint`, `readnum/readstr`. Columns MUST be machine-extractable Markdown: `Qid_or_symbol | current_read | current_write | legacy_perm | owner | native_operation | callers | security | state/lifetime | migration_status | evidence`. Derive mode bits/behavior from actual code, including intentionally unsupported branches.
-
-Scope map to verify, do not assume complete without checking:
-
-| Domain / owner | Entries to audit | Non-negotiable detail |
-| --- | --- | --- |
-| Console and diagnostics | `Qcons`, `Qconsctl`, `Qkmesg`, `Qkprint`; `putstrn0`, `putstrn`, `print`, `iprint`, `panic`, `sysfatal`, `_assert`, `pprint`, `prflush`, `consactive`, `cpushutdown`, `screenputs`, `serialoq`, `kprintoq` | Retain log ring, ESC exception, screen/UART routing, queue wakeup/close semantics, early/panic IRQ-safe output, nil-Fgrp path. `pprint` currently reaches `up->fgrp->fd[2]` → `Chan`: do not conceal it in a native path. |
-| Process | `Qpid`, `Qppid`, `Qcputime`, `Quser` | Exact `up` context, parent PID, CPU clocks, per-process username; E4 helpers are transitional text adapters, not ideal final typed API. User-write may change process credentials, NOT a trivial setter. |
-| Time | `Qtime`, `Qbintime`; `consinit` → `todinit` | Native snapshots/clock controls; string and binary formats remain legacy serialization. Preserve clock set/trim/frequency privileged checks, width/endianness and old error behavior. |
-| Entropy | `Qrandom`; `consinit` → `randominit` | Boot initialization and entropy policy; no accidental uninitialized RNG in the O-only profile. |
-| System config | `Qhostdomain`, `Qhostowner`, `Qsysname`, `Qconfig`, `Qosversion` | Current source of truth, mutability/permissions and lifetime. E.g. `config` is read-only; do not grant a native writer. |
-| Monitoring | `Qsysstat`, `Qdrivers` | Multi-CPU stats, reset side effects, `devmask` per Pgrp, real meaning of legacy Dev listing. Do not relabel legacy `Dev` enumerations "native driver inventory" without implementing one. |
-| System control | `Qreboot` commands `reboot`, `panic`, `rdb` | These include privileged/destructive controls. Preserve `iseve` and stronger requirements where applicable; NOT permitted as unrestricted public ABI. Never actually run the destructive panic/debug operations in normal test jobs. |
-| Synthetic data / forbidden | `Qnull`, `Qzero`, `Qmordor` | `null` discards output/EOF, `zero` fills requested bytes, `mordor` deliberately errors. These are semantic operations, not separate fake files in the new API. |
-| Namespace only | `Qdir`, `consattach/walk/stat/open/close` | No new native equivalent to pathname traversal. Preserve legacy `Qkprint` exclusivity/ref/close semantics if the adapter stays. |
-
-**Find all missing Qids** from actual enum/table. Explicitly trace `consinit`: calling `chandevreset` alone is not the same as `consinit`, and the existing O boot may defer or bypass `chandevinit`. Track whether `todinit` and `randominit` happen on each boot path, not by guess. Inspect `mkdevlist`, `mkfilelist`, `portmkfile`, `sys/src/9/pc64/mkfile` and configuration-generated source to understand build/link dependence on `consdevtab`.
-
-**Stage 0 gate:** all 23 enumerators plus globals mapped, with concrete line/path dependencies and native/legacy classification; no claim that keyboard `#b`, draw `#i`, mouse, VGA or UART `#t` are part of `#c`. A `#c`-free console kernel does NOT mean screen/keyboard drivers have migrated.
-
-## 1. Define an executable, non-generic kernel C service API
-
-Separate **semantic data** from legacy text/binary encoding. Prefer real pre-existing functions directly rather than speculative wrapper proliferation. Add small domain-specific C declarations to the appropriate existing port header or a small domain header **only for actual newly implemented functions**; do not define an elaborate universal driver header.
-
-Illustrative intent (NOT approved prototypes):
-
-- Process: read current `Proc`'s typed PID, parentpid, accounting, identity subject to correct process and access contract. Keep E4 `readnum` helpers as legacy text-format adapters.
-- Time: retrieve a coherent snapshot; set/trim/frequency operations enforce exactly the appropriate trusted-call/privilege policy at the public boundary. Avoid permanent shared global scratch state or returning pointers to stack buffers.
-- Entropy: use existing `randomread`/init; avoid redundant PRNG wrappers.
-- Console: preserve actual `print`/`iprint`/`panic` implementation and its safe early/IRQ paths; provide a direct byte-output function only if different semantics demand it. Do not force the diagnostic console into graphical `Display` or keyboard abstractions.
-- Log: retrieve snapshot/ring data with explicit atomicity and offset policy; controlled reader subscription if actually needed. Kernel queue and streaming semantics are distinct.
-- Configuration: typed get/set of real settings if already backed; restrict writes appropriately.
-- Monitoring: typed system statistics; reset only under permitted caller context. Legacy formatting may stay in `consread` adapter.
-- Control: direct, privilege-checked system shutdown/reboot actions rather than command-string `write`. Preserve all dangerous actions behind explicitly authorized code; unsupported functionality may be denied in O-only profile.
-
-**Native API quality gate:** no new function takes `Chan*`, `Qid`, `Dirtab`, `file path` or a synthetic Qid selector; no `native_cons_read(any_qid)` expanded to replace every function. Typed native functions should not return decimal text merely because `#c` did. Legacy serialization belongs to legacy adapter. Every operation has documented preconditions, side effects, ownership, sleep/IRQ safety and validation.
-
-Some legacy entries are meaningless as native services (e.g. `Qdir`, `Qmordor`, `Qdrivers` as a Plan 9 namespace listing); **do not manufacture replacement services**. Record `LEGACY-ONLY` / `INTENTIONALLY-UNSUPPORTED` with a reason and a policy for any consumers. "Complete" means complete coverage and deliberate decisions, not a one-for-one fake API.
-
-## 2. Refactor along real responsibility boundaries while keeping legacy behavior
-
-Apply bounded stages (commit at each verified checkpoint):
-
-**E5.1 Core split and lifecycle.** Move independent shared services out of `Dev` registration ownership (e.g. non-Dev core console code and initialized Time/Random services) while maintaining original behavior. Refactor implementation only where needed. `print`, `iprint`, `panic`, `putstrn`, `pprint`, `prflush`, `cpushutdown` and their globals must link and remain correct, including before scheduler/when `up == nil` and in a crash. Shared low-level `readnum/readstr` are generic formatting helpers and must not vanish when `#c` is absent. DO NOT change panic recovery semantics as incidental cleanup. `pprint` may remain a legacy-specific function if native kernel/boot paths do not call it; explicitly state where it still uses `Chan`.
-
-**E5.2 Domain operations.** Implement native core operations for ALL meaningful domains in stage 0. Keep existing real data/function structures; do not expose `Queue*` or `Proc*` to userspace. For operations whose only meaningful implementation is already a Chan-free function, use it directly (with contract) and avoid duplicate wrappers. For restricted actions, require named trusted-kernel caller or preserved explicit rights check; do not silently bypass `consopen/devopen` permission checks.
-
-**E5.3 Compatibility adapter.** Keep `consdevtab` in existing `pc64` and `pc64native` configurations for a comparison test. Rework `consread/conswrite/consinit` to dispatch to native services when safe, preserving byte-for-byte legacy read/formatting/offset/error, write permissions, exclusivity and lifetime. `Chan` may occur **only** in adapter paths. A legacy branch which cannot yet safely delegate must be marked `LEGACY-ONLY`; no invented equivalence. Do not forcibly route all operations through the E4 readnum generator: that rule is intentionally narrow. Keep current E4 `NATIVE_REVIEWED_BINDINGS` valid; if source moves, audit/repin exact source hashes only after reviewing changed helpers.
-
-**E5.4 No-#c O-only link and runtime.** Create an opt-in config/profile (unambiguous name, e.g. `pc64oconsole`, selected via explicit build/test variable) that **excludes** `consdevtab` from the generated `Dev` registration list. Arrange to compile/link essential console/time/random core as non-Dev sources. Inspect generated devtab and linked symbols to prove both:
-  - no `consdevtab` registration or runtime `#c` attach/walk path exists in this profile;
-  - `print/iprint/panic` and essential native service/lifecycle symbols are present and executed.
-Avoid misleading results: having the old `Dev` in the binary but simply not calling it is not sufficient. The linked *implementation* may still contain compat-only code only when explicitly justified by the linker/build model, but `consdevtab` must not be registered; prefer to omit compat code entirely in the O-only profile if straightforward.
-
-The normal `pc64` and `pc64native` kernel behavior must remain unchanged. Keep `#b`, `#i`, `#v`, `#t` unchanged: they are separate migration targets. Do not remove other `Dev` or kernel-wide `Chan`. Do not alter GE/O v1, OIDs, kernel syscall table/ABI, or introduce a Python class-based device framework.
-
-**E5.5 Userspace boundary and real consumer audit.** Search low-level userspace for `#c`, `/dev/cons`, `/dev/time`, `/dev/reboot`, etc.; record every reachable dependency of the new O-only boot path vs legacy-only applications. For O-only mode, if no user needs a given `#c` operation, native kernel-only implementation is sufficient; if user does need it, use **already approved, precisely scoped** syscalls or propose a **specific ABI contract** with rights, lifetime, validation and test before implementing it. Under no circumstances publish unrestricted time setters, reboot/debug, hostowner/identity changes, process control or kmesg queue pointers as convenience calls. If a new ABI is truly required and not specified by `KERNEL-API-ABI.md`, mark `OPEN / HOLD` rather than inventing a universal handle or new syscall numbers.
-
-**E5.6 Evidence, cleanup.** Only remove transitional duplicated business logic and/or old adapter links from O-only build once exact native/legacy comparison and no-#c evidence are green. Legacy `pc64` compatibility may remain as long as legacy users need it; clearly distinguish "O-only #c unregistered" from "all legacy code removed from the repository."
-
-## 3. Minimal, discriminating acceptance gates
-
-No massive test campaign. Run in this order; log **actual** results, and rerun only dependent checks when fixing failures:
-
-**Gate A — source/coverage**: enumerate 23 Qids, read/write/permissions and non-Qid exported core functions; report 100% coverage (each `native`, `legacy-only` or `unsupported`) and any outstanding actual users. A tiny source-check script/test under `tools/` may assert stable coverage, correct C labels and O-only devtab absence; do not make it a second general C analyzer.
-
-**Gate B — functional unit probes**: focused native tests for (1) console output/log routing and early panic-safe path *without intentionally triggering panic*, (2) time/random initialization and sampled read behavior, (3) process PID/PPID/accounting, (4) read-only/denied writes, (5) log reader/close semantics if migrated, (6) one privileged operation **denied** for an unprivileged caller (never execute destructive success path). Use the repository's existing Plan 9 testing framework, not mock-only proof.
-
-**Gate C — build**: normal `WHAT=kernel tools/build.sh` (pc64 and historical test control), E4 source/generator checks (update pin deliberately if appropriate), opt-in no-#c build. Prove its generated devtab/registration and linked core symbols. If `tools/kernel_opmap.py --check` source fingerprint changes, regenerate `--write` deliberately, review the diff and recheck.
-
-**Gate D — O-only QEMU**: one disposable no-#c O-only kernel boot running **real D2b server** (or an equivalent integration test using the SAME O init, O volume, and MicroPython entry, not just a kernel print probe). Verify boot prints, 3-cycle same-disk persistence where already required by `tools/test-oboot-server.sh`, no panic, no missing time/random init, absence of `#c` registration and zero `namec/newchan/walk/devwalk/mount/exec` counters within explicitly described pathless measured windows. Preserve serial log. If a separate O-only test script is required, derive it from the existing D2b fixture with minimal duplication and opt-in profile selection. Never touch real disks.
-
-**Gate E — legacy controls**: at most one focused legacy-`#c` test for representative formatting/permission and one native E4 QEMU regression if the E4 shared helpers/generator changed; do not run `WHAT=all`, GUI boot, every dev test or unrelated networking/storage battery without a concrete reason. If a gate cannot be executed, record `NOT RUN` with reason and **HOLD** on full acceptance.
-
-**Adversarial checks**: programmatic/assertion-level failure for missing/forbidden `#c`, invalid native caller context, a non-privileged time-set or reboot request, and a disallowed userspace pointer if any new userspace-facing function exists. Tests must not actually call `panic`, `rdb`, hardware reboot or write physical disks.
-
-A **FULL E5 APPROVE** requires coverage + source audit, functional gates, both legacy and O-only builds, a real O-only D2b QEMU run and security/lifecycle review. A **PARTIAL / HOLD** is a valid result when a specific unresolved ABI or internal refactor blocks that proof; do not fabricate completion.
-
-## 4. Evidence and communication
-
-- Maintain **one** source-oriented migration file: `docs/CONS-MIGRATION.md`. This is an operation matrix + implemented source/function relationship map + unresolved blockers, not marketing copy or a broad OS essay.
-- Update `docs/STATUS.md` and, **only if genuinely necessary**, amend `docs/KERNEL-API-ABI.md` to add explicit canonical concepts *with IDs and rationale*; do not silently redefine `Queue`, `Stream`, `Pipe`, `Handle`, `Capability`, `OID`, `Dev` or `Chan`.
-- Write the OpenCode completion summary to **exactly** `docs/to_chatgpt_review.md` (replace previous transient cleanup notice; Astra's `docs/to_astra_review.md` remains as historical review). No webpage, slides or ornate external artifacts. Keep generated checks/logs under ignored `build/`.
-- Use clear committed checkpoints, e.g. `E5.0 map`, `E5.1 split`, `E5.2 native services`, `E5.3 adapters`, `E5.4 no-cons`, `E5.5 evidence`, while ensuring each commit is reviewable and avoids knowingly broken default kernel. No force-push or destructive cleanup; don't overwrite other uncommitted work. OpenCode's existing JS/git automation may handle final add/commit/push: do not duplicate it mindlessly.
-- Do not create a new competing task file or reopen the completed Astra assignment. If complete scope is too large for one run, push **only verified coherent checkpoints**, identify exact next checkpoint; never turn incomplete coverage into a claim of total migration.
-
-**Final report required literal headings**:
+Keep the existing physical storage controllers and their proven low-level code: SATA/AHCI `sdiahci`, NVMe `sdnvme`, VirtIO block/SCSI `sdvirtio10`, shared `sdscsi` translation where required, and existing `SDev`, `SDunit`, `SDifc`, `SDreq` structures as long as their actual semantics are appropriate. `SDifc` is a justified **controller interface**, not a new file-like `Dev`. Preserve the exact native data path already present:
 
 ```text
-E5 VERDICT: APPROVE / PARTIAL-HOLD / REJECT
-BASE / FINAL COMMIT(S) / BRANCH:
-EXPLICIT SCOPE: O-only no #c registration / full repository legacy removal (distinguish)
-23-QID COVERAGE: native N, legacy-only N, intentionally-unsupported N, unclassified N
-CORE SYMBOLS: print, iprint, panic, putstrn, pprint, readnum/readstr, init, shutdown (each status)
-KERNEL C API: actual functions, files and ownership; not hypothetical prototypes
-USERSPACE ABI: implemented / existing reused / OPEN, rights analysis
-LEGACY #c: retained, removed from O-only, or not yet removable; exact registration evidence
-BUILD AND RUNTIME: exact commands, test PASS/FAIL/NOT RUN, log paths and commits
-PATHLESS EVIDENCE: measured window and actual counters, avoid whole-kernel claims
-SECURITY/LIFETIME: permission checks, kprint exclusivity, Queue/Stream separation, critical context
-UNRESOLVED: concrete blockers with source paths and next small action
+GE/O OID + Space
+    -> O storage's PARTUUID/GPT-selected bounded Oblock
+    -> devgefs.c oblockrw/oblockflush
+    -> sdunititer / sdunitready / sdblockrw / sdblockflush
+    -> SDunit / SDev / SDifc.bio, SDifc.rio
+    -> AHCI / NVMe / VirtIO hardware
 ```
 
-**E5 goal in one line:** turn the multi-purpose Plan 9 `#c` namespace aggregator into real, plainly named and separately owned native C service functions; prove that the Plan2001-O O-only server can boot without registering the `#c` `Dev`, while legacy environments continue to work.
+**Old compatibility path, retained in normal kernel:** `#S → sddevtab → Chan/Qid → sdread/sdwrite → SDifc`. It may call the same native core routines where behavior is equivalent. The new O-only path must not depend on the old path for enumeration, controller probing, initialization, read, write, flush or lifecycle.
+
+Do **not** create a generic `NativeDevice`, `Filedev`, `ObjectDev`, object hierarchy, syscall number, new userspace Handle/Capability system, path namespace or alternative GE/O persistence model. There is NO new userspace disk ABI in E6. Keep `OID`, `Space` and `File` terminology from `KERNEL-API-ABI.md`; a live `SDunit*` is kernel state, **not** an OID, disk filepath or userspace Handle.
+
+**Scope:** amd64 `pc64` family; opt-in QEMU O-only profile. Do not globally delete legacy `#S` support, other `Dev` devices, AHCI/NVMe/VirtIO drivers or existing legacy tests. Do not perform I/O to host physical disks; only disposable test images.
+
+## Stage 1 — remove disk discovery's dependency on `Dev.reset`
+
+Audit the boot call graph before changing it:
+
+```text
+pc64/main.c init sequence
+    -> pci/trap/memory setup
+    -> chandevreset()
+        -> sddevtab.reset = sdreset()
+            -> for sdifc[i]: pnp() -> sdadddevs()
+    -> O-only kernel process / native OVOL / OSPACE operations
+```
+
+The above is the *currently expected* relationship; verify every edge in current code, including generated `devtab[]` / `sdifc[]`, controller IRQ/PCI prerequisites, `chandevinit` vs `chandevreset`, `up == nil`, scheduler availability, reset vs enable vs online, and the use of `getconf`. `sdunitready` / controller `verify` / media geometry may run lazily in process context; do not force those calls into unsafe early boot.
+
+Refactor the real probe/registration work into an explicitly named **native disk subsystem initialization function** (e.g. `sdinitcontrollers()` or an existing accurate name, not an ABI proposal). It MUST be callable without dispatching through `Dev`, `Chan` or any `#S` path. Call it at a verified correct point for the native O-only boot. Normal profiles may preserve a thin `sddevtab.reset` adapter to the same operation.
+
+**Critical:** E6 must never enumerate/probe/add the same controller twice if both the direct boot call and `sddevtab.reset` run. Choose one clear idempotence/ownership rule, guard or profile-specific dispatch. Document the exact initialization order and why PCI, IRQ, allocation and process context are valid.
+
+**Stage-1 acceptance:** a clean kernel build, documented native init owner/entry point, no duplicate enumeration; E5 core console remains intact. Do not yet remove `sddevtab`.
+
+## Stage 2 — preserve `SDev`/`SDunit`/`SDifc` as concrete C storage interfaces
+
+Make the **SD core linkable and runnable without `devsd.c`'s legacy `Dev` adapter**. This is the actual hard part: currently `sdunititer`, `sdunitready`, `sdblockrw`, `sdblockflush`, controller enumeration and `sddevtab` coexist in the same large source file. Merely removing the `sd` line from the `dev` config would drop needed native symbols and prevent boot.
+
+Refactor into explicit source ownership (preferred: `sys/src/9/port/sdcore.c` for generic controller registry/unit/lifetime/native block I/O, `devsd.c` for legacy `Chan`/`Qid`/`Dirtab`/`sddevtab` dispatch). Reuse `sd.h` and existing controller-specific files. Other minimal packaging is acceptable **only if it actually proves `sddevtab` absent from the new linked kernel**. Do not solve by a source file full of `#ifdef O_ONLY` duplications or a fake Dev table.
+
+Inspect and classify the entire `devsd.c` implementation:
+- `sdreset`, `sdadddevs`, unit registry, `sdgetdev`, `sdgetunit`, `sdunititer`, `sdunitput`, `sdunitready`, `sdblockrw`, `sdblockflush`, shared `sdrio`, error/memory/dma code, media-change and reference lifecycle.
+- Non-Dev operations referenced by controllers, `sdscsi.c` or other kernel code: `sdsetsense`, `sdfakescsi`, `sdfakescsirw`, `sdaddfile`, `sdannexctlr` and `sdconfig`-related operations. Move only the necessary implementation to a native core; when a function's real purpose is to create a `#S` virtual file (e.g. `sdaddfile`), preserve it as **legacy-only** or provide an explicitly limited no-op/unsupported policy if a controller can still call it; no silently broken linkage.
+- Explicit `SDev/SDunit` reference increments/decrements and error cleanup, including `sdunititer` returning a referenced unit. Disk enumeration names `sdE...` may be transient diagnostics but are not a durable OID or required pathname.
+- Controller-specific `SDifc.bio` / `rio` contract and SCSI emulation required for non-SCSI media; do not strip a working translation layer just because the word "SCSI" sounds legacy.
+- Raw `SDreq` state, DMA-alignment, bounce-buffer ownership, sector alignment, partial I/O, errors, flush, removable-media state, controller enable/disable and shutdown. For `sdblockrw` retain absolute **unit byte-offset** semantics (not `#S` partition-relative offsets). Retain `devgefs.c` `Oblock` GPT partition-range guard to stop writes outside the selected partition.
+
+**Design constraint:** sharing a concrete `SDunit` and `SDifc` between core and legacy adapter is expected; it is **not** a regression to the file abstraction. The core's exported functions must not accept `Chan*`, `Qid`, `Dirtab`, a pathname or an invented Qid selector. Keep controller-specific hardware context in appropriate concrete records.
+
+**Stage-2 acceptance:** source/linked evidence that all GE/O native calls resolve from the core, independently of `devsd.c`; existing normal `pc64` still compiles and the legacy file adapter remains available.
+
+## Stage 3 — retain the legacy `#S` as a compatibility adapter
+
+Retain `sddevtab` in normal `pc64` / `pc64mp` / `pc64native` and the previous `pc64oconsole`:
+- `sdattach/sdwalk/sdstat/sdopen/sdclose/sdread/sdwrite/sdwstat/sdconfig` must preserve existing external behavior where still used.
+- `#S/sdXX/data`, `ctl`, `raw`, `sdctl`, part names, permission checks, `devmask`/probed controller names, reference/lifetime and media-change rules remain legacy-only semantics and must not leak into the native C signatures.
+- Record when legacy `sdbio` and native `sdblockrw` share implementation and when they intentionally differ (partition vs whole unit, EOF vs error, permissions, version/change semantics, raw control). Do **not** blindly equate them or replace all cases with a thin wrapper without comparing conditions.
+- Preserve `sddevtab.reset` as a wrapper or agreed profile-safe lifecycle operation; ensure no second probe if `sdcore` init has already run.
+- Preserve `sdscsi` and controller behavior, including their `pnp`/`enable`/`online`/`bio`/`rio` hooks. Test at least the VirtIO controller used by D2b, and compile AHCI/NVMe without claiming hardware tests.
+- Track explicit limitations: `sdloop.c` currently uses `Chan*` and calls `devtab[c->c->type]->read/write`. It is **legacy-backed** and must not be misrepresented as native even if `SDifc` calls it.
+
+**Stage-3 acceptance:** default and E5 no-`#c` kernels still build; representative legacy `#S` storage behavior survives, and old tests still have an actual route to the same storage implementation.
+
+## Stage 4 — new opt-in profile: BOTH `#c` and `#S` absent
+
+Add a configuration based on `sys/src/9/pc64/pc64oconsole`, e.g. `pc64onativedisk` / kernel `9pc64onativedisk`, selected with explicit `ONATIVE_DISK=1` in `tools/build.sh` and `tools/test-oboot-server.sh`. Choose ONE stable spelling across config, scripts, generated outputs, logs and documentation. This profile **inherits E5's no-`cons` setting** and further removes `sd` from the `dev` section.
+
+Keep `sdiahci`, `sdnvme`, `sdvirtio10` and whatever `sdscsi`/PCI/DMA/IRQ functions their genuine C interfaces require under `misc` or equivalent direct link. Prefer leaving `sdram` unless justified otherwise. **Exclude `sdloop` from this new profile** because its backing file uses `Chan` and `devtab`; preserve it in legacy configs. Explicitly inspect how `mkdevlist`/`mkdevc` derive object list and `sdifc[]` registration; do not assume a source listed in `misc` is automatically initialized correctly.
+
+Verify all of:
+- generated `devtab[]` contains **neither** `&consdevtab` **nor** `&sddevtab`;
+- linked `9pc64onativedisk` contains **neither** `consdevtab` **nor** `sddevtab`, but does contain direct console services (E5), SD core, `sdunititer`, `sdunitready`, `sdblockrw`, `sdblockflush`, essential controller entries and GE/O native O-block calls;
+- the linked kernel does not need legacy `#S` namespace resolution at any point of the measured O boot path; `sdloop` is not linked if it still requires `Chan`;
+- runtime enumeration/discovery completes even though no `sddevtab.reset` exists;
+- **normal/default kernels do not silently switch** to the new profile and E5's `OCONSOLE=1` meaning remains unchanged.
+
+Treat mixed opt-in flags (`NATIVE_PROBE=1`, `OCONSOLE=1`, `ONATIVE_DISK=1`) deterministically: define precedence or reject unsupported combinations explicitly, rather than accidentally building/testing different kernels than requested. Keep an opt-in profile; do not globally delete `#S`.
+
+**Stage-4 acceptance:** actual generated devtab plus final linked-symbol proof and a bootable new kernel, not just an edited config.
+
+## Stage 5 — `sdloop` policy and native userspace consumer audit
+
+`sdloop` is a virtual disk backed by an inherited `Chan` to a file; it is **not** required by the existing tested O-only partition-backed D2b path. Keep it out of the new profile, without deleting it from normal kernels. In `docs/SD-MIGRATION.md` explain precisely why and how its future native replacement could use an O-resident byte source **only after** a separate reviewed lifetime/recursion/commit design; do not implement that speculative feature.
+
+Audit all reachable callers from:
+- O-only kernel bootstrap (`pc64/main.c`, O loader and `ouser.c`, `oblockopenpart`);
+- `devgefs.c` O and legacy GE paths;
+- controllers `sdiahci.c`, `sdnvme.c`, `sdvirtio10.c`, `sdscsi.c`, `sdloop.c`, `sdram.c`;
+- userspace O-volume and GE/O operations, and legacy `#S`/`/dev/sd*` users as evidence only.
+
+Distinguish **native O-only reachable**, **legacy-only reachable**, and **conditionally reachable**. Legacy `devgefs.c` still has `namec("#S")` and `namec(dev)` for inherited mount/GE volume code; those references are acceptable *only if they are not invoked or required in the new O-only path*, are not pulled into the linked kernel as an accidental `sddevtab` dependency, and are explicitly reported. Note that `devgefs.c:oblockopenpart` may **format** `"#S/%s/data"` as a human-readable device label; that alone is not a pathname traversal. Prove the actual call path rather than grepping string literals and declaring failure.
+
+No new syscall, public `Block`/`Queue`/`Handle`/`Capability` ABI or direct arbitrary raw-disk access from userspace in this stage. The GE/O O-volume syscall contract remains unchanged. Physical disk writes must stay confined to the selected **GPT O partition** and current validated kernel path.
+
+**Stage-5 acceptance:** short precise source/audit table of each native/legacy dependency and a defensible `sdloop` exclusion, with no accidental API vocabulary drift.
+
+## Stage 6 — bounded verification and release evidence
+
+Run the following gates **incrementally**; stop/repair failures rather than suppressing checks. Use disposable VM/QEMU raw images only.
+
+**A. Source and registration checks.** Add a small deterministic `tools/sd_migration_check.py` (or similarly named script, no new general C parser) that checks (i) expected native SD operation declarations and definitions, (ii) controller registry ownership and initialization, (iii) `#S` remains registered in default/E5 legacy profiles, (iv) both `#c` and `#S` missing in new profile, (v) `sdloop` absent in new profile, (vi) actual generated devtab and kernel binary when supplied as arguments. Script MUST fail closed, distinguish source proof vs linked proof, and not fake runtime verification.
+
+**B. Builds.** Compile default `WHAT=kernel tools/build.sh`; E5 opt-in `OCONSOLE=1 WHAT=kernel tools/build.sh` if the changes affect shared console/disk init; then `ONATIVE_DISK=1 WHAT=kernel tools/build.sh`. If same `build/amd64/` paths are overwritten between builds, save or sequence the relevant artifacts/logs before subsequent commands. Preserve E4 generation checks only if changed SD source affects the operation map or generator fingerprints; run focused `python3 tools/kernel_opmap.py --check` and documented regeneration when appropriate, not uncontrolled mass artifact churn. Update relevant `docs/KERNEL-OPMAP.json` only when required and reviewed.
+
+**C. Default/legacy control.** Run relevant existing QEMU storage test that exercises real `#S` behavior (e.g. `tools/test-o-boot.sh` for a normal O boot; use a focused legacy `#S` read/stat control if that script doesn't actually use `#S`). Do not claim "legacy file adapter tested" based only on native O-direct reads.
+
+**D. Real combined O-only D2b test.** `ONATIVE_DISK=1 tools/test-oboot-server.sh` must boot its real O-partition volume with actual `9pc64onativedisk`, OID_MP_EXEC and MicroPython `-N`; same disposable disk across boot 1/2/3 with `run() -> 1,2,3`, incremental commits, preserved OID 7 identity, correct checksum and no `panic`/`fault`. Retain missing-executable and failing-`run()` negatives. Confirm boot marker and actual controller probe/registration once. Log measured `namec/newchan/walk/devwalk/mount/exec` counters and do not generalize beyond the measured window. Ensure test does not accidentally boot `9pc64oconsole` or default `9pc64`.
+
+**E. Native block negatives and durability.** Under the new **no-`#c`/no-`#S` kernel**, verify the existing native PARTUUID/GPT rejection paths (wrong GUID, invalid/malformed GPT), out-of-bounds writes, oversized reads and the actual VirtIO flush/persistence path using minimal focused QEMU probe(s), adapting relevant `tools/test-o-pathless.sh` pieces only where needed. Its original legacy `/boot/oinit` path is NOT itself proof for the new profile. Distinguish tests actually executed on new profile from historical Level A evidence. No destructive controller commands, no host raw block devices. If a new negative is impractical, mark `NOT RUN` and explain exactly which acceptance criterion remains unproven; do not silently drop it.
+
+**F. Review.** Audit source and logs for duplicate enumeration, init ordering, reference leaks, unwinding/locks on errors, disk-range check, missing flush, wrong write/read offset units, uninitialized `eve`/`up` and hidden `Chan` path. Preserve E5 no-`#c`. Remove unused O-profile legacy symbols only after linked + boot proof. Full regression matrix is unnecessary unless affected sources require it.
+
+**Full E6 APPROVE** requires A–F with real new-profile QEMU boots and at least verified native disk bounds/flush and representative legacy controls. If any gate cannot be run or a serious source issue remains, report `PARTIAL-HOLD` with the exact blocker and all completed verified checkpoints; do not report a false PASS.
+
+## Machine-oriented results and reporting
+
+Produce one concise but complete **`docs/SD-MIGRATION.md`** with:
+
+1. Exact source-base/commit, active `SDifc` controllers (AHCI, NVMe, VirtIO, loop, RAM) and `SDev/SDunit` ownership; distinguish compiled, linked, probed, tested.
+2. A source-backed operation matrix (columns: `symbol | defined_in | callers | native_or_legacy | inputs_outputs | ownership | permissions | initialization | errors | changed | evidence`). Include `sdreset`/new core init, `sdadddevs`, `sdgetdev/unit`, `sdunititer/put/ready`, `sdblockrw`, `sdblockflush`, `sdrio`, `sddevtab` + callbacks, `SDifc.bio`/`rio`, `sdscsi`, `sdloop`, the GE/O `oblock*` callers.
+3. Explicit legacy-only operations/semantics for `#S` (`attach/walk/stat/open/close/ctl/raw/part/wstat/config`), with deliberate nonreplacement reasons.
+4. The exact boot initialization order and whether `chandevreset` is still used by **other** devices (it may be).
+5. The exact `ONATIVE_DISK` profile/config/devtab/linked proof; O-only direct path vs legacy call graph.
+6. Every executed verification command, **PASS/FAIL/NOT RUN**, logs/observations and scope limits. Do not claim physical AHCI/NVMe runtime test when only QEMU VirtIO was exercised.
+
+Update `docs/STATUS.md` with E6 actual scope and tests. Amend `docs/KERNEL-API-ABI.md` **only** to clarify a newly established storage contract or add a genuinely missing glossary concept (with stable ID and actual implementation evidence); never overwrite canonical meaning by synonym. Write **`docs/to_chatgpt_review.md`** as an agent-readable E6 report, not an old E5 "APPROVE" line or a pointer to a nonexistent long report. Keep detailed QEMU logs in ignored `build/verification/e6/`.
+
+**Final report exact headings:**
+
+```text
+E6 VERDICT: APPROVE / PARTIAL-HOLD / REJECT
+BASE / FINAL COMMITS / BRANCH:
+STAGES 1–6: PASS / PARTIAL / NOT DONE for each
+INIT AND OWNER: actual symbols, sequence, exactly-once evidence
+SD CORE: concrete C operations and their real source files
+LEGACY #S: retained in normal profiles, registration and behavior evidence
+O-ONLY PROFILE: config, flags, absence of both consdevtab and sddevtab, linked symbols
+SDLOOP: excluded or blocked, reason with precise Chan edges
+PARTUUID AND GE/O: live native call chain, bounds, units, flush, ownership
+BUILD / QEMU: exact commands, results, logs, 3-boot O persistence and negatives
+PATHLESS METRICS: observed window and actual counters
+SAFETY / ABI: no new userspace raw disk access, no unauthorized host writes
+UNRESOLVED: exact remaining blockers and next bounded action
+```
+
+Commit verified checkpoints as `E6.1`, `E6.2`, etc. Do not force push or overwrite unrelated changes. OpenCode's existing completion hook may handle git commit/push and the review note; coordinate with it to avoid duplicate commits. **The intended result is a real, executing O-only disk stack without `#S` or `#c` in `devtab[]`, not the deletion of working storage code.**
