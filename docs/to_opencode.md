@@ -1,147 +1,98 @@
-# E7.4–E7.8 — Finish the native IPv6 networking branch; NO merge
+# E7.4.3 — FIX native IPv6 Next Header unregister / re-register race ONLY
 
-**ACTIVE AGENT PLAN — same branch only:** `design/ipv6-only-native-20261024` in `pereuna/Plan2001-O`. E7.1/E7.2/E7.3 and E7.3.1 are already agent-reported APPROVE. Start from their current committed head, not from old code. This replaces the *completed* E7.3.1 assignment in this file. Work through E7.4, E7.6, E7.7 and E7.8 in order, committing and reporting each independently. **E7.5 is intentionally deferred to a future USERSPACE tunnel project.** **E7.8 is verification/merge readiness ONLY. Merging happens in another ChatGPT session.**
+**ACTIVE ONE-SHOT CORRECTION ON EXISTING E7 BRANCH. NO MERGE.**
 
-## Non-negotiable branch, safety and scope
+Repository: `pereuna/Plan2001-O`
+Branch: **`design/ipv6-only-native-20261024`**, the *same* branch that completed E7.1–E7.8.
+This task supersedes the finished E7.4–E7.8 agent plan previously in `docs/to_opencode.md`, but does not authorize any new project phase, branch, integration, or merge.
 
-1. Verify `git branch --show-current` is exactly `design/ipv6-only-native-20261024`; check `git status --short`, `git rev-parse HEAD`, upstream and `git remote -v`. If the working tree has other tasks, use a dedicated worktree on the **same branch** without overlapping commits; coordinate safely. Push only `origin/design/ipv6-only-native-20261024` and verify remote. Do not create a branch, check out/rebase/merge/reset/cherry-pick `main`, open/merge PRs, force-push, touch PR #1 or the mistaken E7.2 branch. Do not modify E6/E8/E9 files on `main`. No automatic merge via hooks.
-2. Read: `AGENTS.md`; `docs/GENERAL-SOFTWARE-SPECIFICATION.md` (IPv6-only section); `docs/KERNEL-API-ABI.md`; `docs/ETHER-MIGRATION.md`, `IPV6-NATIVE-MIGRATION.md` and `UDP6-NATIVE-MIGRATION.md`; `docs/to_chatgpt_review_e731.md`; current `pc64e71/e72/e73`, `tools/build.sh`, `sys/src/9/ip/{nativev6.c,nativeudp6.c,ipmux.c,ipv6.c,udp.c,icmp6.c,devip.c,ip.h}`, `sys/src/9/port/{ethercore.c,devether.c}`, existing configurations and kernel generators. Inspect actual code and compile outputs before recommending a change.
-3. **Core architectural decision:** The physical network interface will *eventually* have exactly two mutually exclusive modes: `NORMAL` = the conventional IPv6 stack and its enabled services; `SEALED` = **only a dedicated authenticated encrypted direct-IPv6-IP transport plus the minimum required IPv6 link-control traffic**. Both input and output must be gated in a future implementation. External normal services will then see the normal network as unavailable although the physical NIC stays UP. Switching may someday be scheduled, but **DO NOT IMPLEMENT SEALED, an on/off switch, scheduler, classifier, encryption, cryptographic keys, or stealth claims in this E7 task**. The E7 kernel runs **NORMAL ONLY**; do not introduce a mode that can be activated prematurely. Future mode concepts may appear in design documentation or private internal naming only; if any placeholder is compiled, it must be inoperative, safe, and not add a fake security boundary. No production “sealed” success claim.
-4. **No `ipmux` and no multiplexer framework.** The existing `ipmux.c` is a useful source reference for native packet delivery but NOT a requirement or the security gate. Current `pc64e73` does not link an ipmux Proto; do not add a generic decision tree, filter language, per-user routing graph or hierarchical device namespace. Minimal fixed-protocol dispatch should reuse the existing kernel IPv6 demultiplexing where possible.
-5. **No WireGuard work at all here.** Do not write/migrate `devwg.c` crypto or handshakes; no userspace WG daemon, `wireguard-go`, WireGuard TUN adapter or wire format; no MicroPython `socket`, Lua/Go runtime or new filesystem. E7.5 (tunnel/authentication/key management/config/userspace transport) is a future independent project and has **NO code or acceptance gate in E7**. This work is networking infrastructure only.
-6. Preserve the old legacy configurations `9pc64`, `9pc64mp`, E7.1/E7.2/E7.3 tests, E5 console, and their existing `#l/#I/#W`/IPv4 features. **Remove old functionality only from a dedicated new opt-in E7-native kernel configuration**, never globally until known callers and all regressions have been audited. Scope firewall/packet semantics to this kernel profile; no silent global weakening.
+## 0. Git/scope rules
 
-## High-level target and future SEALED seam
+- Before edits: `git branch --show-current` (MUST equal `design/ipv6-only-native-20261024`), `git status --short`, `git rev-parse HEAD`, `git remote -v` and upstream. Work on this existing branch; if other agents use the checkout, coordinate or use a safe dedicated worktree without creating a branch. Commit and push **only** `origin/design/ipv6-only-native-20261024`. Do NOT checkout, rebase, merge, reset, cherry-pick, open PR or push `main`. Do not run `git merge-tree` as part of this task. Never force-push. Do not touch E6/E8/E9 or the unrelated E7.2 branch.
+- Scope is limited to `sys/src/9/ip/nativeinh6.c` and, if justified, `nativeinh6.h`; focused E7.4 probe/tests (`sys/src/9/pc64/e74nhprobe.c`, `tools/test_e74_ipproto.py` and corresponding E74/E76/E77 runners); and a **new** `docs/to_chatgpt_review_e743.md` report. The old E7.4/E7.6/E7.7/E7.8 reports are historical evidence; do not overwrite or retroactively change their verdicts. Do not alter `docs/E7-MERGE-READINESS.md`, `docs/STATUS.md` or `docs/to_chatgpt_review.md`, and do not edit old architecture specs merely to rationalize a behavior.
+- Keep current `NORMAL`-only networking, real VirtIO IPv6/NDP, UDP6, Next Header 253 test endpoint, E7.6 no-network-Dev profile and E7.7 IPv6-only profile. **SEALED NOT IMPLEMENTED.** E7.5 userspace tunnel remains deferred. No WireGuard, cryptography, generic `ipmux`, new userspace ABI, IPv4 reintroduction, TCP6 or O-disk changes.
+
+## 1. Precisely reproduced bug (current source)
+
+Inspect exact current code and locks in `nativeinh6.c`, especially:
+- `nativeip6_rcv()` validates the packet, acquires `c->lk`, checks `c->registered` and `c->rx`, increments `c->active`, releases the lock, optionally sleeps using `c->delayms`, and *only after sleeping* invokes `c->rx(c->arg, &m)`.
+- `nativeip6_unregister()` sets `registered=0` and `unregistering=1`, removes `t2p[253]`, waits up to about 500*10 ms for `activezero(c)`, then **unconditionally assigns `c->unregistering=0`** even if `active>0` and returns `NativeIp6ErrBusy`.
+- `nativeip6_register()` rejects `registered || unregistering`, but after the incomplete `unregister` clears `unregistering` it can install a **new callback and argument** while the previous callback is still in-flight. The old callback's eventual `c->rx(c->arg, ...)` may invoke the **new** callback/argument on a packet accepted by the previous registration; the old callback owner also cannot safely release resources and `unregister` cannot be retried while `registered==0` (returns NotReg). This is a specific race; fix it rather than masking it by extending the wait timeout or making test callbacks faster.
+- The `Proto` is deliberately retained across unregister to avoid freeing a referenced `Fsrcvpcol` lookup pointer; account for a dispatch that obtains this Proto just before unlinking `t2p[253]` and enters `nativeip6_rcv` after the unregister decision. Audit this boundary, not only `active` callbacks already running. Preserve the single-consumer/single-Fs constraints.
+- Verify `ipv6native_stop()` ordering with raw-protocol consumers, and inspect concurrent `nativeip6_send`/`stats` behavior. Fix only concrete race edges needed for correct registration lifecycle.
+
+## 2. Required correct contract
+
+Implement an explicit, reviewable lifecycle such as:
 
 ```text
-                              E7 normal runtime (IMPLEMENT)
-VirtIO / Ethernet
-  -> native ethercore sink / native IPv6 packet validation
-  -> ordinary ICMPv6 + Neighbor Discovery; UDP6 via Proto/Conv
-  -> direct experimental IPv6 Next Header consumer (E7.4, fixed small API)
-  -> ordinary native IPv6 TX -> physical Ether
-  [No ipmux, no Chan or 9P in these native paths]
-
-                              Future encrypted tunnel (DESIGN ONLY)
-physical Ether in NORMAL <future atomic mode transition> SEALED
- ingress/egress policy at a physical-interface boundary (not ipmux)
-     allow essential local-link NDP/PMTU controls as explicitly specified
-     allow ONLY the dedicated raw encrypted IP transport
-     DROP normal IPv6 traffic both directions; no ping/TCP/UDP leak
- outer encrypted packet -> future userspace authenticated service
- verified inner IPv6 packet -> future virtual IPv6 interface (not today)
- physical NIC stays UP; normal network logically unavailable
+UNREGISTERED -> REGISTERED -> DRAINING -> UNREGISTERED
+                     |             |
+                     +--unregister--+--(BUSY: STAY DRAINING)
 ```
 
-**Important distinction:** No UDP port is present when the **future** encrypted transport uses a dedicated IPv6 Next Header protocol directly, but this does NOT hide the host's IPv6 address, MAC/ND presence, packet timings or any visible header. No encrypted/authenticated transport exists in E7.4; E7.4 experimental packets are plaintext TEST VECTORS and MUST NEVER be passed to the production IP stack as “authenticated inner IP.” Ordinary `NORMAL` pings and UDP6 are expected to work in current E7 tests.
+Alternative names/state encoding are fine, but prove these invariants:
 
-**Future design constraints to document, not implement:**
-- Per-physical-interface mode scope, not a single accidental global switch; ingress decision before regular protocol handlers and ICMP errors, egress decision before actual NIC queue acceptance (including queued/stale packets across transitions). Both directions needed, with atomically published mode and generation / queue invalidation eventually.
-- Physical link remains UP in SEALED; ordinary service network operations will eventually get explicit unavailability semantics, not silently time out; distinguish link-down vs logical network-disabled.
-- NDP/Neighbor Solicitation/Advertisement remain necessary for an on-link IPv6 peer/router. Router Advertisement acceptance, multicast behavior, ICMPv6 Packet Too Big, destination unreachable and rate limiting need a threat/availability decision; do not casually allow “all ICMPv6” or drop all ICMPv6. External IPv6 observers can still see ND at L2.
-- Fail closed on crash/restart of the **future** userspace tunnel service: never reopen NORMAL automatically. Boot default and authorized operator control need a separate later design and recovery mechanism.
-- A future tunnel needs separation of outer packets vs verified inner packets, anti-replay, peer-to-allowed-prefix checks, routing-loop avoidance, bounded input queues, authenticating BEFORE inner IPv6 injection, packet length/extension-header validation, PMTU and rate limits. Keep this as a documented trust boundary, not a stub that bypasses checks.
-- No guarantee unknown IP protocols pass through the Internet; experimental protocol numbers `253/254` are only for test deployments and are not permanent global assignments (IANA protocol registry / RFC 3692). One selected number in a controlled QEMU/LAN test is allowed. Do not create a new IPv6 extension-header parser or break existing extension-header semantics; distinguish Next Header upper-layer demux from extension-header processing.
+1. Once unregister starts, prevent all new callbacks from entering the retired registration. Any already admitted callback must finish against **the callback function and arg belonging to that admission**; capture a stable pair under the same lock that increments the in-flight reference, and do not read mutable `c->rx`/`c->arg` after releasing it. Document when the caller may free the old callback `arg` (only after **successful** unregister/quiescence, never after `Busy`).
+2. If timeout occurs with `active>0`, return `NativeIp6ErrBusy` **and keep DRAINING latched**. No re-register and no overwriting old `rx`/`arg` until all old callbacks have completed and teardown has been finalized. No automatic success merely because the first unregister timed out.
+3. Define a retry/finalization path using `nativeip6_unregister(net)` (prefer no new API). An owner can retry after `Busy` and get `NativeIp6Ok` once drained; only then may `nativeip6_register` return success. A concurrent unregister during ongoing teardown must have a documented, deterministic result (Busy or another existing typed error) and must never complete/clear the state behind the original owner's back. `NotReg` remains the outcome for an already COMPLETED unregistration. Do not add a new public Handle/framework for this fix.
+4. Lock ordering must be explicit for `natlk`, `c->lk`, `Fs.t2p` and callback work. Don't hold a QLock/SpinLock while sleeping, while calling arbitrary callbacks, or waiting for worker progress that needs that lock. Avoid deadlock with callback -> `nativeip6_send`. No mutable callback metadata visible to old callbacks. Correctly balance `active++/--` through every normal and error path; inspect `waserror` if the callback can raise. Do not dereference freed `arg`/Block after owner releases it.
+5. Consider and close the race of stale `Proto` demux lookups not yet counted as `active` when unregister succeeds and a new registration is published. If safe rearm requires a worker-entry generation, dispatch quiescence, or a narrower documented admission linearization point, implement the *smallest reliable mechanism*, with direct proof/tests. It is **not sufficient** to check `active==0` and then immediately reuse the same mutable callback when an old lookup could still invoke it. Do not make unsupported “all in-flight packets drained” claims.
+6. On a completed unregister, `t2p[253]` no longer routes new packets to the endpoint. During DRAINING, `nativeip6_registered` reports false; `nativeip6_send` returns `NotReg` as today (unless source-backed semantics require a narrower change). Preserve the bounded retained Proto memory strategy: no per-rearm leak or unbounded allocation.
+7. Compatibility: successful normal unregister, repeated completed unregister, and register/unregister/rearm cycles must retain the **existing** externally tested behavior. The new `Busy` recovery is the sole intentional contract extension, with clear documentation.
 
-## E7.4 — Native IPv6 packet boundary in NORMAL mode
+## 3. Deterministic regression reproducing the actual >5s race
 
-**Goal:** Provide a small, verifiable kernel C ingress/egress point for a dedicated **direct IPv6 next-header payload** while preserving conventional IPv6/UDP6/ICMPv6 behavior. This becomes a later userspace tunnel's integration point, NOT its implementation. Avoid a speculative userspace ABI, routing framework or firewall.
+Implement a controlled test in `e74nhprobe.c`, driven by the real host VirtIO `tools/test_e74_ipproto.py`. Reuse the E74 mechanism (currently `nativeip6_setdelay(net, 400)`) only if it can establish deterministic ordering. Prefer an explicit **test-only callback admission barrier** (callback entered/admitted, then block until test releases) over timing guesses. The test must verify:
 
-### E7.4.0 — Source map and design
-- Produce `docs/E7-NATIVE-IP-PLAN.md`: exact path `VirtIO RX -> etheriq -> sink/worker -> ipiput6 -> procxtns -> Fsrcvpcol -> Proto`, plus TX back through `ipoput6`, Medium, `ethercore_tx`. Show where `ipmux` would intercept, why it is NOT required. Trace `Fsproto`/`t2p[]` registration, protocol numbers, neighbor discovery, control-traffic handling, ownership, synchronization and route/MTU.
-- Map the future ingress + egress NORMAL/SEALED seam to explicit existing functions and link boundaries, without modifying behavior for SEALED. Identify where forwarding, local packets, ICMPv6 error generation, queued output and multiple NICs cross those boundaries. Explicitly mark `NOT IMPLEMENTED` for SEALED.
-- Choose either a fixed kernel-native protocol registration via the **existing** Proto demux, or an even smaller direct registered callback; justify how collisions, ABI creep, buffer lifetimes, close/unregister and fault/race handling are prevented. Do not allocate a new `Fs` or implement a parallel IP stack. Prefer reusing ``sys/src/9/ip/ipv6.c` / `Fsrcvpcol` and one small fixed-transport endpoint rather than inventing `ipmux2`.
-- A test-only fixed Next Header protocol (e.g. `253`) must be marked experimental and optional. Never claim its wire payload is WireGuard or a secure tunnel.
+A. Register callback **A** with a distinct non-null context `argA` and magic/generation. Send one genuine Ethernet/IPv6 Next Header 253 packet from the host. Confirm *in guest* `active>=1` and that callback A's admitted invocation is held **before invocation/finish** at the race point (not just a packet queued in the NIC). Strictly bound the barrier so the fixture cannot hang forever.
+B. Invoke `nativeip6_unregister(net)` while A is still active. Force the timeout (use actual roughly 5s deadline, or a test-only injectable reduced timeout **without modifying production default semantics**). Expect **`NativeIp6ErrBusy`**, `registered=0` and `DRAINING`. The guest must print an unambiguous marker, and the host must assert it.
+C. While A is still held and after Busy, attempt `nativeip6_register(net, callbackB, argB)`: MUST return `NativeIp6ErrBusy`. Send another host Next Header 253 packet and show it is not delivered to B and does not produce an authenticated-looking reply. The busy/unregistered state must not leak old packets into a new callback.
+D. Release A; prove that only A(argA) was called for the original packet, exactly once, and B(argB) never consumed that original packet. If the original A implementation echoes via `nativeip6_send`, `NotReg` is the correct result during drain; free the `Block` exactly once. Verify the callback exited (`active==0`), no stale pointer usage and no stuck kernel worker.
+E. Retry `nativeip6_unregister(net)`: expect `NativeIp6Ok`; a subsequent already-completed unregister returns `NativeIp6ErrNotReg` as documented. Then register B(argB) and send a **fresh real host packet**: B must receive exactly that fresh payload with correct IPv6 metadata. Confirm callback A is not called for B's packet. Unregister B successfully and safely retire both contexts. Repeat enough cycles to find lock/state leaks.
+F. Negative concurrency interleavings: two concurrent unregister callers (deterministic result without rearming during teardown), re-register attempted immediately on draining, callback plus `nativeip6_send` and teardown, and a late `Proto` dispatch across unlink/rearm boundary if reproducible. Confirm registration record count bounded and the existing no-`Chan` counters remain zero.
+G. Check host packet contents (original A payload versus fresh B payload), IPv6 version/Next Header 253, addresses, no duplicate or unexpectedly delivered packet, and actual callback-specific counters/markers. Make the test fail on mismatch, missing markers, timed-out guest phase, panic or hung QEMU. Pure serial “PASS” markers alone are not evidence of real NIC traffic.
+H. Do not use a sleep-only race that passes whether or not concurrent operations truly overlapped. Use an admission/active barrier and direct state/callback identity assertions. If an entirely deterministic late-demux lookup is impractical, provide a source-backed correctness argument plus controlled stress or injection; describe that test limitation explicitly.
 
-### E7.4.1 — Minimal C implementation + opt-in test
-- Implement only the minimum C API that can register/receive raw IPv6 Next Header datagrams of the chosen experimental type (one complete bounded packet or payload, explicit source/destination/interface/protocol metadata and documented ownership) and send back native IPv6 packets of that same type through the inherited IPv6 TX path. Packet lengths and malformed IPv6 headers must be validated BEFORE callback dispatch. Exactly one consumer, deterministic already-registered / unregister / stop / no-controller statuses.
-- Keep NIC/IPv6 startup order, NDP, route & IPv6 MTU, no use-after-free across unregister and stop. A pending receive must be cancellable; a producer in NIC/IRQ context must not sleep or allocate blocking resources. Qmsg/full drop and ownership counters observable.
-- If IPv6 Next Header extension chains/fragments are unsupported by this experimental consumer, **fail closed for that test protocol**, document the exact limitation, and test negatives; DO NOT break NDP/UDP6 existing extension handling. Any callback must execute in a safe context with explicit ownership.
-- No ability to inject unauthenticated arbitrary inner IPv6 packets into a normal receiving interface. Document the future trusted injection function requirements, but do **not** expose a dangerous callable bypass or any userspace/raw packet API yet.
-- Give this a separate opt-in `pc64e74` (or similarly unambiguous) test profile, `E74_PROBE=1` build selector and `tools/test-e74-ipproto.sh` host fixture. Don't silently repurpose `pc64e73` or change default builds.
+**BEFORE fix:** Demonstrate the old implementation permits an illegal re-register or fails the Busy-retry behavior, without executing a deliberate use-after-free that can destabilize the guest. Record before/after evidence and commit the focused regression with the fix. Do not fabricate a red test that was never run.
 
-### E7.4.2 — Host-verified QEMU tests
-- Send/receive actual Ethernet/IPv6 packets over the same isolated VirtIO host datagram transport as E7.3. Host verifies selected experimental Next Header, IPv6 version, src/dst, complete payload and length; no ghost/duplicate replies, valid link-layer behavior and real TX from guest.
-- Send NS -> expect NA, ICMPv6 Echo -> Echo Reply and UDP6 -> UDP6 Echo in **NORMAL** mode. Demonstrate that adding the raw IP consumer does NOT hijack UDP6, NDP or ordinary ICMPv6.
-- Negative: bad IPv6 version/length, truncated packet, bad or duplicate consumer registration, unhandled Next Header, invalid interface, queue-full, unregister with in-flight receive, no NIC, and MTU rejection. For unsupported extension combinations, assert safe reject. Check `namec/newchan/walk/devwalk/mount/exec==0` on native protocol path.
-- Put logs under `build/verification/e74/`; put report into `docs/to_chatgpt_review_e74.md` (PASS/PARTIAL-HOLD and exact actual evidence). Keep former stage reports untouched.
+## 4. Regression matrix (after fix)
 
-**E7.4 gate:** source-backed native direct IP Next Header exchange, real host packet checks, harmless coexistence with UDP6/ICMPv6, no `ipmux`, no `Chan` in native path, no SEALED implementation, all E7.1/2/3/3.1 regressions intact. If this gate fails, report `PARTIAL-HOLD` and **stop** before E7.6.
+Run real build+test and preserve actual results/log paths:
 
-## E7.5 — Deferred to a SEPARATE userspace project
-
-**NO implementation, no scaffold, no tests, no dependency introduced here.** It will ultimately own encryption/authentication, key/session management, tunnel service state, peer/allowed-prefix policy, IPv6 inner packet forwarding, configuration and interaction with the E7.4 C boundary through a future reviewed process ABI. It might use WG's protocol concepts but is **not** an E7 kernel prerequisite. SEALED operation may only be claimed after that later authenticated service, policy enforcement and recovery mechanisms exist.
-
-## E7.6 — Extract/remove legacy networking adapters from an E7-only build profile
-
-**Goal:** Create a new **isolated** `pc64e7native` (name can vary if conflicts) representing **NORMAL IPv6 networking without legacy device-file registration**, preserving E7.4 native protocol test path and E7.3 hardened UDP6. This is *not* the merged `pc64onativedisk` profile; do not touch its implementation on `main`.
-
-1. Machine-audit native versus legacy edges of `etherdevtab (#l)`, `ipdevtab (#I)`, `wgdevtab (#W)`, `devether.c`, `devip.c`, `devwg.c`, `etherlegacyrx`, `netifinit/Netfile`, `ethermedium.c` and `chandial/namec`. Include dependency and symbol lists in `docs/E7-NETWORK-CUTOVER.md`. A single usage of `Fs`/`Proto`/`Conv` *as native C structs* does not equal use of `Chan`; distinguish structural types, linked code and executed operations.
-2. Split **native IP core initializers/helpers** currently co-located in `devip.c` away from `Dev ipdevtab`/file namespace as necessary. Let legacy adapter delegate to shared native core where feasible; no duplicate IP stack or fake `Dev`.
-3. Remove `#l/#I/#W` registrations and their required namespace adapters from the new test-only E7 native profile; don't remove from ordinary `9pc64`/E7.1/E7.2/E7.3. Rework NIC initialization/legacy RX calls for this profile so it has no legacy sink and does not depend on the `Netfile` file-based fanout. Keep low-level driver registers, boot, NDP and actual TX/RX.
-4. Avoid compile/linking legacy adapter functions in the target profile, not just making them unreachable through runtime flags. Where `Netif` contains version-neutral hardware counters or MAC state, identify and preserve necessary data without silently retaining full legacy allocation. If technical debt cannot be severed safely, document explicit hold instead of deleting needed code.
-5. Verify generated Dev tables/OMAP/linked symbols from the exact E7 target. Demonstrate absent `etherdevtab`/`ipdevtab`/`wgdevtab` and no runtime `namec`/`Chan` dispatch in the E7 target, with the original profiles remaining valid. Check no NIC and real VirtIO; hardware and error-path regression must be real.
-6. Add `E76_NATIVE=1 WHAT=kernel tools/build.sh` (or equivalent) and `tools/test-e76-network.sh`; run original E7.1/E7.2/E7.3/E7.4 and default/E5 tests. `docs/to_chatgpt_review_e76.md` with PASS/HOLD and actual emitted configs/symbol evidence.
-
-**E7.6 gate:** no `#l/#I/#W` device registrations/legacy path reachable from the dedicated native target, real IPv6 NDP + UDP6 + direct raw-protocol tests still working, ordinary builds unaffected. If unmet, report `PARTIAL-HOLD` and **stop** before E7.7.
-
-## E7.7 — Executable IPv4 / ARP removal from the E7 native target ONLY
-
-**Goal:** Produce a truly IPv6-only linked **E7-native NORMAL profile**, not merely an IPv6-only configuration string.
-
-1. Audit all live/linked IPv4 and IPv6-compatibility implementations, protocol init, IPv4 route paths, `ipiput4`/`ipoput4`, `icmpiput4`/`udpiput`'s V4 branch, TCP IPv4, multicast, ARP and shared `Fs` helpers. Explicitly separate **IPv4 ARP** from IPv6 Neighbor Discovery and any legitimately shared address-resolution implementation. Do NOT break NDP by mechanically deleting every name or symbol containing “arp”.
-2. Remove executable IPv4 parsing/forwarding/routing/ARP from the **new native E7 configuration** using maintainable source separation/conditional compilation and targeted link rules. Preserve a reasonable legacy dual-stack build. Do not introduce mapped IPv4 fallback, NAT64 or fake IPv4 packet translations into native C API.
-3. Accept genuinely version-neutral/common helpers only if they do NOT enable an executable IPv4 packet path. Provide reproducible object/link-map/symbol evidence, not only greps or lack of a `#I` namespace. If a static symbol is optimized out, explain which exact binary/map is authoritative.
-4. Test IPv4 Ethernet EtherType drop and **no IPv4 side effect** (no UDP/ICMP reply, no IPv4 packet processing), plus IPv4-mapped address API rejection. Test both incoming and outgoing attempted IPv4 paths, including unbound protocol/unknown Next Header handling. Preserve IPv6 ICMPv6 ND, direct experimental IP protocol and UDP6 positive/negative checks; use real QEMU VirtIO frames. Test link-down, no NIC, malformed packets and needed IPv6 control traffic.
-5. Do not claim a general native TCP6 stream API exists: inherited TCP6 may or may not be retained; source/documentation MUST identify what is truly available in this profile. TCP6, application services, DNS, DHCPv6 and userspace networking ABI are not authorized new implementations in this task. `NORMAL` means the conventional IPv6 stack **only for implemented/linked protocols**, not an imaginary full desktop networking stack.
-6. Write `docs/to_chatgpt_review_e77.md` and rerunnable `tools/test-e77-ipv6-only.sh` (or extend E76 fixture), with source + linked evidence and host traffic results.
-
-**E7.7 gate:** executable IPv4/ARP absent from selected E7 target; all IPv6 capabilities demonstrated; default legacy stack still builds/tests. If substantial source-level refactoring is required and cannot be completed without breaking shared code, report `PARTIAL-HOLD`, preserve successful earlier stages, and **do not attempt main merge**.
-
-## E7.8 — Final verification and handoff, **NOT MERGE**
-
-At end of E7.7 (or earlier HOLD), the agent shall perform a single **read-only integration readiness review**. Do NOT integrate into `main` or change E6/E8/E9. This is a gate for a separate future merge session.
-
-Create:
-- `docs/E7-MERGE-READINESS.md`: commits, resulting branch HEAD, delivered/held stages, compiler configurations and external test evidence; an explicit `NORMAL only / SEALED NOT IMPLEMENTED / E7.5 USERSPACE DEFERRED` status; remaining threat model and physical NIC limitations.
-- A **conflict map** versus current `origin/main` (fetch/read/compare is allowed; no merge/rebase/cherry-pick). Enumerate conflicts expected for `sys/src/9/pc64/main.c`, `mkfile`/`CONFLIST`, `tools/build.sh`, generated Dev/OMAP tables, E6 `pc64onativedisk`, E8 pruned drivers and E9 boot changes. Provide safe suggested resolution order **only as documentation**, and the exact future E6/O-disk/MicroPython/E8/E9/E7 regressions needed.
-- `docs/to_chatgpt_review_e78.md`: `VERDICT: READY-FOR-SEPARATE-MERGE / PARTIAL-HOLD / REJECT`; supported exact evidence; binary symbol audit; real packet bytes; E7.1/E7.2/E7.3/E7.3.1/E7.4/E7.6/E7.7/default/E5 outcomes; no-NIC and malformed negatives; actual builds/logs; explicitly untested physical NIC scenarios; known bugs.
-
-**Required final regression matrix:**
-```text
-E7.1: physical layer VirtIO L2 real RX/TX + negative tests
-E7.2: IPv6 + NDP NA + ICMPv6 Echo real host frames
-E7.3: native UDP6: 0/1/17/1452-byte payload, checksums,
-      concurrent receivers, close/destroy/rebind, malformed/queue/link down
-E7.4: dedicated experimental Next Header C API, real RX/TX,
-      no interference with NDP/UDP6/ICMPv6
-E7.6: no #l/#I/#W/Chan adapter in E7-native linked target
-E7.7: no executable IPv4 or IPv4-ARP in E7-native target,
-      IPv4 drop in RX + no IPv4 TX, IPv6 NDP still works
-Legacy: ordinary 9pc64/9pc64mp + QEMU, E5 9pc64oconsole,
-        original E7.1/2/3 opt-in profiles still pass
-E6/E8/E9/main: NOT INTEGRATED — document later regression commands,
-              do not claim this branch verified merged O-only boot.
-SEALED: NOT IMPLEMENTED — no sealed-mode packet filtering/security tests.
-E7.5 tunnel: NOT IMPLEMENTED — no encryption, userspace bridge or WG.
-```
-
-You may run existing scripts like:
 ```sh
-ETHER_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e71-ether.sh
-IPV6_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e72-ipv6.sh
-UDP6_PROBE=1 WHAT=kernel tools/build.sh && tools/test-e73-udp6.sh
-WHAT=kernel tools/build.sh && tools/test-qemu.sh
+E74_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-e74-ipproto.sh
+
+E76_NATIVE=1 WHAT=kernel tools/build.sh
+tools/test-e76-network.sh
+
+E77_NATIVE=1 WHAT=kernel tools/build.sh
+tools/test-e77-ipv6-only.sh
+
+UDP6_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-e73-udp6.sh
+
+IPV6_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-e72-ipv6.sh
+
+ETHER_PROBE=1 WHAT=kernel tools/build.sh
+tools/test-e71-ether.sh
+
+WHAT=kernel tools/build.sh
+tools/test-qemu.sh
+
 OCONSOLE=1 WHAT=kernel tools/build.sh
 python3 tools/cons_migration_check.py --kernel build/amd64/9pc64oconsole --devc build/amd64/pc64oconsole.devc.c
 ```
-Run and document the **actual new** E74/E76/E77 commands decided above; do not report PASS for missing/unrun tests. Use logs under `build/verification/e78/`. Verify exact target binary symbols; no fabricated counts. Validate response behavior and metadata using the host, not guest “PASS” markers alone.
 
-## Agent checkpoints and reporting discipline
+Rerun genuine E74/E76/E77 VirtIO UDP6/ICMPv6/NDP/Next Header 253 positives and negatives, including IPv4 EtherType rejection in E77. Verify no new `#l/#I/#W` or IPv4 executable symbols in the E76/E77 artifacts; reused E76/E77 test scripts already check these. No physical NIC and no O-boot regression claim. Keep test logs local under `build/verification/e743/` or their dedicated existing stage dirs; list real paths in the report. If system lacks KVM/build prerequisites, label `NOT RUN`, not PASS.
 
-- Work sequentially `E7.4.0 -> E7.4.1 -> E7.4.2 -> E7.6 -> E7.7 -> E7.8`, with small reviewable commits. At each stage produce named report and run the corresponding tests; if its acceptance gate fails, stop, report exact blockers and do NOT proceed with speculative cleanup.
-- Update the existing networking architecture docs where the facts change; keep earlier `docs/to_chatgpt_review_e7*.md` reports intact. Don't overwrite generic `docs/to_chatgpt_review.md` or unrelated `docs/STATUS.md`; if automation changes those, preserve the original shared content as agreed in prior runs.
-- Do not touch `main` or other branches, including via scripts or hooks. Do not perform **any merge** even when all stage gates pass. The sole requested final handoff is tested E7 branch HEAD + read-only readiness evidence for a **different ChatGPT conversation**.
-- On successful completion push ONLY `origin/design/ipv6-only-native-20261024` and verify the remote head. Final response to the human should include concise stage verdicts, commits, actual test results, and links to `docs/to_chatgpt_review_e78.md` + `docs/E7-MERGE-READINESS.md`.
+## 5. Deliverables and STOP condition
 
-**Ruling:** This plan authorizes native network infrastructure and removal from an **isolated E7 test kernel** only. It does **not** authorize SEALED runtime, encrypted tunnel cryptography, userspace tunneling, production network invisibility, full O-only integration or any merge.
+- Small and justified production fix in `nativeinh6.c`; if `nativeinh6.h` changes, document exact contract and why.
+- Focused deterministic callback-admission/Busy/retry/rearm regression that **fails on the original bug** and passes afterward; host-observed real IPv6 253 frames. Minimize other source edits; do not change shared UDP/IPv6/ethercore implementations.
+- New report: **`docs/to_chatgpt_review_e743.md`**, sections: `VERDICT: APPROVE / PARTIAL-HOLD / REJECT`, branch + old/new commit, exact bug/root cause, state/lock/ownership proof, before/after race markers, Busy behavior, retry and rearm, stale-dispatch assessment, test commands and actual results/logs, E7.1–E7.7 regressions, limitations, `NO MERGE`.
+- Stage as one or two small reviewable commits; push **ONLY** `origin/design/ipv6-only-native-20261024` and verify that branch HEAD. Do NOT merge any branch or prepare a merge commit. Do not alter `main`, merge-readiness file, or previously delivered stage reports.
+
+**APPROVE** only if a Busy unregister cannot expose re-registration or changed callback/arg to any older active call, the original callback drains, unregister retry succeeds, a genuinely new callback receives only new packets after successful rearm, and all earlier E7 native/legacy gates actually pass. Otherwise report `PARTIAL-HOLD` with the exact missing invariant; don't hide uncertainty or continue into unrelated cleanup.
